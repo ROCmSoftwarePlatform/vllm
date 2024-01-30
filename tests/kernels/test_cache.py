@@ -3,8 +3,11 @@ import random
 import pytest
 import torch
 
+from typing import Tuple
+
 from vllm._C import cache_ops
 
+COPYING_DIRECTION = [('cuda', 'cpu'), ('cuda', 'cuda'), ('cpu', 'cuda')]
 DTYPES = [torch.half, torch.bfloat16, torch.float]
 NUM_TOKENS = [42]  # Arbitrary values for testing
 NUM_LAYERS = [1]  # Arbitrary values for testing
