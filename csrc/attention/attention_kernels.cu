@@ -597,9 +597,9 @@ __global__ void paged_attention_v2_reduce_kernel(
 #define LAUNCH_PAGED_ATTENTION_V1(HEAD_SIZE)                                                  \
   VLLM_DevFuncAttribute_SET_MaxDynamicSharedMemorySize(                                       \
     ((void*)vllm::paged_attention_v1_kernel<T, CACHE_T, HEAD_SIZE, BLOCK_SIZE, NUM_THREADS,   \
-      IS_FP8_KV_CACHE>), shared_mem_size);                                               \
+      IS_FP8_KV_CACHE>), shared_mem_size);                                                    \
   vllm::paged_attention_v1_kernel<T, CACHE_T, HEAD_SIZE, BLOCK_SIZE, NUM_THREADS,             \
-  IS_FP8_KV_CACHE><<<grid, block, shared_mem_size, stream>>>(                            \
+  IS_FP8_KV_CACHE><<<grid, block, shared_mem_size, stream>>>(                                 \
     out_ptr,                                                                                  \
     query_ptr,                                                                                \
     key_cache_ptr,                                                                            \
@@ -697,29 +697,29 @@ void paged_attention_v1_launcher(
 
 #define CALL_V1_LAUNCHER(T, CACHE_T, BLOCK_SIZE, IS_FP8_KV_CACHE)       \
   paged_attention_v1_launcher<T, CACHE_T, BLOCK_SIZE, IS_FP8_KV_CACHE>( \
-    out,                                                                     \
-    query,                                                                   \
-    key_cache,                                                               \
-    value_cache,                                                             \
-    num_kv_heads,                                                            \
-    scale,                                                                   \
-    block_tables,                                                            \
-    context_lens,                                                            \
-    max_context_len,                                                         \
+    out,                                                                \
+    query,                                                              \
+    key_cache,                                                          \
+    value_cache,                                                        \
+    num_kv_heads,                                                       \
+    scale,                                                              \
+    block_tables,                                                       \
+    context_lens,                                                       \
+    max_context_len,                                                    \
     alibi_slopes);
 
 // NOTE(woosuk): To reduce the compilation time, we omitted block sizes
 // 1, 2, 4, 64, 128, 256.
-#define CALL_V1_LAUNCHER_BLOCK_SIZE(T, CACHE_T, IS_FP8_KV_CACHE) \
+#define CALL_V1_LAUNCHER_BLOCK_SIZE(T, CACHE_T, IS_FP8_KV_CACHE)      \
   switch (block_size) {                                               \
     case 8:                                                           \
-      CALL_V1_LAUNCHER(T, CACHE_T, 8, IS_FP8_KV_CACHE);          \
+      CALL_V1_LAUNCHER(T, CACHE_T, 8, IS_FP8_KV_CACHE);               \
       break;                                                          \
     case 16:                                                          \
-      CALL_V1_LAUNCHER(T, CACHE_T, 16, IS_FP8_KV_CACHE);         \
+      CALL_V1_LAUNCHER(T, CACHE_T, 16, IS_FP8_KV_CACHE);              \
       break;                                                          \
     case 32:                                                          \
-      CALL_V1_LAUNCHER(T, CACHE_T, 32, IS_FP8_KV_CACHE);         \
+      CALL_V1_LAUNCHER(T, CACHE_T, 32, IS_FP8_KV_CACHE);              \
       break;                                                          \
     default:                                                          \
       TORCH_CHECK(false, "Unsupported block size: ", block_size);     \
@@ -766,7 +766,7 @@ void paged_attention_v1(
 
 #define LAUNCH_PAGED_ATTENTION_V2(HEAD_SIZE)                                                  \
   vllm::paged_attention_v2_kernel<T, CACHE_T, HEAD_SIZE, BLOCK_SIZE, NUM_THREADS,             \
-  IS_FP8_KV_CACHE, PARTITION_SIZE>                                                       \
+  IS_FP8_KV_CACHE, PARTITION_SIZE>                                                            \
   <<<grid, block, shared_mem_size, stream>>>(                                                 \
     exp_sums_ptr,                                                                             \
     max_logits_ptr,                                                                           \
@@ -884,36 +884,36 @@ void paged_attention_v2_launcher(
 
 #define CALL_V2_LAUNCHER(T, CACHE_T, BLOCK_SIZE, IS_FP8_KV_CACHE)           \
   paged_attention_v2_launcher<T, CACHE_T, BLOCK_SIZE, IS_FP8_KV_CACHE>(     \
-    out,                                                                         \
-    exp_sums,                                                                    \
-    max_logits,                                                                  \
-    tmp_out,                                                                     \
-    query,                                                                       \
-    key_cache,                                                                   \
-    value_cache,                                                                 \
-    num_kv_heads,                                                                \
-    scale,                                                                       \
-    block_tables,                                                                \
-    context_lens,                                                                \
-    max_context_len,                                                             \
+    out,                                                                    \
+    exp_sums,                                                               \
+    max_logits,                                                             \
+    tmp_out,                                                                \
+    query,                                                                  \
+    key_cache,                                                              \
+    value_cache,                                                            \
+    num_kv_heads,                                                           \
+    scale,                                                                  \
+    block_tables,                                                           \
+    context_lens,                                                           \
+    max_context_len,                                                        \
     alibi_slopes);
 
 // NOTE(woosuk): To reduce the compilation time, we omitted block sizes
 // 1, 2, 4, 64, 128, 256.
-#define CALL_V2_LAUNCHER_BLOCK_SIZE(T, CACHE_T, IS_FP8_KV_CACHE)       \
-  switch (block_size) {                                                     \
-    case 8:                                                                 \
-      CALL_V2_LAUNCHER(T, CACHE_T, 8, IS_FP8_KV_CACHE);                \
-      break;                                                                \
-    case 16:                                                                \
-      CALL_V2_LAUNCHER(T, CACHE_T, 16, IS_FP8_KV_CACHE);               \
-      break;                                                                \
-    case 32:                                                                \
-      CALL_V2_LAUNCHER(T, CACHE_T, 32, IS_FP8_KV_CACHE);               \
-      break;                                                                \
-    default:                                                                \
-      TORCH_CHECK(false, "Unsupported block size: ", block_size);           \
-      break;                                                                \
+#define CALL_V2_LAUNCHER_BLOCK_SIZE(T, CACHE_T, IS_FP8_KV_CACHE)    \
+  switch (block_size) {                                             \
+    case 8:                                                         \
+      CALL_V2_LAUNCHER(T, CACHE_T, 8, IS_FP8_KV_CACHE);             \
+      break;                                                        \
+    case 16:                                                        \
+      CALL_V2_LAUNCHER(T, CACHE_T, 16, IS_FP8_KV_CACHE);            \
+      break;                                                        \
+    case 32:                                                        \
+      CALL_V2_LAUNCHER(T, CACHE_T, 32, IS_FP8_KV_CACHE);            \
+      break;                                                        \
+    default:                                                        \
+      TORCH_CHECK(false, "Unsupported block size: ", block_size);   \
+      break;                                                        \
   }
 
 void paged_attention_v2(

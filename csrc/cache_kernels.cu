@@ -218,16 +218,16 @@ __global__ void reshape_and_cache_kernel(
 
 #define CALL_RESHAPE_AND_CACHE(KV_T, CACHE_T, IS_FP8_KV_CACHE)                                \
   vllm::reshape_and_cache_kernel<KV_T, CACHE_T, IS_FP8_KV_CACHE><<<grid, block, 0, stream>>>( \
-    reinterpret_cast<KV_T*>(key.data_ptr()),                                                       \
-    reinterpret_cast<KV_T*>(value.data_ptr()),                                                     \
-    reinterpret_cast<CACHE_T*>(key_cache.data_ptr()),                                              \
-    reinterpret_cast<CACHE_T*>(value_cache.data_ptr()),                                            \
-    slot_mapping.data_ptr<int64_t>(),                                                              \
-    key_stride,                                                                                    \
-    value_stride,                                                                                  \
-    num_heads,                                                                                     \
-    head_size,                                                                                     \
-    block_size,                                                                                    \
+    reinterpret_cast<KV_T*>(key.data_ptr()),                                                  \
+    reinterpret_cast<KV_T*>(value.data_ptr()),                                                \
+    reinterpret_cast<CACHE_T*>(key_cache.data_ptr()),                                         \
+    reinterpret_cast<CACHE_T*>(value_cache.data_ptr()),                                       \
+    slot_mapping.data_ptr<int64_t>(),                                                         \
+    key_stride,                                                                               \
+    value_stride,                                                                             \
+    num_heads,                                                                                \
+    head_size,                                                                                \
+    block_size,                                                                               \
     x);
 
 void reshape_and_cache(
