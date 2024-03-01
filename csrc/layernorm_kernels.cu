@@ -36,17 +36,20 @@ __global__ void rms_norm_kernel(
   }
 }
 
+// Consider creating a similar overload/"partial specialization" for scalar_t == bf16
 template<typename scalar_t, int hidden_size>
-__global__ typename std::enable_if<std::is_same<scalar_t, c10::Half>::value, void>::type fused_add_rms_norm_kernel(
-  c10::Half* input,           // [..., hidden_size]
-  c10::Half* residual,        // [..., hidden_size]
-  const c10::Half* weight,    // [hidden_size]
+__global__ typename std::enable_if<std::is_same<scalar_t, c10::Half>::value, void>::type 
+  fused_add_rms_norm_kernel(
+  c10::Half* __restrict__ input,           // [..., hidden_size]
+  c10::Half* __restrict__ residual,        // [..., hidden_size]
+  const c10::Half* __restrict__ weight,    // [hidden_size]
   const float epsilon,
   const int num_tokens) {
   static_assert(hidden_size % 2 == 0);
   constexpr int half_hidden_size = hidden_size / 2;
   __shared__ float s_variance;
   float variance = 0.0f;
+  __shared__ __half2 shmem[half_hidden_size];
   __half2* __restrict__ input2 = reinterpret_cast<__half2*>((void*)input);
   __half2* __restrict__ residual2 = reinterpret_cast<__half2*>((void*)residual);
   const __half2* __restrict__ weight2 = reinterpret_cast<const __half2*>((void*)weight);
@@ -55,6 +58,7 @@ __global__ typename std::enable_if<std::is_same<scalar_t, c10::Half>::value, voi
     int id = blockIdx.x * half_hidden_size + idx;
     __half2 x = input2[id] + residual2[id];
     residual2[id] = x;
+    shmem[idx] = x;
     float2 z = __half22float2(x);
     variance += z.x * z.x + z.y * z.y;
   }
@@ -66,7 +70,7 @@ __global__ typename std::enable_if<std::is_same<scalar_t, c10::Half>::value, voi
   #pragma unroll 4
   for (int idx = threadIdx.x; idx < half_hidden_size; idx += blockDim.x) {
     int id = blockIdx.x * half_hidden_size + idx;
-    float2 z = __half22float2(residual2[id]) * s_variance;
+    float2 z = __half22float2(shmem[idx]) * s_variance;
     input2[id] = __float22half2_rn(z) * weight2[idx];
   }
 }
@@ -81,11 +85,13 @@ __global__ void fused_add_rms_norm_kernel(
   const int num_tokens) {
   __shared__ float s_variance;
   float variance = 0.0f;
+  __shared__ scalar_t shmem[hidden_size];
   #pragma unroll 4
   for (int idx = threadIdx.x; idx < hidden_size; idx += blockDim.x) {
     float x = (float) input[blockIdx.x * hidden_size + idx] + (float) residual[blockIdx.x * hidden_size + idx];
     residual[blockIdx.x * hidden_size + idx] = (scalar_t) x;
     variance += x * x;
+    shmem[idx] = (scalar_t) x;
   }
   variance = blockReduceSum<float>(variance);
   if (threadIdx.x == 0) {
@@ -94,7 +100,7 @@ __global__ void fused_add_rms_norm_kernel(
   __syncthreads();
   #pragma unroll 4
   for (int idx = threadIdx.x; idx < hidden_size; idx += blockDim.x) {
-    float x = (float) residual[blockIdx.x * hidden_size + idx];
+    float x = (float) shmem[idx];
     input[blockIdx.x * hidden_size + idx] = ((scalar_t) (x * s_variance)) * weight[idx];
   }
 }

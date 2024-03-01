@@ -20,10 +20,10 @@
 #include "cuda_compat.h"
 
 #ifndef _warpSize
-#define _log2warpSize 6
+#define _log2warpSize 5
 #define _warpSize     (1 << _log2warpSize)
 #else
-#error("This is an oopsie")
+#error("Clashing preprocessor defines!")
 #endif
 namespace vllm {
 template<typename T, int startMask = (_warpSize >> 1)>
