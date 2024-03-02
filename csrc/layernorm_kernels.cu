@@ -49,17 +49,20 @@ __global__ void fused_add_rms_norm_kernel(
   float variance = 0.0f;
   extern __shared__ __align__(sizeof(scalar_t)) char _shmem[];
   scalar_t* __restrict__ shmem = reinterpret_cast<scalar_t*>(_shmem);
+
   for (int idx = threadIdx.x; idx < hidden_size; idx += blockDim.x) {
-    float x = (float) input[blockIdx.x * hidden_size + idx] + (float) residual[blockIdx.x * hidden_size + idx];
-    residual[blockIdx.x * hidden_size + idx] = (scalar_t) x;
+    int id = blockIdx.x * hidden_size + idx;
+    float x = (float) input[id] + (float) residual[id];
     variance += x * x;
-    shmem[idx] = (scalar_t) x;
+    residual[id] = shmem[idx] = (scalar_t) x;
   }
+
   variance = blockReduceSum<float>(variance);
   if (threadIdx.x == 0) {
     s_variance = rsqrtf(variance / hidden_size + epsilon);
   }
   __syncthreads();
+
   for (int idx = threadIdx.x; idx < hidden_size; idx += blockDim.x) {
     float x = (float) shmem[idx];
     input[blockIdx.x * hidden_size + idx] = ((scalar_t) (x * s_variance)) * weight[idx];
@@ -85,6 +88,7 @@ __global__ void fused_add_rms_norm_kernel(
   __half2* __restrict__ input2 = reinterpret_cast<__half2*>(input);
   __half2* __restrict__ residual2 = reinterpret_cast<__half2*>(residual);
   const __half2* __restrict__ weight2 = reinterpret_cast<const __half2*>(weight);
+
   for (int idx = threadIdx.x; idx < half_hidden_size; idx += blockDim.x) {
     int id = blockIdx.x * half_hidden_size + idx;
     __half2 x = input2[id] + residual2[id];
@@ -93,6 +97,7 @@ __global__ void fused_add_rms_norm_kernel(
     float2 z = __half22float2(x);
     variance += z.x * z.x + z.y * z.y;
   }
+
   variance = blockReduceSum<float>(variance);
   if (threadIdx.x == 0) {
     if (hidden_size % 2 == 1) {
@@ -105,6 +110,7 @@ __global__ void fused_add_rms_norm_kernel(
     s_variance = rsqrtf(variance / hidden_size + epsilon);
   }
   __syncthreads();
+
   for (int idx = threadIdx.x; idx < half_hidden_size; idx += blockDim.x) {
     int id = blockIdx.x * half_hidden_size + idx;
     float2 z = __half22float2(shmem[idx]) * s_variance;
@@ -156,7 +162,7 @@ void fused_add_rms_norm(
   dim3 grid(num_tokens);
   dim3 block(std::min(hidden_size, 1024));
   const at::cuda::OptionalCUDAGuard device_guard(device_of(input));
-  const cudaStream_t& stream = at::cuda::getCurrentCUDAStream();
+  const cudaStream_t stream = at::cuda::getCurrentCUDAStream();
   VLLM_DISPATCH_FLOATING_TYPES(
     input.scalar_type(),
     "fused_add_rms_norm_kernel",
