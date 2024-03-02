@@ -5,6 +5,7 @@
 #include "dispatch_utils.h"
 #include "reduction_utils.cuh"
 #include "attention/dtype_float16.cuh"
+#include "attention/dtype_bfloat16.cuh"
 
 namespace vllm {
 
@@ -36,57 +37,18 @@ __global__ void rms_norm_kernel(
   }
 }
 
-// Consider creating a similar overload/"partial specialization" for scalar_t == bf16
-template<typename scalar_t, int hidden_size>
-__global__ typename std::enable_if<std::is_same<scalar_t, c10::Half>::value, void>::type 
-  fused_add_rms_norm_kernel(
-  c10::Half* __restrict__ input,           // [..., hidden_size]
-  c10::Half* __restrict__ residual,        // [..., hidden_size]
-  const c10::Half* __restrict__ weight,    // [hidden_size]
-  const float epsilon,
-  const int num_tokens) {
-  static_assert(hidden_size % 2 == 0);
-  constexpr int half_hidden_size = hidden_size / 2;
-  __shared__ float s_variance;
-  float variance = 0.0f;
-  __shared__ __half2 shmem[half_hidden_size];
-  __half2* __restrict__ input2 = reinterpret_cast<__half2*>((void*)input);
-  __half2* __restrict__ residual2 = reinterpret_cast<__half2*>((void*)residual);
-  const __half2* __restrict__ weight2 = reinterpret_cast<const __half2*>((void*)weight);
-  #pragma unroll 4
-  for (int idx = threadIdx.x; idx < half_hidden_size; idx += blockDim.x) {
-    int id = blockIdx.x * half_hidden_size + idx;
-    __half2 x = input2[id] + residual2[id];
-    residual2[id] = x;
-    shmem[idx] = x;
-    float2 z = __half22float2(x);
-    variance += z.x * z.x + z.y * z.y;
-  }
-  variance = blockReduceSum<float>(variance);
-  if (threadIdx.x == 0) {
-    s_variance = rsqrtf(variance / hidden_size + epsilon);
-  }
-  __syncthreads();
-  #pragma unroll 4
-  for (int idx = threadIdx.x; idx < half_hidden_size; idx += blockDim.x) {
-    int id = blockIdx.x * half_hidden_size + idx;
-    float2 z = __half22float2(shmem[idx]) * s_variance;
-    input2[id] = __float22half2_rn(z) * weight2[idx];
-  }
-}
-
-
-template<typename scalar_t, int hidden_size>
+template<typename scalar_t, bool hiddenSizeIsEven>
 __global__ void fused_add_rms_norm_kernel(
   scalar_t* __restrict__ input,           // [..., hidden_size]
   scalar_t* __restrict__ residual,        // [..., hidden_size]
   const scalar_t* __restrict__ weight,    // [hidden_size]
   const float epsilon,
-  const int num_tokens) {
+  const int num_tokens,
+  const int hidden_size) {
   __shared__ float s_variance;
   float variance = 0.0f;
-  __shared__ scalar_t shmem[hidden_size];
-  #pragma unroll 4
+  extern __shared__ __align__(sizeof(scalar_t)) char _shmem[];
+  scalar_t* __restrict__ shmem = reinterpret_cast<scalar_t*>(_shmem);
   for (int idx = threadIdx.x; idx < hidden_size; idx += blockDim.x) {
     float x = (float) input[blockIdx.x * hidden_size + idx] + (float) residual[blockIdx.x * hidden_size + idx];
     residual[blockIdx.x * hidden_size + idx] = (scalar_t) x;
@@ -98,10 +60,91 @@ __global__ void fused_add_rms_norm_kernel(
     s_variance = rsqrtf(variance / hidden_size + epsilon);
   }
   __syncthreads();
-  #pragma unroll 4
   for (int idx = threadIdx.x; idx < hidden_size; idx += blockDim.x) {
     float x = (float) shmem[idx];
     input[blockIdx.x * hidden_size + idx] = ((scalar_t) (x * s_variance)) * weight[idx];
+  }
+}
+
+// Function "partial specialization" (using SFINAE) in the case of FP16
+// Optimization: Use packed operations. This is only enabled if hidden size
+// is even to avoid extra logic for handling the last element, which also
+// requires utilizing aliased pointers
+template<typename scalar_t, bool hiddenSizeIsEven>
+__global__ typename std::enable_if<hiddenSizeIsEven && std::is_same<scalar_t, c10::Half>::value, void>::type
+fused_add_rms_norm_kernel(
+  c10::Half* __restrict__ input,           // [..., hidden_size]
+  c10::Half* __restrict__ residual,        // [..., hidden_size]
+  const c10::Half* __restrict__ weight,    // [hidden_size]
+  const float epsilon,
+  const int num_tokens,
+  const int hidden_size) {
+  const int half_hidden_size = hidden_size / 2;
+  __shared__ float s_variance;
+  float variance = 0.0f;
+  extern __shared__ __align__(sizeof(__half2)) char _shmem[];
+  __half2* __restrict__ shmem = reinterpret_cast<__half2*>(_shmem);
+  __half2* __restrict__ input2 = reinterpret_cast<__half2*>(input);
+  __half2* __restrict__ residual2 = reinterpret_cast<__half2*>(residual);
+  const __half2* __restrict__ weight2 = reinterpret_cast<const __half2*>(weight);
+  for (int idx = threadIdx.x; idx < half_hidden_size; idx += blockDim.x) {
+    int id = blockIdx.x * half_hidden_size + idx;
+    __half2 x = input2[id] + residual2[id];
+    residual2[id] = x;
+    shmem[idx] = x * weight2[idx];
+    float2 z = __half22float2(x);
+    variance += z.x * z.x + z.y * z.y;
+  }
+  variance = blockReduceSum<float>(variance);
+  if (threadIdx.x == 0) {
+    s_variance = rsqrtf(variance / hidden_size + epsilon);
+  }
+  __syncthreads();
+  for (int idx = threadIdx.x; idx < half_hidden_size; idx += blockDim.x) {
+    int id = blockIdx.x * half_hidden_size + idx;
+    float2 z = __half22float2(shmem[idx]) * s_variance;
+    input2[id] = __float22half2_rn(z);
+  }
+}
+
+// Function "partial specialization" (using SFINAE) in the case of BF16
+// Optimization: Use packed operations. This is only enabled if hidden size
+// is even to avoid extra logic for handling the last element, which also
+// requires utilizing aliased pointers
+template<typename scalar_t, bool hiddenSizeIsEven>
+__global__ typename std::enable_if<hiddenSizeIsEven && std::is_same<scalar_t, c10::BFloat16>::value, void>::type
+fused_add_rms_norm_kernel(
+  c10::BFloat16* __restrict__ input,           // [..., hidden_size]
+  c10::BFloat16* __restrict__ residual,        // [..., hidden_size]
+  const c10::BFloat16* __restrict__ weight,    // [hidden_size]
+  const float epsilon,
+  const int num_tokens,
+  const int hidden_size) {
+  const int half_hidden_size = hidden_size / 2;
+  __shared__ float s_variance;
+  float variance = 0.0f;
+  extern __shared__ __align__(sizeof(__hip_bfloat162)) char _shmem[];
+  __hip_bfloat162* __restrict__ shmem = reinterpret_cast<__hip_bfloat162*>(_shmem);
+  __hip_bfloat162* __restrict__ input2 = reinterpret_cast<__hip_bfloat162*>(input);
+  __hip_bfloat162* __restrict__ residual2 = reinterpret_cast<__hip_bfloat162*>(residual);
+  const __hip_bfloat162* __restrict__ weight2 = reinterpret_cast<const __hip_bfloat162*>(weight);
+  for (int idx = threadIdx.x; idx < half_hidden_size; idx += blockDim.x) {
+    int id = blockIdx.x * half_hidden_size + idx;
+    __hip_bfloat162 x = __hadd2(input2[id], residual2[id]);
+    residual2[id] = x;
+    shmem[idx] = __hmul2(x, weight2[idx]);
+    float2 z = __bfloat1622float2(x);
+    variance += z.x * z.x + z.y * z.y;
+  }
+  variance = blockReduceSum<float>(variance);
+  if (threadIdx.x == 0) {
+    s_variance = rsqrtf(variance / hidden_size + epsilon);
+  }
+  __syncthreads();
+  for (int idx = threadIdx.x; idx < half_hidden_size; idx += blockDim.x) {
+    int id = blockIdx.x * half_hidden_size + idx;
+    float2 z = __bfloat1622float2(shmem[idx]) * s_variance;
+    input2[id] = __float22bfloat162_rn(z);
   }
 }
 
@@ -133,19 +176,21 @@ void rms_norm(
     });
 }
 
-#define LAUNCH_FUSED_ADD_RMS_NORM(HIDDEN_SIZE)  \
-  VLLM_DISPATCH_FLOATING_TYPES(                 \
-    input.scalar_type(),                        \
-    "fused_add_rms_norm_kernel",                \
-    [&] {                                       \
-      vllm::fused_add_rms_norm_kernel<scalar_t, HIDDEN_SIZE><<<grid, block, 0, stream>>>(   \
-        input.data_ptr<scalar_t>(),             \
-        residual.data_ptr<scalar_t>(),          \
-        weight.data_ptr<scalar_t>(),            \
-        epsilon,                                \
-        num_tokens);                            \
-    });
-
+#define LAUNCH_FUSED_ADD_RMS_NORM(HIDDEN_SIZE_IS_EVEN)                \
+  VLLM_DISPATCH_FLOATING_TYPES(                                       \
+    input.scalar_type(),                                              \
+    "fused_add_rms_norm_kernel",                                      \
+    [&] {                                                             \
+      vllm::fused_add_rms_norm_kernel<scalar_t, HIDDEN_SIZE_IS_EVEN>  \
+      <<<grid, block, 0, stream>>>(                                   \
+        input.data_ptr<scalar_t>(),                                   \
+        residual.data_ptr<scalar_t>(),                                \
+        weight.data_ptr<scalar_t>(),                                  \
+        epsilon,                                                      \
+        num_tokens,                                                   \
+        hidden_size);                                                 \
+    }                                                                 \
+  );
 void fused_add_rms_norm(
   torch::Tensor& input,    // [..., hidden_size]
   torch::Tensor& residual, // [..., hidden_size]
@@ -153,26 +198,12 @@ void fused_add_rms_norm(
   float epsilon) {
   int hidden_size = input.size(-1);
   int num_tokens = input.numel() / hidden_size;
+  bool hidden_size_is_even = hidden_size % 2 == 0;
 
   dim3 grid(num_tokens);
   dim3 block(std::min(hidden_size, 1024));
   const at::cuda::OptionalCUDAGuard device_guard(device_of(input));
   const cudaStream_t& stream = at::cuda::getCurrentCUDAStream();
-  #ifdef _MATT_DEBUG
-  printf("Launching with %d blocks\n", num_tokens);
-  #endif
-  switch (hidden_size) {
-    case 4096:
-      LAUNCH_FUSED_ADD_RMS_NORM(4096);
-      break;
-    case 5120:
-      LAUNCH_FUSED_ADD_RMS_NORM(5120);
-      break;
-    case 8192:
-      LAUNCH_FUSED_ADD_RMS_NORM(8192);
-      break;
-    default:
-      TORCH_CHECK(false, "Unsupported head size: ", hidden_size);
-      break;
-  }
+  if (hidden_size_is_even) { LAUNCH_FUSED_ADD_RMS_NORM(true); }
+  else { LAUNCH_FUSED_ADD_RMS_NORM(false); }
 }
