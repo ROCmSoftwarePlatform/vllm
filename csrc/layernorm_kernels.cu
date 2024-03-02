@@ -37,7 +37,7 @@ __global__ void rms_norm_kernel(
   }
 }
 
-template<typename scalar_t, bool hiddenSizeIsEven>
+template<typename scalar_t>
 __global__ void fused_add_rms_norm_kernel(
   scalar_t* __restrict__ input,           // [..., hidden_size]
   scalar_t* __restrict__ residual,        // [..., hidden_size]
@@ -66,23 +66,21 @@ __global__ void fused_add_rms_norm_kernel(
   }
 }
 
-// Function "partial specialization" (using SFINAE) in the case of FP16
-// Optimization: Use packed operations. This is only enabled if hidden size
-// is even to avoid extra logic for handling the last element, which also
-// requires utilizing aliased pointers
-template<typename scalar_t, bool hiddenSizeIsEven>
-__global__ typename std::enable_if<hiddenSizeIsEven && std::is_same<scalar_t, c10::Half>::value, void>::type
-fused_add_rms_norm_kernel(
+// Function specialization in the case of FP16
+// Additional optimization: Use packed operations.
+template<>
+__global__ void fused_add_rms_norm_kernel(
   c10::Half* __restrict__ input,           // [..., hidden_size]
   c10::Half* __restrict__ residual,        // [..., hidden_size]
   const c10::Half* __restrict__ weight,    // [hidden_size]
   const float epsilon,
   const int num_tokens,
   const int hidden_size) {
+  extern __shared__ __align__(sizeof(__half2)) char _shmem[];
   const int half_hidden_size = hidden_size / 2;
   __shared__ float s_variance;
   float variance = 0.0f;
-  extern __shared__ __align__(sizeof(__half2)) char _shmem[];
+  // These are declared `__restrict__` because they are not aliased in practice
   __half2* __restrict__ shmem = reinterpret_cast<__half2*>(_shmem);
   __half2* __restrict__ input2 = reinterpret_cast<__half2*>(input);
   __half2* __restrict__ residual2 = reinterpret_cast<__half2*>(residual);
@@ -97,6 +95,13 @@ fused_add_rms_norm_kernel(
   }
   variance = blockReduceSum<float>(variance);
   if (threadIdx.x == 0) {
+    if (hidden_size % 2 == 1) {
+      // If hidden size is odd, last element has not been processed yet
+      int idx = hidden_size - 1;
+      __half x = input[idx] + residual[idx];
+      reinterpret_cast<__half*>(_shmem)[idx] = x;
+      variance += (float) x;
+    }
     s_variance = rsqrtf(variance / hidden_size + epsilon);
   }
   __syncthreads();
@@ -105,46 +110,10 @@ fused_add_rms_norm_kernel(
     float2 z = __half22float2(shmem[idx]) * s_variance;
     input2[id] = __float22half2_rn(z);
   }
-}
-
-// Function "partial specialization" (using SFINAE) in the case of BF16
-// Optimization: Use packed operations. This is only enabled if hidden size
-// is even to avoid extra logic for handling the last element, which also
-// requires utilizing aliased pointers
-template<typename scalar_t, bool hiddenSizeIsEven>
-__global__ typename std::enable_if<hiddenSizeIsEven && std::is_same<scalar_t, c10::BFloat16>::value, void>::type
-fused_add_rms_norm_kernel(
-  c10::BFloat16* __restrict__ input,           // [..., hidden_size]
-  c10::BFloat16* __restrict__ residual,        // [..., hidden_size]
-  const c10::BFloat16* __restrict__ weight,    // [hidden_size]
-  const float epsilon,
-  const int num_tokens,
-  const int hidden_size) {
-  const int half_hidden_size = hidden_size / 2;
-  __shared__ float s_variance;
-  float variance = 0.0f;
-  extern __shared__ __align__(sizeof(__hip_bfloat162)) char _shmem[];
-  __hip_bfloat162* __restrict__ shmem = reinterpret_cast<__hip_bfloat162*>(_shmem);
-  __hip_bfloat162* __restrict__ input2 = reinterpret_cast<__hip_bfloat162*>(input);
-  __hip_bfloat162* __restrict__ residual2 = reinterpret_cast<__hip_bfloat162*>(residual);
-  const __hip_bfloat162* __restrict__ weight2 = reinterpret_cast<const __hip_bfloat162*>(weight);
-  for (int idx = threadIdx.x; idx < half_hidden_size; idx += blockDim.x) {
-    int id = blockIdx.x * half_hidden_size + idx;
-    __hip_bfloat162 x = __hadd2(input2[id], residual2[id]);
-    residual2[id] = x;
-    shmem[idx] = __hmul2(x, weight2[idx]);
-    float2 z = __bfloat1622float2(x);
-    variance += z.x * z.x + z.y * z.y;
-  }
-  variance = blockReduceSum<float>(variance);
-  if (threadIdx.x == 0) {
-    s_variance = rsqrtf(variance / hidden_size + epsilon);
-  }
-  __syncthreads();
-  for (int idx = threadIdx.x; idx < half_hidden_size; idx += blockDim.x) {
-    int id = blockIdx.x * half_hidden_size + idx;
-    float2 z = __bfloat1622float2(shmem[idx]) * s_variance;
-    input2[id] = __float22bfloat162_rn(z);
+  if (hidden_size % 2 == 1 && threadIdx.x == 0) {
+    // If hidden size is odd, last element has not been processed yet
+    float x = s_variance * (float) reinterpret_cast<__half*>(_shmem)[hidden_size - 1];
+    input[hidden_size - 1] = __float2half_rn(x);
   }
 }
 
@@ -176,21 +145,6 @@ void rms_norm(
     });
 }
 
-#define LAUNCH_FUSED_ADD_RMS_NORM(HIDDEN_SIZE_IS_EVEN)                \
-  VLLM_DISPATCH_FLOATING_TYPES(                                       \
-    input.scalar_type(),                                              \
-    "fused_add_rms_norm_kernel",                                      \
-    [&] {                                                             \
-      vllm::fused_add_rms_norm_kernel<scalar_t, HIDDEN_SIZE_IS_EVEN>  \
-      <<<grid, block, 0, stream>>>(                                   \
-        input.data_ptr<scalar_t>(),                                   \
-        residual.data_ptr<scalar_t>(),                                \
-        weight.data_ptr<scalar_t>(),                                  \
-        epsilon,                                                      \
-        num_tokens,                                                   \
-        hidden_size);                                                 \
-    }                                                                 \
-  );
 void fused_add_rms_norm(
   torch::Tensor& input,    // [..., hidden_size]
   torch::Tensor& residual, // [..., hidden_size]
@@ -198,12 +152,22 @@ void fused_add_rms_norm(
   float epsilon) {
   int hidden_size = input.size(-1);
   int num_tokens = input.numel() / hidden_size;
-  bool hidden_size_is_even = hidden_size % 2 == 0;
 
   dim3 grid(num_tokens);
   dim3 block(std::min(hidden_size, 1024));
   const at::cuda::OptionalCUDAGuard device_guard(device_of(input));
   const cudaStream_t& stream = at::cuda::getCurrentCUDAStream();
-  if (hidden_size_is_even) { LAUNCH_FUSED_ADD_RMS_NORM(true); }
-  else { LAUNCH_FUSED_ADD_RMS_NORM(false); }
+  VLLM_DISPATCH_FLOATING_TYPES(
+    input.scalar_type(),
+    "fused_add_rms_norm_kernel",
+    [&] {
+      vllm::fused_add_rms_norm_kernel<scalar_t>
+      <<<grid, block, sizeof(scalar_t) * hidden_size, stream>>>(
+        input.data_ptr<scalar_t>(),
+        residual.data_ptr<scalar_t>(),
+        weight.data_ptr<scalar_t>(),
+        epsilon,
+        num_tokens,
+        hidden_size);
+    });
 }
