@@ -15,6 +15,8 @@ void paged_attention_v1(
   int max_context_len,
   const c10::optional<torch::Tensor>& alibi_slopes);
 
+int paged_attn_v2_partition_size(void);
+
 void paged_attention_v2(
   torch::Tensor& out,
   torch::Tensor& exp_sums,

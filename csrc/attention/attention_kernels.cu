@@ -702,6 +702,14 @@ void paged_attention_v1(
   }
 }
 
+#ifdef USE_ROCM
+constexpr int _paged_attn_v2_partition_size = 1024;
+#else
+constexpr int _paged_attn_v2_partition_size = 512;
+#endif
+// Exported to Python for use in vllm/model_executor/layers/attention.py
+int paged_attn_v2_partition_size(void) { return _paged_attn_v2_partition_size; }
+
 #define LAUNCH_PAGED_ATTENTION_V2(HEAD_SIZE)                                                  \
   vllm::paged_attention_v2_kernel<T, HEAD_SIZE, BLOCK_SIZE, NUM_THREADS, PARTITION_SIZE>      \
   <<<grid, block, shared_mem_size, stream>>>(                                                 \
@@ -733,7 +741,7 @@ template<
   typename T,
   int BLOCK_SIZE,
   int NUM_THREADS = 1024,
-  int PARTITION_SIZE = 1024>
+  int PARTITION_SIZE = _paged_attn_v2_partition_size>
 void paged_attention_v2_launcher(
   torch::Tensor& out,
   torch::Tensor& exp_sums,
