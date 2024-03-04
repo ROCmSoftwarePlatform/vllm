@@ -104,7 +104,8 @@ __global__ void fused_add_rms_norm_kernel(
       // If hidden size is odd, last element has not been processed yet
       int idx = hidden_size - 1;
       __half x = input[idx] + residual[idx];
-      reinterpret_cast<__half*>(_shmem)[idx] = x;
+      residual[idx] = x;
+      reinterpret_cast<__half*>(_shmem)[idx] = x * reinterpret_cast<const __half*>(weight)[idx];
       variance += (float) x;
     }
     s_variance = rsqrtf(variance / hidden_size + epsilon);
