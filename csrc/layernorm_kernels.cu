@@ -5,7 +5,6 @@
 #include "dispatch_utils.h"
 #include "reduction_utils.cuh"
 #include "attention/dtype_float16.cuh"
-#include "attention/dtype_bfloat16.cuh"
 
 namespace vllm {
 
