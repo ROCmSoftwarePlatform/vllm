@@ -20,7 +20,7 @@ MAIN_CUDA_VERSION = "12.1"
 # Supported NVIDIA GPU architectures.
 NVIDIA_SUPPORTED_ARCHS = {"7.0", "7.5", "8.0", "8.6", "8.9", "9.0"}
 ROCM_SUPPORTED_ARCHS = {
-    "gfx90a", "gfx908", "gfx906", "gfx942", "gfx1030", "gfx1100"
+    "gfx90a", "gfx908", "gfx906", "gfx940", "gfx941", "gfx942", "gfx1030", "gfx1100"
 }
 # SUPPORTED_ARCHS = NVIDIA_SUPPORTED_ARCHS.union(ROCM_SUPPORTED_ARCHS)
 
@@ -288,6 +288,9 @@ if _is_cuda():
         num_threads = min(os.cpu_count(), nvcc_threads)
         NVCC_FLAGS += ["--threads", str(num_threads)]
 
+    if nvcc_cuda_version >= Version("11.8"):
+        NVCC_FLAGS += ["-DENABLE_FP8_E5M2"]
+
     # changes for punica kernels
     NVCC_FLAGS += torch_cpp_ext.COMMON_NVCC_FLAGS
     REMOVE_NVCC_FLAGS = [
@@ -318,6 +321,8 @@ if _is_cuda():
                     "nvcc": NVCC_FLAGS_PUNICA,
                 },
             ))
+elif _is_hip():
+    NVCC_FLAGS += ["-DENABLE_FP8_E4M3"]
 
 elif _is_neuron():
     neuronxcc_version = get_neuronxcc_version()

@@ -30,6 +30,7 @@ def main(args: argparse.Namespace):
         trust_remote_code=args.trust_remote_code,
         dtype=args.dtype,
         enforce_eager=args.enforce_eager,
+        kv_cache_dtype=args.kv_cache_dtype,
     )
 
     for batch_size in args.batch_size:
@@ -152,6 +153,14 @@ if __name__ == '__main__':
     parser.add_argument('--enforce-eager',
                         action='store_true',
                         help='enforce eager mode and disable CUDA graph')
+    parser.add_argument(
+        "--kv-cache-dtype",
+        type=str,
+        choices=['auto', 'fp8'],
+        default='auto',
+        help='Data type for kv cache storage. If "auto", will use model data '
+        'type. FP8_E5M2 is only supported on cuda version greater than 11.8. '
+        'On AMD GPUs, only the more standard FP8_E4M3 is supported for inference.')
     parser.add_argument(
         '--profile',
         action='store_true',
