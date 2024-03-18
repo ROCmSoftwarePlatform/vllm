@@ -34,11 +34,9 @@ class Attention(nn.Module):
         sliding_window: Optional[int] = None,
     ) -> None:
         super().__init__()
-        if (torch.cuda.get_device_capability()[0] >= 8 and
-                torch.get_default_dtype() in (torch.float16, torch.bfloat16)):
-            # Ampere or later NVIDIA GPUs.
-            # NOTE(woosuk): FlashAttention does not support FP32.
-            from vllm.model_executor.layers.attention.backends.flash_attn import FlashAttentionBackend
+        if _use_flash_attn():
+
+            from vllm.model_executor.layers.attention.backends.flash_attn import FlashAttentionBackend  # noqa: E501
             self.backend = FlashAttentionBackend(num_heads, head_size, scale,
                                                  num_kv_heads, alibi_slopes,
                                                  sliding_window)
@@ -59,3 +57,26 @@ class Attention(nn.Module):
     ) -> torch.Tensor:
         return self.backend.forward(query, key, value, key_cache, value_cache,
                                     input_metadata)
+
+
+@lru_cache(maxsize=1)
+def _use_flash_attn() -> bool:
+    try:
+        import flash_attn  # noqa: F401
+    except ImportError:
+        logger.info("flash_attn is not found. Using xformers backend.")
+        return False
+
+    if torch.cuda.get_device_capability()[0] < 8:
+        # Volta and Turing NVIDIA GPUs.
+        logger.info("flash_attn is not supported on Turing or older GPUs. "
+                    "Using xformers backend.")
+        return False
+    if torch.get_default_dtype() not in (torch.float16, torch.bfloat16):
+        logger.info(
+            "flash_attn only supports torch.float16 or torch.bfloat16. "
+            "Using xformers backend.")
+        return False
+
+    logger.info("Using flash_attn backend.")
+    return True

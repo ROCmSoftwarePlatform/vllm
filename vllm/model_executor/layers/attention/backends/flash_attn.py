@@ -38,6 +38,14 @@ class FlashAttentionBackend:
         if alibi_slopes is not None:
             alibi_slopes = torch.tensor(alibi_slopes, dtype=torch.float32)
         self.alibi_slopes = alibi_slopes
+        # This will be set to a float by model initialization per attention,
+        # if and only if we are using it. N.B. currently we only support per
+        # tensor scalar scaling factors & only applicable to ROCm (AMD GPU).
+        # The scaling factor convention we are assuming is
+        # quantized_value * scaling_factor ~= true_value
+        # which is consistent with the practice of setting
+        # scaling_factor = tensor_amax / FPtype_max
+        self.kv_cache_scaling_factor = 1.0
 
         assert self.num_heads % self.num_kv_heads == 0
         self.num_queries_per_kv = self.num_heads // self.num_kv_heads
@@ -85,7 +93,8 @@ class FlashAttentionBackend:
         # profiling run.
         if key_cache is not None and value_cache is not None:
             PagedAttentionImpl.reshape_and_cache(key, value, key_cache,
-                                                 value_cache, input_metadata)
+                                                 value_cache, input_metadata,
+                                                 self.kv_cache_scaling_factor)
 
         if input_metadata.is_prompt:
             # Prompt run.
@@ -136,6 +145,7 @@ class FlashAttentionBackend:
                 self.num_kv_heads,
                 self.scale,
                 self.alibi_slopes,
+                self.kv_cache_scaling_factor,
             )
 
         # Reshape the output tensor.

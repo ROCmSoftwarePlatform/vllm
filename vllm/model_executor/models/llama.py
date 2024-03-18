@@ -411,7 +411,7 @@ class LlamaForCausalLM(nn.Module):
         for layer_idx, scaling_factor in kv_cache_scales_loader(
                 scales_path, tp_rank, tp_size, self.config.num_hidden_layers,
                 self.config.__class__.model_type):
-            layer_paged_attn = (
+            layer_attn = (
                 self.model.layers[layer_idx].self_attn.attn.backend)
 
             if is_hip():
@@ -420,8 +420,8 @@ class LlamaForCausalLM(nn.Module):
                 # which is consistent with the practice of setting
                 # scaling_factor = tensor_amax / FPtype_max
                 scaling_factor *= 2
-            if hasattr(layer_paged_attn, "kv_cache_scaling_factor"):
-                layer_paged_attn.kv_cache_scaling_factor = scaling_factor
+            if hasattr(layer_attn, "kv_cache_scaling_factor"):
+                layer_attn.kv_cache_scaling_factor = scaling_factor
             else:
                 raise RuntimeError("PagedAttention has no KV cache scaling "
                                    "factor attribute!")
