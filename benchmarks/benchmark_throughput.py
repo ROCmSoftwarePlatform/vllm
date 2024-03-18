@@ -72,6 +72,7 @@ def run_vllm(
     max_model_len: Optional[int],
     enforce_eager: bool,
     kv_cache_dtype: str,
+    scales_path: Optional[str],
     device: str,
     enable_prefix_caching: bool,
     gpu_memory_utilization: float = 0.9,
@@ -88,6 +89,7 @@ def run_vllm(
               gpu_memory_utilization=gpu_memory_utilization,
               enforce_eager=enforce_eager,
               kv_cache_dtype=kv_cache_dtype,
+              scales_path=scales_path,
               device=device,
               enable_prefix_caching=enable_prefix_caching)
 
@@ -208,12 +210,14 @@ def main(args: argparse.Namespace):
                                    args.output_len)
 
     if args.backend == "vllm":
-        elapsed_time = run_vllm(
-            requests, args.model, args.tokenizer, args.quantization,
-            args.tensor_parallel_size, args.seed, args.n, args.use_beam_search,
-            args.trust_remote_code, args.dtype, args.max_model_len,
-            args.enforce_eager, args.kv_cache_dtype, args.device,
-            args.enable_prefix_caching, args.gpu_memory_utilization)
+        elapsed_time = run_vllm(requests, args.model, args.tokenizer,
+                                args.quantization, args.tensor_parallel_size,
+                                args.seed, args.n, args.use_beam_search,
+                                args.trust_remote_code, args.dtype,
+                                args.max_model_len, args.enforce_eager,
+                                args.kv_cache_dtype, args.scales_path,
+                                args.device, args.enable_prefix_caching,
+                                args.gpu_memory_utilization)
     elif args.backend == "hf":
         assert args.tensor_parallel_size == 1
         elapsed_time = run_hf(requests, args.model, tokenizer, args.n,
@@ -300,10 +304,23 @@ if __name__ == "__main__":
     parser.add_argument(
         "--kv-cache-dtype",
         type=str,
-        choices=["auto", "fp8_e5m2"],
+        choices=["auto", "fp8"],
         default="auto",
         help=
-        'Data type for kv cache storage. If "auto", will use model data type.')
+        'Data type for kv cache storage. If "auto", will use model data type. '
+        'FP8_E5M2 (without scaling) is only supported on cuda version greater than 11.8. '
+        'On ROCm (AMD GPU), FP8_E4M3 is instead supported for common inference criteria.'
+    )
+    parser.add_argument(
+        '--scales-path',
+        type=str,
+        default=None,
+        help='Path to the JSON file containing the KV cache scaling factors. '
+        'This should generally be supplied, when KV cache dtype is FP8. Otherwise, '
+        'KV cache scaling factors default to 1.0, which may cause accuracy issues. '
+        'FP8_E5M2 (without scaling) is only supported on cuda version greater than 11.8. '
+        'On ROCm (AMD GPU), FP8_E4M3 is instead supported for common inference criteria.'
+    )
     parser.add_argument(
         "--device",
         type=str,
@@ -315,6 +332,7 @@ if __name__ == "__main__":
         action='store_true',
         help="enable automatic prefix caching for vLLM backend.")
     args = parser.parse_args()
+
     if args.tokenizer is None:
         args.tokenizer = args.model
     if args.dataset is None:

@@ -25,15 +25,12 @@ class PagedAttentionImpl:
         key_cache: torch.Tensor,
         value_cache: torch.Tensor,
         input_metadata: InputMetadata,
+        kv_cache_scaling_factor: float,
     ) -> None:
-        cache_ops.reshape_and_cache(
-            key,
-            value,
-            key_cache,
-            value_cache,
-            input_metadata.slot_mapping.flatten(),
-            input_metadata.kv_cache_dtype,
-        )
+        cache_ops.reshape_and_cache(key, value, key_cache, value_cache,
+                                    input_metadata.slot_mapping.flatten(),
+                                    input_metadata.kv_cache_dtype,
+                                    kv_cache_scaling_factor)
 
     @staticmethod
     def forward_decode(
@@ -44,6 +41,7 @@ class PagedAttentionImpl:
         num_kv_heads: int,
         scale: float,
         alibi_slopes: Optional[torch.Tensor],
+        kv_scale: float,
     ) -> torch.Tensor:
         output = torch.empty_like(query)
 
@@ -76,6 +74,7 @@ class PagedAttentionImpl:
                 input_metadata.max_context_len,
                 alibi_slopes,
                 input_metadata.kv_cache_dtype,
+                kv_scale,
             )
         else:
             # Run PagedAttention V2.
@@ -107,6 +106,7 @@ class PagedAttentionImpl:
                 input_metadata.max_context_len,
                 alibi_slopes,
                 input_metadata.kv_cache_dtype,
+                kv_scale,
             )
         return output
 

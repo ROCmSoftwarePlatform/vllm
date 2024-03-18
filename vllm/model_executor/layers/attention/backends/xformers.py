@@ -1,7 +1,7 @@
 """Attention layer with xFormers and PagedAttention."""
 import importlib
 from typing import List, Optional
-
+import torch.nn as nn
 import torch
 from xformers import ops as xops
 from xformers.ops.fmha.attn_bias import (BlockDiagonalCausalMask,
@@ -13,7 +13,7 @@ from vllm.model_executor.layers.attention.ops.paged_attn import (
 from vllm.utils import is_hip
 
 
-class XFormersBackend:
+class XFormersBackend(nn.Module):
 
     def __init__(
         self,
@@ -24,6 +24,7 @@ class XFormersBackend:
         alibi_slopes: Optional[List[float]] = None,
         sliding_window: Optional[int] = None,
     ) -> None:
+        super().__init__()
         self.num_heads = num_heads
         self.head_size = head_size
         self.scale = float(scale)
@@ -31,6 +32,16 @@ class XFormersBackend:
         self.sliding_window = sliding_window
         if alibi_slopes is not None:
             alibi_slopes = torch.tensor(alibi_slopes, dtype=torch.float32)
+        self.register_buffer("alibi_slopes", alibi_slopes, persistent=False)
+
+        # This will be set to a float by model initialization per attention,
+        # if and only if we are using it. N.B. currently we only support per
+        # tensor scalar scaling factors & only applicable to ROCm (AMD GPU).
+        # The scaling factor convention we are assuming is
+        # quantized_value * scaling_factor ~= true_value
+        # which is consistent with the practice of setting
+        # scaling_factor = tensor_amax / FPtype_max
+        self.kv_cache_scaling_factor = 1.0
         self.alibi_slopes = alibi_slopes
 
         assert self.num_heads % self.num_kv_heads == 0
@@ -77,9 +88,14 @@ class XFormersBackend:
         # vectors will not be cached. This happens during the initial memory
         # profiling run.
         if key_cache is not None and value_cache is not None:
-            PagedAttentionImpl.reshape_and_cache(key, value, key_cache,
-                                                 value_cache, input_metadata)
-
+            PagedAttentionImpl.reshape_and_cache(
+                key,
+                value,
+                key_cache,
+                value_cache,
+                input_metadata,
+                self.kv_cache_scaling_factor,
+            )
         if input_metadata.is_prompt:
             # Prompt run.
             if (key_cache is None or value_cache is None
@@ -160,6 +176,8 @@ class XFormersBackend:
 
             else:
                 # prefix-enabled attention
+                # TODO(Hai) this triton kernel has regression issue with
+                # FP8 KVCache to handle mixed types
                 output = PagedAttentionImpl.forward_prefix(
                     query,
                     key,
@@ -179,8 +197,8 @@ class XFormersBackend:
                 self.num_kv_heads,
                 self.scale,
                 self.alibi_slopes,
+                self.kv_cache_scaling_factor,
             )
-
         # Reshape the output tensor.
         return output.view(batch_size, seq_len, hidden_size)
 
@@ -235,6 +253,8 @@ def _ref_masked_attention(
     num_kv_heads: int,
     head_size: int,
     scale: float,
+    alibi_slopes: Optional[torch.Tensor],
+    kv_scale: float,
 ) -> torch.Tensor:
     query = query.view(-1, num_heads, head_size)
     key = key.view(-1, num_kv_heads, head_size)

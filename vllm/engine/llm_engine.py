@@ -82,6 +82,7 @@ class LLMEngine:
             f"quantization={model_config.quantization}, "
             f"enforce_eager={model_config.enforce_eager}, "
             f"kv_cache_dtype={cache_config.cache_dtype}, "
+            f"scales_path={model_config.scales_path}, "
             f"device_config={device_config.device}, "
             f"seed={model_config.seed})")
         # TODO(woosuk): Print more configs in debug mode.
@@ -94,7 +95,6 @@ class LLMEngine:
         self.device_config = device_config
         self.log_stats = log_stats
         self._verify_args()
-
         self._init_tokenizer()
         self.seq_counter = Counter()
 
