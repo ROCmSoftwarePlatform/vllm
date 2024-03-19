@@ -1,13 +1,29 @@
 #!/usr/bin/env python3
 
-#
-#   This is a quick hack that produces PPL measurement by 
-#   iteratively dumping the logprob vector for the single next symbol 
-#   that is to be generated over the preloaded context.
-#   It is actually an *inefficient* procedure because for the
-#   N-token string it takes N*(preload + generation) time instead of
-#   preload + N*generation
-#
+"""
+This is a quick hack that produces PPL measurement by 
+iteratively dumping the logprob vector for the single next symbol 
+that is to be generated over the preloaded context.
+
+It is actually an *inefficient* procedure because for the
+N-token string it takes N*(preload + generation) time instead of
+preload + N*generation
+
+Quick correctness validation tips:
+
+Running llama-2-7b model 
+( ./vllm/benchmarks/measure_ppl_MC_small.py --model=/data/models/llama-2-7b-chat-hf --data=./vllm/tests/prompts/wiki.test.raw --context-size=2048 --batch-size=1 -tp=1 )
+should result in PPL~6.447469639345
+
+Running llama-2-13b model 
+( ./vllm/benchmarks/measure_ppl_MC_small.py --model=/data/models/llama-2-137b-chat-hf --data=./vllm/tests/prompts/wiki.test.raw --context-size=2048 --batch-size=1 -tp=1 )
+should result in PPL~5.675290252052
+
+Running llama-2-70b model 
+( ./vllm/benchmarks/measure_ppl_MC_small.py --model=/data/models/llama-2-70b-chat-hf --data=./vllm/tests/prompts/wiki.test.raw --context-size=2048 --batch-size=1 -tp=1 )
+should result in PPL~4.2067624908705
+
+"""
 
 import numpy as np
 from transformers import LlamaForCausalLM, LlamaTokenizer
