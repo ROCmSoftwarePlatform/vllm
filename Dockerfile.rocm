@@ -1,9 +1,14 @@
-FROM rocm/pytorch:rocm6.0_ubuntu20.04_py3.9_pytorch_2.1.1
-ENV WORKSPACE_DIR=/workspace
-RUN mkdir -p $WORKSPACE_DIR
-WORKDIR $WORKSPACE_DIR
-# Limit arch's so composable kernel doesn't take days to finish
-ENV PYTORCH_ROCM_ARCH=gfx90a;gfx942
+# default base image
+ARG BASE_IMAGE="rocm/pytorch:rocm6.0_ubuntu20.04_py3.9_pytorch_2.1.1"
+
+FROM $BASE_IMAGE
+
+RUN echo "Base image is $BASE_IMAGE"
+
+# BASE_IMAGE for ROCm_5.7: "rocm/pytorch:rocm5.7_ubuntu22.04_py3.10_pytorch_2.0.1"
+# BASE_IMAGE for ROCm_6.0: "rocm/pytorch:rocm6.0_ubuntu20.04_py3.9_pytorch_2.1.1"
+
+
 ARG FA_GFX_ARCHS="gfx90a;gfx942"
 RUN echo "FA_GFX_ARCHS is $FA_GFX_ARCHS"
 
@@ -23,21 +28,8 @@ ARG BUILD_CUPY="1"
 ARG BUILD_TRITON="1"
 
 # Install some basic utilities
-RUN apt-get update && apt-get install python3 python3-pip -y
-
-# Install some basic utilities
 RUN apt-get update && apt-get install -y \
-    curl \
-    ca-certificates \
-    sudo \
-    git \
-    bzip2 \
-    libx11-6 \
-    build-essential \
-    wget \
-    unzip \
-    nvidia-cuda-toolkit \
-    tmux \
+    sqlite3 libsqlite3-dev libfmt-dev \
  && rm -rf /var/lib/apt/lists/*
 
 ### Mount Point ###
@@ -60,6 +52,8 @@ RUN if [ "$BUILD_FA" = "1" ]; then \
     && cd libs \
     && git clone https://github.com/ROCm/flash-attention.git \
     && cd flash-attention \
+    && git checkout ${FA_BRANCH} \
+    && git submodule update --init \
     && export GPU_ARCHS=${FA_GFX_ARCHS} \
     && if [ "$BASE_IMAGE" = "rocm/pytorch:rocm5.7_ubuntu22.04_py3.10_pytorch_2.0.1" ]; then \
         patch /opt/conda/envs/py_3.10/lib/python3.10/site-packages/torch/utils/hipify/hipify_python.py hipify_patch.patch; fi \
@@ -94,10 +88,11 @@ RUN if [ "$BUILD_TRITON" = "1"]; then \
     mkdir -p libs \
     && cd libs \
     && pip uninstall -y triton \
-    && git clone https://github.com/ROCmSoftwarePlatform/triton.git
+    && git clone https://github.com/ROCm/triton.git \
     && cd triton/python \
     && pip3 install -e . \
-    && cd ../..; \
+    && cd ../.. \
+    && rm -r triton; \
     fi
 
 COPY ./ /app/vllm
@@ -105,16 +100,17 @@ COPY ./ /app/vllm
 RUN python3 -m pip install --upgrade pip
 RUN python3 -m pip install xformers==0.0.23 --no-deps
 
-RUN cd vllm \
-    && pip install -r requirements-rocm.txt \
-    && pip install typing-extensions==4.8.0 \
-    && bash patch_xformers.rocm.sh \
-    && cd gradlib && python setup.py develop && cd ../ \
-    && python setup.py build && python setup.py develop; exit 0
+RUN cd /app \
+    && cd vllm \
+    && pip install -U -r requirements-rocm.txt \
+    && if [ "$BUILD_FA" = "1" ]; then \
+    bash patch_xformers.rocm.sh; fi \
+    && if [ "$BASE_IMAGE" = "rocm/pytorch:rocm6.0_ubuntu20.04_py3.9_pytorch_2.1.1" ]; then \
+    patch /opt/rocm/include/hip/amd_detail/amd_hip_bf16.h /app/vllm/rocm_patch/rocm_bf16.patch; fi \
+    && python3 setup.py install \
+    && cd ..
 
-RUN pip install pyarrow Ray pandas==2.0 numpy==1.20.3
+RUN python3 -m pip install --upgrade pip
+RUN python3 -m pip install --no-cache-dir ray[all]
 
-RUN git clone https://github.com/ROCmSoftwarePlatform/rocmProfileData.git \
-    && cd rocmProfileData && make; make install
-
-WORKDIR /workspace/vllm
+CMD ["/bin/bash"]
