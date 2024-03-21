@@ -9,7 +9,6 @@ import torch
 from transformers import (AutoModelForCausalLM, AutoTokenizer,
                           PreTrainedTokenizerBase)
 from tqdm import tqdm
-from torch.distributed import launch
 
 
 def sample_requests(
