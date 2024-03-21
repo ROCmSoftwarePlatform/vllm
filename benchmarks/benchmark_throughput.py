@@ -76,6 +76,7 @@ def run_vllm(
     device: str,
     enable_prefix_caching: bool,
     gpu_memory_utilization: float = 0.9,
+    worker_use_torchrun: bool = False,
 ) -> float:
     from vllm import LLM, SamplingParams
     llm = LLM(model=model,
@@ -91,7 +92,8 @@ def run_vllm(
               kv_cache_dtype=kv_cache_dtype,
               scales_path=scales_path,
               device=device,
-              enable_prefix_caching=enable_prefix_caching)
+              enable_prefix_caching=enable_prefix_caching,
+              worker_use_torchrun=args.worker_use_torchrun,)
 
     # Add the requests to the engine.
     for prompt, _, output_len in requests:
@@ -217,7 +219,8 @@ def main(args: argparse.Namespace):
                                 args.max_model_len, args.enforce_eager,
                                 args.kv_cache_dtype, args.scales_path,
                                 args.device, args.enable_prefix_caching,
-                                args.gpu_memory_utilization)
+                                args.gpu_memory_utilization,
+                                args.worker_use_torchrun)
     elif args.backend == "hf":
         assert args.tensor_parallel_size == 1
         elapsed_time = run_hf(requests, args.model, tokenizer, args.n,
@@ -331,6 +334,10 @@ if __name__ == "__main__":
         "--enable-prefix-caching",
         action='store_true',
         help="enable automatic prefix caching for vLLM backend.")
+    parser.add_argument('--worker-use-torchrun',
+        action='store_true',
+        help='use torchrun instead of ray when using '
+        'more than 1 GPU. Preferable for ROCm')    
     args = parser.parse_args()
 
     if args.tokenizer is None:

@@ -28,6 +28,7 @@ def main(args: argparse.Namespace):
         scales_path=args.scales_path,
         device=args.device,
         ray_workers_use_nsight=args.ray_workers_use_nsight,
+        worker_use_torchrun=args.worker_use_torchrun
     )
 
     sampling_params = SamplingParams(
@@ -164,6 +165,11 @@ if __name__ == '__main__':
         "--ray-workers-use-nsight",
         action='store_true',
         help="If specified, use nsight to profile ray workers",
+    )
+    parser.add_argument('--worker-use-torchrun',
+        action='store_true',
+        help='use torchrun instead of ray when using '
+        'more than 1 GPU. Preferable for ROCm'
     )
     args = parser.parse_args()
     main(args)
