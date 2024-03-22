@@ -815,11 +815,11 @@ template<
   int BLOCK_SIZE,
   bool IS_FP8_KV_CACHE,
 #ifdef USE_ROCM
-  int NUM_THREADS = 128,
-  int PARTITION_SIZE = 512>
-#else
   int NUM_THREADS = 1024,
   int PARTITION_SIZE = 1024>
+#else
+  int NUM_THREADS = 128,
+  int PARTITION_SIZE = 512>
 #endif
 void paged_attention_v2_launcher(
   torch::Tensor& out,
