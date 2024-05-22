@@ -293,6 +293,8 @@ __device__ void paged_attention_kernel(
       // This includes a reduction across the threads in the same thread group.
       float qk = scale * Qk_dot<scalar_t, THREAD_GROUP_SIZE>::dot(
                              q_vecs[thread_group_offset], k_vecs);
+      float max_attn_val = 30.0; //hardcoded for grok
+      qk = max_attn_val * tanh(qk / max_attn_val);//hardcoded for grok
       // Add the ALiBi bias if slopes are given.
       qk += (alibi_slope != 0) ? alibi_slope * (token_idx - seq_len + 1) : 0;
 
