@@ -76,7 +76,7 @@ class UnquantizedLinearMethod(LinearMethodBase):
                       x: torch.Tensor,
                       bias: Optional[torch.Tensor] = None) -> torch.Tensor:
         weight = weights["weight"]
-        if is_hip() and x.view(-1, x.size(-1)).shape[0] == 1:
+        if is_hip() and x.dtype == torch.float16 and x.view(-1, x.size(-1)).shape[0] == 1:
             batched = False
             if x.dim() == 3:
                 inp = x.view(-1, x.size(-1))
