@@ -4,7 +4,6 @@ import argparse
 import hipbsolidxgemm
 import numpy as np
 import torch.nn.functional as F
-import sys
 import pandas as pd
 import json
 import random
@@ -122,7 +121,7 @@ class Fp8GemmTuner:
             self.gdf = None
 
     def add_gemm(self, m, n, k):
-        if ( self.gdf is None or (self.gdf[(self.gdf['M'] == m) & (self.gdf['N'] == n) & (self.gdf['K'] == k)].empty)):
+        if (self.gdf is None or (self.gdf[(self.gdf['M'] == m) & (self.gdf['N'] == n) & (self.gdf['K'] == k)].empty)):
             entry = {'M':[m], 'N':[n], 'K':[k]}
             df = pd.DataFrame(entry)
             self.gemm_problems = pd.concat([self.gemm_problems, df],ignore_index=True)
@@ -134,7 +133,9 @@ class Fp8GemmTuner:
         soldf = pd.DataFrame()
         for i in range(len(df)):
             ds = df.iloc[i]
-            gemmobj = Fp8Gemm(ds['M'],ds['N'],ds['K'],indtype=self.indtype,outdtype=self.outdtype)
+            gemmobj = Fp8Gemm(ds['M'], ds['N'], ds['K'],
+                              indtype=self.indtype,
+                              outdtype=self.outdtype)
             gemmobj.find_fastest_solution()
             soldf.loc[i,'solidx'] = gemmobj.best_solidx
             soldf.loc[i,'soltimems'] = gemmobj.best_soltime
@@ -154,7 +155,10 @@ def generate_mk_sets(model_dir, tp=1):
     total_num_heads = data['num_attention_heads']
     total_num_kv_heads = data['num_key_value_heads']
     head_dim = hidden_size // total_num_heads
-    return [((total_num_heads + (2*total_num_kv_heads)) * head_dim // tp, hidden_size), (hidden_size, hidden_size // tp), (intermediate_size *2 // tp, hidden_size), (hidden_size, intermediate_size // tp) ], hidden_size
+    return [((total_num_heads + (2*total_num_kv_heads)) * head_dim // tp, hidden_size), 
+            (hidden_size, hidden_size // tp), 
+            (intermediate_size *2 // tp, hidden_size), 
+            (hidden_size, intermediate_size // tp)], hidden_size
 
 def get_dtype(dtype_str):
     dtype = torch.float8_e4m3fnuz
