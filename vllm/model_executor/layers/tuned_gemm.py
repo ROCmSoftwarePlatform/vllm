@@ -99,7 +99,7 @@ class TunedGemm:
                 elif k <= 8192 and k % 8 == 0 and m % 4 == 0:
                     _custom_C.LLMM1(weights, inp_view, out, 4)
             else:
-                out = F.linear(inp, weights)
+                out = F.linear(inp_view, weights)
         if batched:
             return out.view(inp.shape[0], inp.shape[1], weights.shape[0])
         else:
