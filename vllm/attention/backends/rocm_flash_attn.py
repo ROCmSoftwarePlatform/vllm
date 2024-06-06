@@ -380,6 +380,7 @@ class ROCmFlashAttentionImpl(AttentionImpl):
                 # triton attention
                 # When block_tables are not filled, it means q and k are the
                 # prompt, and they have the same length.
+                att_masks = None
                 if self.use_triton_flash_attn:
                     if self.alibi_slopes is not None:
                         att_masks = _make_alibi_bias_v2(
@@ -396,7 +397,7 @@ class ROCmFlashAttentionImpl(AttentionImpl):
                         prefill_meta.max_prefill_seq_len,
                         True,
                         self.scale,
-                        att_masks[0][None],
+                        att_masks[0][None] if att_masks is not None else None,
                     )
                 elif self.use_naive_attn:
                     if self.alibi_slopes is not None:

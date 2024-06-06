@@ -626,7 +626,7 @@ class _attention(torch.autograd.Function):
             IS_CAUSAL=causal,
             VARLEN=True,
             BLOCK_DMODEL=padded_d_model,
-            USE_BIAS=False if bias is None else True,
+            USE_BIAS=bias is not None,
             USE_ALIBI=False,
             ENABLE_DROPOUT=False,
             RETURN_ENCODED_SOFTMAX=False,
