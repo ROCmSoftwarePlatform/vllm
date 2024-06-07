@@ -5,7 +5,6 @@ import random
 from pathlib import Path
 
 import hipbsolidxgemm
-import numpy as np
 import pandas as pd
 import torch
 import torch.nn.functional as F
@@ -29,7 +28,8 @@ class Fp8Gemm:
                                device='cuda').to(self.indtype)
         self.weights = torch.randn((self.m, self.k),
                                    device='cuda').to(self.indtype)
-        #weights2 is used in measurement/warm iters to ensure HBM fetch for weight tensors
+        # weights2 is used in measurement/warm iters to ensure HBM
+        # fetch for weight tensors
         self.weights2 = torch.randn((self.nb, self.m, self.k),
                                     device='cuda').to(self.indtype)
         self.blob = torch.ones(128 * 1024 * 1024,
@@ -72,11 +72,11 @@ class Fp8Gemm:
     def hipb_time_sol(self, solidx, cold_iters=2, warm_iters=10):
         #print('>>>hipbtime',solidx)
         for i in range(cold_iters):
-            c = hipbsolidxgemm.hipb_mm(self.inp, self.weights.t(), solidx,
-                                       self.outdtype)
+            hipbsolidxgemm.hipb_mm(self.inp, self.weights.t(), solidx,
+                                   self.outdtype)
         self.start.record()
         for i in range(warm_iters):
-            c = hipbsolidxgemm.hipb_mm(
+            hipbsolidxgemm.hipb_mm(
                 self.inp, self.weights2[random.randint(0, self.nb - 1)].t(),
                 solidx, self.outdtype)
         self.end.record()
@@ -92,7 +92,8 @@ class Fp8Gemm:
             coldi = 2
             warmi = 2
         solutions = self.hipb_sols
-        if top_sols: solutions = self.hipb_top_sols
+        if top_sols:
+            solutions = self.hipb_top_sols
         gtimes = {}
         for solidx in solutions:
             gtimes[solidx] = self.hipb_time_sol(solidx,
@@ -184,8 +185,8 @@ class Fp8GemmTuner:
 
 
 def generate_mk_sets(model_dir, tp=1):
-    f = open(f'{model_dir}/config.json')
-    data = json.load(f)
+    with open(f'{model_dir}/config.json') as f:
+        data = json.load(f)
     hidden_size = data['hidden_size']
     intermediate_size = data['intermediate_size']
     total_num_heads = data['num_attention_heads']
