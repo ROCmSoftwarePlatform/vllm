@@ -106,17 +106,19 @@ def _attn_fwd_inner(
         # We start from end of seqlen_k so only the first iteration would need
         # to be checked for padding if it is not a multiple of block_n
         # TODO: This can be optimized to only be true for the padded block.
-        if MASK_STEPS and (start_n + BLOCK_N
-                           == block_max) and (n_extra_tokens != 0):
-            # If this is the last block / iteration, we want to
-            # mask if the sequence length is not a multiple of block size
-            # a solution is to always do BLOCK_M // BLOCK_N + 1 steps if not
-            # is_modulo_mn. Last step might get wasted but that is okay. Check
-            # if this masking works for that case.
-            boundary_m = tl.full([BLOCK_M], actual_seqlen_k, dtype=tl.int32)
-            size_n = start_n + OFFS_N[None, :]
-            mask = size_n < boundary_m[:, None]
-            qk = tl.where(mask, qk, float("-inf"))
+        if MASK_STEPS:  # NOQA: SIM102
+            if start_n + BLOCK_N == block_max and n_extra_tokens != 0:
+                # If this is the last block / iteration, we want to
+                # mask if the sequence length is not a multiple of block size
+                # a solution is to always do BLOCK_M // BLOCK_N + 1 steps if
+                # not is_modulo_mn. Last step might get wasted but that is okay.
+                # Check if this masking works for that case.
+                boundary_m = tl.full([BLOCK_M],
+                                     actual_seqlen_k,
+                                     dtype=tl.int32)
+                size_n = start_n + OFFS_N[None, :]
+                mask = size_n < boundary_m[:, None]
+                qk = tl.where(mask, qk, float("-inf"))
         if IS_CAUSAL:
             causal_boundary = start_n + offs_n_causal
             causal_mask = OFFS_M[:, None] >= causal_boundary[None, :]
@@ -317,7 +319,7 @@ def attn_fwd(Q, K, V, bias, sm_scale, L, Out, stride_qz, stride_qh, stride_qm,
     # This block of code determines what N is, and if this WG is operating
     # on those M rows.
     n_blocks = cdiv_fn(seqlen_k, BLOCK_N)
-    if (IS_CAUSAL):
+    if IS_CAUSAL:
         # If seqlen_q == seqlen_k, the attn scores are a square matrix.
         # If seqlen_q != seqlen_k, attn scores are rectangular which means
         # the causal mask boundary is bottom right aligned, and ends at either
@@ -541,15 +543,16 @@ def attn_fwd(Q, K, V, bias, sm_scale, L, Out, stride_qz, stride_qh, stride_qm,
     start_m_idx = start_m * BLOCK_M
     causal_start_idx = seqlen_q - seqlen_k
     acc = acc.to(Out.type.element_ty)
-    if (IS_CAUSAL and causal_start_idx > start_m_idx
-            and causal_start_idx < end_m_idx):
-        out_mask_boundary = tl.full((BLOCK_DMODEL, ),
-                                    causal_start_idx,
-                                    dtype=tl.int32)
-        mask_m_offsets = start_m_idx + tl.arange(0, BLOCK_M)
-        out_ptrs_mask = mask_m_offsets[:, None] >= out_mask_boundary[None, :]
-        z = 0.0
-        acc = tl.where(out_ptrs_mask, acc, z.to(acc.type.element_ty))
+    if IS_CAUSAL:  # NOQA: SIM102
+        if causal_start_idx > start_m_idx and causal_start_idx < end_m_idx:
+            out_mask_boundary = tl.full((BLOCK_DMODEL, ),
+                                        causal_start_idx,
+                                        dtype=tl.int32)
+            mask_m_offsets = start_m_idx + tl.arange(0, BLOCK_M)
+            out_ptrs_mask = mask_m_offsets[:,
+                                           None] >= out_mask_boundary[None, :]
+            z = 0.0
+            acc = tl.where(out_ptrs_mask, acc, z.to(acc.type.element_ty))
     # write back LSE
     l_ptrs = L + off_z * HQ * MAX_SEQLENS_Q + off_h_q * MAX_SEQLENS_Q + offs_m
     # If seqlen_q not multiple of BLOCK_M, we need to mask out the last few
