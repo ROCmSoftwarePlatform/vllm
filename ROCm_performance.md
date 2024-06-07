@@ -25,7 +25,7 @@ To use fp8 quantization, first step is to quantize your model to fp8 format. Ple
 
 Then we can run a model with fp8 quantization using vllm. When creating `vLLM.LLM` object, two additional parameters should be added: `quantization="fp8"` and `quantization_param_path={relative path of the safetensors with your model path}`.
 
-## Gemm Tunning for Fp8
+## Gemm Tuning for Fp8
 
 To get better performance of fp8 quantization, we will need to tune the gemm with the information of all the shapes used in the execution of the model. 
 
@@ -34,8 +34,29 @@ To obtain all the shapes of gemms during the execution of the model, set the env
 Next, run gradlib to obtain the best solutions of these shapes:
 
 ```
-python3 gradlib/gradlib/fp8_gemm_tunner.py --input_file /tmp/fp8_shapes.csv --tuned_file /tmp/tuned_fp8_16.csv
+python3 gradlib/gradlib/fp8_gemm_tuner.py --input_file /tmp/fp8_shapes.csv --tuned_file /tmp/tuned_fp8_16.csv
 ```
 where `/tmp/tuned_fp8_16` will be used by our fp8 gemm linear layer.
 
-Now, when running inference with fp8, we are using the tunned gemm for best performance.
+Now, when running inference with fp8, we are using the tuned gemm for best performance.
+
+## Fp8 Quantization
+
+To use fp8 quantization, first step is to quantize your model to fp8 format. Please follow this [instruction](https://github.com/ROCm/vllm/tree/main/examples/fp8/quantizer) to generating a safetensor file that contains the quantized weights and the corresponding scaling factors of your model. The safetensor file should be added under your model folder.
+
+Then we can run a model with fp8 quantization using vllm. When creating `vLLM.LLM` object, two additional parameters should be added: `quantization="fp8"` and `quantization_param_path={relative path of the safetensors with your model path}`.
+
+## Gemm Tuning for Fp8
+
+To get better performance of fp8 quantization, we will need to tune the gemm with the information of all the shapes used in the execution of the model. 
+
+To obtain all the shapes of gemms during the execution of the model, set the env value `TUNE_FP8=1` and the run the model as usual. We will get the a file called `/tmp/fp8_shapes.csv`.
+
+Next, run gradlib to obtain the best solutions of these shapes:
+
+```
+python3 gradlib/gradlib/fp8_gemm_tuner.py --input_file /tmp/fp8_shapes.csv --tuned_file /tmp/tuned_fp8_16.csv
+```
+where `/tmp/tuned_fp8_16` will be used by our fp8 gemm linear layer.
+
+Now, when running inference with fp8, we are using the tuned gemm for best performance.
