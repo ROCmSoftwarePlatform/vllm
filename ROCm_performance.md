@@ -29,7 +29,7 @@ Then we can run a model with fp8 quantization using vllm. When creating `vllm.LL
 
 To get better performance of fp8 quantization, we will need to tune the gemm with the information of all the shapes used in the execution of the model. 
 
-To obtain all the shapes of gemms during the execution of the model, set the env value `TUNE_FP8=1` and the run the model as usual. We will get the a file called `/tmp/fp8_shapes.csv`.
+To obtain all the shapes of gemms during the execution of the model, set the env value `TUNE_FP8=1` and then run the model as usual. We will get the a file called `/tmp/fp8_shapes.csv`.
 
 Next, run gradlib to obtain the best solutions of these shapes:
 
