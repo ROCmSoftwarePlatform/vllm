@@ -33,10 +33,10 @@ class Fp8RocmConfig(QuantizationConfig):
         #print(f"Integral Cross factor = {self.factor}")
         if gemm_type == "fp8_8":
             self.gemm_method = Fp8RocmLinearMethod.apply_fp8_8
-            tuned_filename = "/projects/tuned_fp8_8.csv"
+            tuned_filename = "/tmp/tuned_fp8_8.csv"
         elif gemm_type == "fp8_16":
             self.gemm_method = Fp8RocmLinearMethod.apply_fp8_16
-            tuned_filename = "/projects/tuned_fp8_16.csv"
+            tuned_filename = "/tmp/tuned_fp8_16.csv"
         else:
             raise Exception(f"Unknown fp8 gemm type: {gemm_type}")
         try:
@@ -49,7 +49,7 @@ class Fp8RocmConfig(QuantizationConfig):
             m = shape["M"]
             n = shape["N"]
             k = shape["K"]
-            algo = shape["algo"]
+            algo = shape["solidx"]
             self._tuned[(m, n, k)] = algo
 
     @classmethod
@@ -225,13 +225,13 @@ class Fp8RocmLinearMethod(LinearMethodBase):
 
             if os.getenv("TUNE_FP8") == "1":
                 try:
-                    df = pd.read_csv("/projects/fp8_shapes.csv")
+                    df = pd.read_csv("/tmp/fp8_shapes.csv")
                 except:
                     df = pd.DataFrame(columns=["M", "N", "K"])
                 df = pd.concat(
                     [df, pd.DataFrame({"M": [m], "N": [n], "K": [k]})]
                 ).drop_duplicates()
-                df.to_csv("/projects/fp8_shapes.csv", index=False)
+                df.to_csv("/tmp/fp8_shapes.csv", index=False)
             algo = 0
         res = vllm_ops.fp8_gemm_16(x8, weight.t(), asf, wsf, int(algo))
         return res
@@ -258,13 +258,13 @@ class Fp8RocmLinearMethod(LinearMethodBase):
 
             if os.getenv("TUNE_FP8") == "1":
                 try:
-                    df = pd.read_csv("/projects/fp8_shapes.csv")
+                    df = pd.read_csv("/tmp/fp8_shapes.csv")
                 except:
                     df = pd.DataFrame(columns=["M", "N", "K"])
                 df = pd.concat(
                     [df, pd.DataFrame({"M": [m], "N": [n], "K": [k]})]
                 ).drop_duplicates()
-                df.to_csv("/projects/fp8_shapese.csv", index=False)
+                df.to_csv("/tmp/fp8_shapese.csv", index=False)
             algo = 0
 
         res = vllm_ops.fp8_gemm(x8, weight.t(), asf, wsf, osf, int(algo))
