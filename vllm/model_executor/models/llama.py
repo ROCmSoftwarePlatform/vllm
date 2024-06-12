@@ -510,6 +510,10 @@ class LlamaForCausalLM(nn.Module):
                 if weight_name not in name:
                     continue
                 name = name.replace(weight_name, scale_name)
+            if loaded_weight.dtype == torch.int8:
+                  loaded_weight[loaded_weight == -128] = 0
+                  assert loaded_weight.is_contiguous
+                  loaded_weight = loaded_weight.view(torch.float8_e4m3fnuz)
 
             for (param_name, weight_name, shard_id) in quant_shards:
                 if weight_name not in name:
@@ -532,10 +536,10 @@ class LlamaForCausalLM(nn.Module):
                     if "activation_scaling_factor" in name or "weights_scaling_factor" in name:
                         param.data.copy_(loaded_weight)
                     elif "output_scaling_factor" in name:
-                        param.data.copy_(1 / loaded_weight.item())
+                        param.data.copy_(loaded_weight)
                     else:
                         weight_loader = getattr(param, "weight_loader",
-                                                default_weight_loader)
+                                                    default_weight_loader)
                         weight_loader(param, loaded_weight)
                     break
 
