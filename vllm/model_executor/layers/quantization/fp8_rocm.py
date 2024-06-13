@@ -24,10 +24,8 @@ logger = init_logger(__name__)
 class Fp8RocmConfig(QuantizationConfig):
 
     def __init__(self) -> None:
-        # self.quantized_weights_path = config["quantized_weights"]
         self._tuned = {}
         gemm_type = os.getenv("FP8_GEMM", "fp8_16")
-        #print(f"Integral Cross factor = {self.factor}")
         if gemm_type == "fp8_8":
             self.gemm_method = Fp8RocmLinearMethod.apply_fp8_8
             tuned_filename = "/tmp/tuned_fp8_8.csv"
