@@ -545,7 +545,7 @@ class LlamaForCausalLM(nn.Module):
                                                         default_weight_loader)
                             weight_loader(param, loaded_weight)
                         break
-        load_func = load_ammo if os.getenv("VLLM_FP8_USE_AMMO") == 1 else load_quark
+        load_func = load_ammo if os.getenv("VLLM_FP8_USE_AMMO") == "1" else load_quark
         load_func()
 
     # If this function is called, it should always initialize KV cache scale
