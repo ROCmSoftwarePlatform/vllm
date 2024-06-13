@@ -52,6 +52,7 @@ from vllm.utils import is_hip, print_warning_once
 
 import os
 
+
 class LlamaMLP(nn.Module):
 
     def __init__(
@@ -439,8 +440,10 @@ class LlamaForCausalLM(nn.Module):
                 weight_loader = getattr(param, "weight_loader",
                                         default_weight_loader)
                 weight_loader(param, loaded_weight)
-                
-    def load_quantized_weights(self, weights: Iterable[Tuple[str, torch.Tensor]]):
+
+    def load_quantized_weights(self, weights: Iterable[Tuple[str,
+                                                             torch.Tensor]]):
+
         def load_ammo():
             params_dict = dict(self.named_parameters())
             quant_shards = [
@@ -454,7 +457,8 @@ class LlamaForCausalLM(nn.Module):
             ]
             for name, loaded_weight in weights:
                 name = name.replace('transformer', 'model')
-                name = name.replace('kv_cache_scaling_factor', 'qkv.output_scaling_factor')
+                name = name.replace('kv_cache_scaling_factor',
+                                    'qkv.output_scaling_factor')
                 loaded_weight = loaded_weight.to("cuda")
                 if loaded_weight.dtype == torch.int8:
                     loaded_weight[loaded_weight == -128] = 0
@@ -478,15 +482,16 @@ class LlamaForCausalLM(nn.Module):
                             continue
                         name = name.replace(weight_name, param_name)
                         param = params_dict[name]
-                        if "activation_scaling_factor" in name or "weights_scaling_factor" in name:
-                            param.data.copy_(loaded_weight)
-                        elif "output_scaling_factor" in name:
+                        if ("activation_scaling_factor" in name
+                                or "weights_scaling_factor" in name
+                                or "output_scaling_factor" in name):
                             param.data.copy_(loaded_weight)
                         else:
                             weight_loader = getattr(param, "weight_loader",
                                                     default_weight_loader)
                             weight_loader(param, loaded_weight)
                         break
+
         def load_quark():
             params_dict = dict(self.named_parameters())
             quant_shards = [
@@ -503,7 +508,7 @@ class LlamaForCausalLM(nn.Module):
                 ("weights_scaling_factor", "weight_quant_scale"),
                 ("output_scaling_factor", "output_quant_scale"),
             ]
-            for name, loaded_weight in weights: 
+            for name, loaded_weight in weights:
                 if "zero_point" in name:
                     continue
                 if len(loaded_weight.shape) == 0:
@@ -514,9 +519,9 @@ class LlamaForCausalLM(nn.Module):
                         continue
                     name = name.replace(weight_name, scale_name)
                 if loaded_weight.dtype == torch.int8:
-                      loaded_weight[loaded_weight == -128] = 0
-                      assert loaded_weight.is_contiguous
-                      loaded_weight = loaded_weight.view(torch.float8_e4m3fnuz)
+                    loaded_weight[loaded_weight == -128] = 0
+                    assert loaded_weight.is_contiguous
+                    loaded_weight = loaded_weight.view(torch.float8_e4m3fnuz)
 
                 for (param_name, weight_name, shard_id) in quant_shards:
                     if weight_name not in name:
@@ -536,16 +541,18 @@ class LlamaForCausalLM(nn.Module):
                             continue
                         name = name.replace(weight_name, param_name)
                         param = params_dict[name]
-                        if "activation_scaling_factor" in name or "weights_scaling_factor" in name:
-                            param.data.copy_(loaded_weight)
-                        elif "output_scaling_factor" in name:
+                        if ("activation_scaling_factor" in name
+                                or "weights_scaling_factor" in name
+                                or "output_scaling_factor" in name):
                             param.data.copy_(loaded_weight)
                         else:
                             weight_loader = getattr(param, "weight_loader",
-                                                        default_weight_loader)
+                                                    default_weight_loader)
                             weight_loader(param, loaded_weight)
                         break
-        load_func = load_ammo if os.getenv("VLLM_FP8_USE_AMMO") == "1" else load_quark
+
+        load_func = load_ammo if os.getenv(
+            "VLLM_FP8_USE_AMMO") == "1" else load_quark
         load_func()
 
     # If this function is called, it should always initialize KV cache scale
