@@ -21,6 +21,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Inference-only LLaMA model compatible with HuggingFace weights."""
+import os
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import torch
@@ -49,8 +50,6 @@ from vllm.model_executor.model_loader.weight_utils import (
 from vllm.model_executor.sampling_metadata import SamplingMetadata
 from vllm.sequence import SamplerOutput
 from vllm.utils import is_hip, print_warning_once
-
-import os
 
 
 class LlamaMLP(nn.Module):
