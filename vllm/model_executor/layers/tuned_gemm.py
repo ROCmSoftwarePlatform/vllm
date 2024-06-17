@@ -90,8 +90,7 @@ class TunedGemm:
                 ]).drop_duplicates()
                 self.tuned_df.to_csv(self.untune_path, index=False)
 
-            if ((n == 4 or n == 3 or n == 2 or n == 1)
-                    and k % 8 == 0
+            if ((n == 4 or n == 3 or n == 2 or n == 1) and k % 8 == 0
                     and inp_view.dtype == torch.float16):
                 out = torch.empty(inp_view.shape[0],
                                   weights.shape[0],
