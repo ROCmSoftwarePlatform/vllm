@@ -91,11 +91,11 @@ class TunedGemm:
                 self.tuned_df.to_csv(self.untune_path, index=False)
 
             if ((n == 4 or n == 3 or n== 2 or n == 1)
-                and inp_view.dtype == torch.float16):
+                    and inp_view.dtype == torch.float16):
                 out = torch.empty(inp_view.shape[0],
-                              weights.shape[0],
-                              dtype=inp_view.dtype,
-                              device='cuda')
+                                  weights.shape[0],
+                                  dtype=inp_view.dtype,
+                                  device='cuda')
                 _custom_C.wvSpltK(weights, inp_view, out, n, self.CuCount)
             elif n == 1 and inp_view.dtype == torch.float16:
                 out = torch.empty(inp_view.shape[0],
