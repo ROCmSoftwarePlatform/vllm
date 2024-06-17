@@ -70,10 +70,10 @@ class TunedGemm:
         k = inp_view.shape[1]
         soltype, solidx = self.query_sol(m=m, n=n, k=k)
         if soltype == 1:
-            print(">>> found hipblas")
+            #print(">>> found hipblas")
             out = hipb_mm(inp_view, weights.t(), solidx)
         elif soltype == 2:
-            print(">>> found rocblas")
+            #print(">>> found rocblas")
             out = rocb_mm(inp_view, weights.t(), solidx)
         else:
             if (self.save_gemm == 1):
