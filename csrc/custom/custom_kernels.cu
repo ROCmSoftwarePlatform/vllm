@@ -1862,13 +1862,12 @@ void wvSpltK_(void* in_a, void* in_b, void* out_c, const int M_in,
   auto* c = reinterpret_cast<half*>(out_c);
   switch (N_in) {
     case 1:
-      if ((K_in <= 32*1024) && (M_in % 2 == 0)) {
-	    wvSpltK_hf_m1_sml_<<<grid, block, 0, stream>>>(K_in, M_in, af4, bf4,
-                                                 c, CuCount);
-      }
-      else {
-	    wvSpltK_hf_m1_<<<grid, block, 0, stream>>>(K_in, M_in, af4, bf4, c,
-                                                 CuCount);
+      if ((K_in <= 32 * 1024) && (M_in % 2 == 0)) {
+        wvSpltK_hf_m1_sml_<<<grid, block, 0, stream>>>(K_in, M_in, af4, bf4,
+                                                       c, CuCount);
+      } else {
+        wvSpltK_hf_m1_<<<grid, block, 0, stream>>>(K_in, M_in, af4, bf4, c,
+                                                   CuCount);
       }
       break;
     case 2:
