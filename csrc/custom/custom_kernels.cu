@@ -3,8 +3,6 @@
 #include <stdexcept>
 #include <algorithm>
 #include <hip/hip_bf16.h>
-#include "hsa/hsa.h"
-#include "hsa/hsa_ext_amd.h"
 
 constexpr int WARP_SIZE = 64;
 
@@ -400,7 +398,7 @@ __global__ void wvSpltK_hf_m1_sml_(const int K, const int N, const DTYPE* B,
         for (uint32_t m = 0; m < M; m++) {
 
             // Do the matrix multiplication of activation and weight matrix
-            // - Rememeber the accumulation is happening for K-split of 64!
+            // - Remember the accumulation is happening for K-split of 64!
 #pragma unroll
           for (uint32_t b = 0; b < A_CHUNK / 2; b++) {
             asm("v_dot2c_f32_f16 %0, %2, %3"
@@ -541,12 +539,12 @@ __global__ void wvSpltK_hf_m1_(const int K, const int N, const DTYPE* B,
   // - WGs iterates across columns of weight matrix
   // - Each wave within WG works on a given column(s)
   // - After completing first set of columns, WGs start
-  //   working on the next set of availble columns
+  //   working on the next set of available columns
   //----------------------------------------------------
   while (n < N) {
     //----------------------------------------------------
     // 'sum' accumulates the matrix A x B computation
-    // splitted across 64 lanes.
+    // split across 64 lanes.
     //
     // YTILE represents how many column of weight matrix
     // are being worked on by each wave.
@@ -685,7 +683,7 @@ __global__ void wvSpltK_hf_m1_(const int K, const int N, const DTYPE* B,
         for (uint32_t m = 0; m < M; m++) {
 
           // Do the matrix multiplication of activation and weight matrix
-          // - Rememeber the accumulation is happening for K-split of 64!
+          // - Remember the accumulation is happening for K-split of 64!
 #pragma unroll
           for (uint32_t b = 0; b < A_CHUNK / 2; b++) {
             asm("v_dot2c_f32_f16 %0, %2, %3"
@@ -894,12 +892,12 @@ __global__ void wvSpltK_hf_m2_(const int K, const int N, const DTYPE* B,
   // - WGs iterates across columns of weight matrix
   // - Each wave within WG works on a given column(s)
   // - After completing first set of columns, WGs start
-  //   working on the next set of availble columns
+  //   working on the next set of available columns
   //----------------------------------------------------
   while (n < N) {
     //----------------------------------------------------
     // 'sum' accumulates the matrix A x B computation
-    // splitted across 64 lanes.
+    // split across 64 lanes.
     //
     // YTILE represents how many column of weight matrix
     // are being worked on by each wave.
@@ -1038,7 +1036,7 @@ __global__ void wvSpltK_hf_m2_(const int K, const int N, const DTYPE* B,
         for (uint32_t m = 0; m < M; m++) {
 
           // Do the matrix multiplication of activation and weight matrix
-          // - Rememeber the accumulation is happening for K-split of 64!
+          // - Remember the accumulation is happening for K-split of 64!
 #pragma unroll
           for (uint32_t b = 0; b < A_CHUNK / 2; b++) {
             asm("v_dot2c_f32_f16 %0, %2, %3"
@@ -1247,12 +1245,12 @@ __global__ void wvSpltK_hf_m3_(const int K, const int N, const DTYPE* B,
   // - WGs iterates across columns of weight matrix
   // - Each wave within WG works on a given column(s)
   // - After completing first set of columns, WGs start
-  //   working on the next set of availble columns
+  //   working on the next set of available columns
   //----------------------------------------------------
   while (n < N) {
     //----------------------------------------------------
     // 'sum' accumulates the matrix A x B computation
-    // splitted across 64 lanes.
+    // split across 64 lanes.
     //
     // YTILE represents how many column of weight matrix
     // are being worked on by each wave.
@@ -1391,7 +1389,7 @@ __global__ void wvSpltK_hf_m3_(const int K, const int N, const DTYPE* B,
         for (uint32_t m = 0; m < M; m++) {
 
           // Do the matrix multiplication of activation and weight matrix
-          // - Rememeber the accumulation is happening for K-split of 64!
+          // - Remember the accumulation is happening for K-split of 64!
 #pragma unroll
           for (uint32_t b = 0; b < A_CHUNK / 2; b++) {
             asm("v_dot2c_f32_f16 %0, %2, %3"
@@ -1600,12 +1598,12 @@ __global__ void wvSpltK_hf_m4_(const int K, const int N, const DTYPE* B,
   // - WGs iterates across columns of weight matrix
   // - Each wave within WG works on a given column(s)
   // - After completing first set of columns, WGs start
-  //   working on the next set of availble columns
+  //   working on the next set of available columns
   //----------------------------------------------------
   while (n < N) {
     //----------------------------------------------------
     // 'sum' accumulates the matrix A x B computation
-    // splitted across 64 lanes.
+    // split across 64 lanes.
     //
     // YTILE represents how many column of weight matrix
     // are being worked on by each wave.
@@ -1744,7 +1742,7 @@ __global__ void wvSpltK_hf_m4_(const int K, const int N, const DTYPE* B,
         for (uint32_t m = 0; m < M; m++) {
 
           // Do the matrix multiplication of activation and weight matrix
-          // - Rememeber the accumulation is happening for K-split of 64!
+          // - Remember the accumulation is happening for K-split of 64!
 #pragma unroll
           for (uint32_t b = 0; b < A_CHUNK / 2; b++) {
             asm("v_dot2c_f32_f16 %0, %2, %3"
