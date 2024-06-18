@@ -383,7 +383,7 @@ __global__ void wvSpltK_hf_m1_sml_(const int K, const int N, const DTYPE* B,
 
         // Fetch A activation matrix in interleaved fashion from LDS or memory
         for (int m = 0; m < M; m++) {
-            bigA[m][k2] = *((const bigType*)(&(s[k_ + K * m])));
+          bigA[m][k2] = *((const bigType*)(&(s[k_ + K * m])));
         }
       }
 
@@ -449,8 +449,6 @@ __global__ void wvSpltK_hf_m1_sml_(const int K, const int N, const DTYPE* B,
     n += CuCount * WvPrGrp * YTILE;
   }
 }
-
-
 
 __global__ void wvSpltK_hf_m1_(const int K, const int N, const DTYPE* B,
                                const DTYPE* __restrict__ A, DTYPE* C,
@@ -1863,8 +1861,8 @@ void wvSpltK_(void* in_a, void* in_b, void* out_c, const int M_in,
   switch (N_in) {
     case 1:
       if ((K_in <= 32 * 1024) && (M_in % 2 == 0)) {
-        wvSpltK_hf_m1_sml_<<<grid, block, 0, stream>>>(K_in, M_in, af4, bf4,
-                                                       c, CuCount);
+        wvSpltK_hf_m1_sml_<<<grid, block, 0, stream>>>(K_in, M_in, af4, bf4, c,
+                                                       CuCount);
       } else {
         wvSpltK_hf_m1_<<<grid, block, 0, stream>>>(K_in, M_in, af4, bf4, c,
                                                    CuCount);
