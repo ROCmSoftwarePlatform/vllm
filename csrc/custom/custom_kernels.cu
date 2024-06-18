@@ -329,8 +329,8 @@ __device__ __forceinline__ T loadnt(T* addr) {
 #define DTYPE half
 
 __global__ void wvSpltK_hf_m1_sml_(const int K, const int N, const DTYPE* B,
-                               const DTYPE* __restrict__ A, DTYPE* C,
-                               const int CuCount) {
+                                   const DTYPE* __restrict__ A, DTYPE* C,
+                                   const int CuCount) {
   union bigType {
     DTYPE h[A_CHUNK];
     float f[A_CHUNK / 2];
@@ -395,9 +395,8 @@ __global__ void wvSpltK_hf_m1_sml_(const int K, const int N, const DTYPE* B,
         if (k_ >= K) break;
 #pragma unroll
         for (uint32_t m = 0; m < M; m++) {
-
-            // Do the matrix multiplication of activation and weight matrix
-            // - Remember the accumulation is happening for K-split of 64!
+          // Do the matrix multiplication of activation and weight matrix
+          // - Remember the accumulation is happening for K-split of 64!
 #pragma unroll
           for (uint32_t b = 0; b < A_CHUNK / 2; b++) {
             asm("v_dot2c_f32_f16 %0, %2, %3"
@@ -680,7 +679,6 @@ __global__ void wvSpltK_hf_m1_(const int K, const int N, const DTYPE* B,
         if (k_ >= K) break;
 #pragma unroll
         for (uint32_t m = 0; m < M; m++) {
-
           // Do the matrix multiplication of activation and weight matrix
           // - Remember the accumulation is happening for K-split of 64!
 #pragma unroll
@@ -1033,7 +1031,6 @@ __global__ void wvSpltK_hf_m2_(const int K, const int N, const DTYPE* B,
         if (k_ >= K) break;
 #pragma unroll
         for (uint32_t m = 0; m < M; m++) {
-
           // Do the matrix multiplication of activation and weight matrix
           // - Remember the accumulation is happening for K-split of 64!
 #pragma unroll
@@ -1386,7 +1383,6 @@ __global__ void wvSpltK_hf_m3_(const int K, const int N, const DTYPE* B,
         if (k_ >= K) break;
 #pragma unroll
         for (uint32_t m = 0; m < M; m++) {
-
           // Do the matrix multiplication of activation and weight matrix
           // - Remember the accumulation is happening for K-split of 64!
 #pragma unroll
@@ -1739,7 +1735,6 @@ __global__ void wvSpltK_hf_m4_(const int K, const int N, const DTYPE* B,
         if (k_ >= K) break;
 #pragma unroll
         for (uint32_t m = 0; m < M; m++) {
-
           // Do the matrix multiplication of activation and weight matrix
           // - Remember the accumulation is happening for K-split of 64!
 #pragma unroll
