@@ -2,7 +2,6 @@
 #include <cuda_fp16.h>
 #include <stdexcept>
 #include <algorithm>
-#include <hip/hip_bf16.h>
 
 constexpr int WARP_SIZE = 64;
 
