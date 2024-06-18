@@ -331,6 +331,131 @@ __device__ __forceinline__ T loadnt(T* addr) {
 #define M 1
 #define DTYPE half
 
+__global__ void wvSpltK_hf_m1_sml_(const int K, const int N, const DTYPE* B,
+                               const DTYPE* __restrict__ A, DTYPE* C,
+                               const int CuCount) {
+  union bigType {
+    DTYPE h[A_CHUNK];
+    float f[A_CHUNK / 2];
+    float2 f2[A_CHUNK / 4];
+    double d[A_CHUNK / 4];
+    __int128_t b128;
+    half8 h8;
+  };
+
+  __shared__ half s[1024 * 32];
+
+  uint32_t n = (blockIdx.x * WvPrGrp + threadIdx.y) * YTILE;
+
+  for (uint32_t k = 0; k < min(K * M, 32 * 1024);
+       k += THRDS * WvPrGrp * A_CHUNK) {
+    uint32_t k_in = k + ((threadIdx.y * THRDS + threadIdx.x) * A_CHUNK);
+    ((bigType*)(&s[k_in]))->b128 = ((bigType*)(&A[k_in]))->b128;
+  }
+  __syncthreads();
+
+  float sum[M][YTILE];
+
+  while (n < N) {
+    for (int i = 0; i < YTILE; i++)
+      for (int m = 0; m < M; m++) sum[m][i] = 0;
+
+    bigType bigA[M][UNRL];
+    bigType bigB0[UNRL];
+#if (YTILE >= 2)
+    bigType bigB1[UNRL];
+#endif
+    for (uint32_t k1 = 0; k1 < K; k1 += THRDS * A_CHUNK * UNRL) {
+#pragma unroll
+      for (uint32_t k2 = 0; k2 < UNRL; k2++) {
+        uint32_t k = k1 + k2 * THRDS * A_CHUNK;
+        uint32_t k_ = k + threadIdx.x * A_CHUNK;
+        if (k_ >= K) break;
+        const half* B_ = &B[(n + 0) * K + k_];
+        bigB0[k2].h8 = (loadnt((half8*)(&B_[0 * K])));
+#if (YTILE >= 2)
+        bigB1[k2].h8 = (loadnt((half8*)(&B_[1 * K])));
+#endif
+      }
+      // Fetch activation matrix from either just LDS or from both LDS / memory
+#pragma unroll
+      for (uint32_t k2 = 0; k2 < UNRL; k2++) {
+        uint32_t k = k1 + k2 * THRDS * A_CHUNK;
+        uint32_t k_ = k + threadIdx.x * A_CHUNK;
+        if (k_ >= K) break;
+
+        // Fetch A activation matrix in interleaved fashion from LDS or memory
+        for (int m = 0; m < M; m++) {
+            bigA[m][k2] = *((const bigType*)(&(s[k_ + K * m])));
+        }
+      }
+
+      // Do the matrix multiplication in interleaved manner
+#pragma unroll
+      for (uint32_t k2 = 0; k2 < UNRL; k2++) {
+        uint32_t k = k1 + k2 * THRDS * A_CHUNK;
+        uint32_t k_ = k + threadIdx.x * A_CHUNK;
+        if (k_ >= K) break;
+#pragma unroll
+        for (uint32_t m = 0; m < M; m++) {
+
+            // Do the matrix multiplication of activation and weight matrix
+            // - Rememeber the accumulation is happening for K-split of 64!
+#pragma unroll
+          for (uint32_t b = 0; b < A_CHUNK / 2; b++) {
+            asm("v_dot2c_f32_f16 %0, %2, %3"
+                : "=v"(sum[m][0])
+                : "0"(sum[m][0]), "v"(bigA[m][k2].f[b]), "v"(bigB0[k2].f[b]));
+
+            //----------------------------------------------------
+            // The following code with YTILE > 1
+            //----------------------------------------------------
+#if (YTILE >= 2)
+            asm("v_dot2c_f32_f16 %0, %2, %3"
+                : "=v"(sum[m][1])
+                : "0"(sum[m][1]), "v"(bigA[m][k2].f[b]), "v"(bigB1[k2].f[b]));
+#endif
+          }
+        }
+      }
+    }
+
+    //----------------------------------------------------
+    // Final reduction step using shuffle
+    //----------------------------------------------------
+    for (int m = 0; m < M; m++) {
+      for (int y = 0; y < YTILE; y++) {
+        sum[m][y] += __shfl_down(sum[m][y], 32);
+        sum[m][y] += __shfl_down(sum[m][y], 16);
+        asm("s_nop 0\n\tv_add_f32 %0, %2, %3 row_shl:8 bound_ctrl:0 "
+            : "=v"(sum[m][y])
+            : "0"(sum[m][y]), "v"(sum[m][y]), "v"(sum[m][y]));
+        asm("s_nop 0\n\tv_add_f32 %0, %2, %3 row_shl:4 bound_ctrl:0 "
+            : "=v"(sum[m][y])
+            : "0"(sum[m][y]), "v"(sum[m][y]), "v"(sum[m][y]));
+        asm("s_nop 0\n\tv_add_f32 %0, %2, %3 row_shl:2 bound_ctrl:0 "
+            : "=v"(sum[m][y])
+            : "0"(sum[m][y]), "v"(sum[m][y]), "v"(sum[m][y]));
+        asm("s_nop 0\n\tv_add_f32 %0, %2, %3 wave_shl:1 bound_ctrl:0"
+            : "=v"(sum[m][y])
+            : "0"(sum[m][y]), "v"(sum[m][y]), "v"(sum[m][y]));
+      }
+    }
+
+    if (threadIdx.x == 0) {
+      for (int m = 0; m < M; m++) {
+        for (int i = 0; i < YTILE; i++) {
+          C[n + i + m * N] = __float2half(sum[m][i]);
+        }
+      }
+    }
+
+    n += CuCount * WvPrGrp * YTILE;
+  }
+}
+
+
+
 __global__ void wvSpltK_hf_m1_(const int K, const int N, const DTYPE* B,
                                const DTYPE* __restrict__ A, DTYPE* C,
                                const int CuCount) {
@@ -552,15 +677,15 @@ __global__ void wvSpltK_hf_m1_(const int K, const int N, const DTYPE* B,
 
       // Do the matrix multiplication in interleaved manner
 #pragma unroll
-      for (uint32_t m = 0; m < M; m++) {
+      for (uint32_t k2 = 0; k2 < UNRL; k2++) {
+        uint32_t k = k1 + k2 * THRDS * A_CHUNK;
+        uint32_t k_ = k + threadIdx.x * A_CHUNK;
+        if (k_ >= K) break;
 #pragma unroll
-        for (uint32_t k2 = 0; k2 < UNRL; k2++) {
-          uint32_t k = k1 + k2 * THRDS * A_CHUNK;
-          uint32_t k_ = k + threadIdx.x * A_CHUNK;
-          if (k_ >= K) break;
+        for (uint32_t m = 0; m < M; m++) {
 
-            // Do the matrix multiplication of activation and weight matrix
-            // - Rememeber the accumulation is happening for K-split of 64!
+          // Do the matrix multiplication of activation and weight matrix
+          // - Rememeber the accumulation is happening for K-split of 64!
 #pragma unroll
           for (uint32_t b = 0; b < A_CHUNK / 2; b++) {
             asm("v_dot2c_f32_f16 %0, %2, %3"
@@ -905,15 +1030,15 @@ __global__ void wvSpltK_hf_m2_(const int K, const int N, const DTYPE* B,
 
       // Do the matrix multiplication in interleaved manner
 #pragma unroll
-      for (uint32_t m = 0; m < M; m++) {
+      for (uint32_t k2 = 0; k2 < UNRL; k2++) {
+        uint32_t k = k1 + k2 * THRDS * A_CHUNK;
+        uint32_t k_ = k + threadIdx.x * A_CHUNK;
+        if (k_ >= K) break;
 #pragma unroll
-        for (uint32_t k2 = 0; k2 < UNRL; k2++) {
-          uint32_t k = k1 + k2 * THRDS * A_CHUNK;
-          uint32_t k_ = k + threadIdx.x * A_CHUNK;
-          if (k_ >= K) break;
+        for (uint32_t m = 0; m < M; m++) {
 
-            // Do the matrix multiplication of activation and weight matrix
-            // - Rememeber the accumulation is happening for K-split of 64!
+          // Do the matrix multiplication of activation and weight matrix
+          // - Rememeber the accumulation is happening for K-split of 64!
 #pragma unroll
           for (uint32_t b = 0; b < A_CHUNK / 2; b++) {
             asm("v_dot2c_f32_f16 %0, %2, %3"
@@ -1258,15 +1383,15 @@ __global__ void wvSpltK_hf_m3_(const int K, const int N, const DTYPE* B,
 
       // Do the matrix multiplication in interleaved manner
 #pragma unroll
-      for (uint32_t m = 0; m < M; m++) {
+      for (uint32_t k2 = 0; k2 < UNRL; k2++) {
+        uint32_t k = k1 + k2 * THRDS * A_CHUNK;
+        uint32_t k_ = k + threadIdx.x * A_CHUNK;
+        if (k_ >= K) break;
 #pragma unroll
-        for (uint32_t k2 = 0; k2 < UNRL; k2++) {
-          uint32_t k = k1 + k2 * THRDS * A_CHUNK;
-          uint32_t k_ = k + threadIdx.x * A_CHUNK;
-          if (k_ >= K) break;
+        for (uint32_t m = 0; m < M; m++) {
 
-            // Do the matrix multiplication of activation and weight matrix
-            // - Rememeber the accumulation is happening for K-split of 64!
+          // Do the matrix multiplication of activation and weight matrix
+          // - Rememeber the accumulation is happening for K-split of 64!
 #pragma unroll
           for (uint32_t b = 0; b < A_CHUNK / 2; b++) {
             asm("v_dot2c_f32_f16 %0, %2, %3"
@@ -1611,15 +1736,15 @@ __global__ void wvSpltK_hf_m4_(const int K, const int N, const DTYPE* B,
 
       // Do the matrix multiplication in interleaved manner
 #pragma unroll
-      for (uint32_t m = 0; m < M; m++) {
+      for (uint32_t k2 = 0; k2 < UNRL; k2++) {
+        uint32_t k = k1 + k2 * THRDS * A_CHUNK;
+        uint32_t k_ = k + threadIdx.x * A_CHUNK;
+        if (k_ >= K) break;
 #pragma unroll
-        for (uint32_t k2 = 0; k2 < UNRL; k2++) {
-          uint32_t k = k1 + k2 * THRDS * A_CHUNK;
-          uint32_t k_ = k + threadIdx.x * A_CHUNK;
-          if (k_ >= K) break;
+        for (uint32_t m = 0; m < M; m++) {
 
-            // Do the matrix multiplication of activation and weight matrix
-            // - Rememeber the accumulation is happening for K-split of 64!
+          // Do the matrix multiplication of activation and weight matrix
+          // - Rememeber the accumulation is happening for K-split of 64!
 #pragma unroll
           for (uint32_t b = 0; b < A_CHUNK / 2; b++) {
             asm("v_dot2c_f32_f16 %0, %2, %3"
@@ -1745,8 +1870,14 @@ void wvSpltK_(void* in_a, void* in_b, void* out_c, const int M_in,
   auto* c = reinterpret_cast<half*>(out_c);
   switch (N_in) {
     case 1:
-      wvSpltK_hf_m1_<<<grid, block, 0, stream>>>(K_in, M_in, af4, bf4, c,
+      if ((K_in <= 32*1024) && (M_in % 2 == 0)) {
+	    wvSpltK_hf_m1_sml_<<<grid, block, 0, stream>>>(K_in, M_in, af4, bf4,
+                                                 c, CuCount);
+      }
+      else {
+	    wvSpltK_hf_m1_<<<grid, block, 0, stream>>>(K_in, M_in, af4, bf4, c,
                                                  CuCount);
+      }
       break;
     case 2:
       wvSpltK_hf_m2_<<<grid, block, 0, stream>>>(K_in, M_in, af4, bf4, c,
