@@ -23,7 +23,7 @@ class TunedGemm:
         self.bestsols = {}
         self.load_best_sols()
         self.create_ds()
-        self.CuCount = torch.cuda.get_device_properties(
+        self.cu_count = torch.cuda.get_device_properties(
             device='cuda').multi_processor_count
 
         if (self.save_gemm == 1):
@@ -51,6 +51,31 @@ class TunedGemm:
     def query_sol(self, m, n, k):
         return self.solids.get((m, n, k), (0, 0))
 
+    def apply_skinny(self, _, n, k, inp_view, weights):
+        if n > 4 or k % 8 != 0 or inp_view.dtype != torch.float16:
+            return None
+        out = torch.empty(inp_view.shape[0],
+                            weights.shape[0],
+                            dtype=inp_view.dtype,
+                            device='cuda')
+        _custom_C.wvSpltK(weights, inp_view, out, n, self.cu_count)
+        """
+        Old LLMM1 code path that is now covered by wvSpltK
+        if n == 1 and inp_view.dtype == torch.float16:
+            out = torch.empty(inp_view.shape[0],
+                            weights.shape[0],
+                            dtype=inp_view.dtype,
+                            device='cuda')
+            if (k == 8192 and
+                (m == 1280 or m == 7168)) or (k == 3584 and m == 8192):
+                _custom_C.LLMM1(weights, inp_view, out, 8)
+            elif k <= 8192 and k % 8 == 0 and m % 4 == 0:
+                _custom_C.LLMM1(weights, inp_view, out, 4)
+            else:
+                out = F.linear(inp_view, weights)
+        """
+        return out
+
     def mm(self, inp, weights):
         # F.Linear can take a 3 dimensional input. vllm
         # uses this for linear units. However, sampler
@@ -61,7 +86,6 @@ class TunedGemm:
         else:
             inp_view = inp
             batched = False
-        #print(f'>>>inp_view {inp_view.shape}')
         if self.extensions_created is False:
             rocb_create_extension()
             hipb_create_extension()
@@ -70,16 +94,15 @@ class TunedGemm:
         n = inp_view.shape[0]
         k = inp_view.shape[1]
         soltype, solidx = self.query_sol(m=m, n=n, k=k)
-        if soltype == 1:
-            #print(">>> found hipblas")
+        out = self.apply_skinny(m, n, k, inp_view, weights)
+        if out is not None:
+            pass
+        elif soltype == 1:
             out = hipb_mm(inp_view, weights.t(), solidx)
         elif soltype == 2:
-            #print(">>> found rocblas")
             out = rocb_mm(inp_view, weights.t(), solidx)
         else:
             if (self.save_gemm == 1):
-                #print('>>>Tgemm Default',inp_view.shape,
-                #      inp.shape,weights.shape,soltype,solidx)
                 self.tuned_df = pd.concat([
                     self.tuned_df,
                     pd.DataFrame({
@@ -89,28 +112,7 @@ class TunedGemm:
                     })
                 ]).drop_duplicates()
                 self.tuned_df.to_csv(self.untune_path, index=False)
-
-            if ((n == 4 or n == 3 or n == 2 or n == 1) and k % 8 == 0
-                    and inp_view.dtype == torch.float16):
-                out = torch.empty(inp_view.shape[0],
-                                  weights.shape[0],
-                                  dtype=inp_view.dtype,
-                                  device='cuda')
-                _custom_C.wvSpltK(weights, inp_view, out, n, self.CuCount)
-            elif n == 1 and inp_view.dtype == torch.float16:
-                out = torch.empty(inp_view.shape[0],
-                                  weights.shape[0],
-                                  dtype=inp_view.dtype,
-                                  device='cuda')
-                if (k == 8192 and
-                    (m == 1280 or m == 7168)) or (k == 3584 and m == 8192):
-                    _custom_C.LLMM1(weights, inp_view, out, 8)
-                elif k <= 8192 and k % 8 == 0 and m % 4 == 0:
-                    _custom_C.LLMM1(weights, inp_view, out, 4)
-                else:
-                    out = F.linear(inp_view, weights)
-            else:
-                out = F.linear(inp_view, weights)
+            out = F.linear(inp_view, weights)
         if batched:
             return out.view(inp.shape[0], inp.shape[1], weights.shape[0])
         else:
