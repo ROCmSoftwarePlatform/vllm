@@ -201,8 +201,7 @@ class CustomAllreduce:
             logger.warning(
                 "Custom allreduce is disabled because your platform lacks "
                 "GPU P2P capability or P2P test failed. To silence this "
-                "warning, specify disable_custom_all_reduce=True explicitly."
-            )
+                "warning, specify disable_custom_all_reduce=True explicitly.")
             return
 
         self.disabled = False
