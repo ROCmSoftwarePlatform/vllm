@@ -52,12 +52,10 @@ class TunedGemm:
         return self.solids.get((m, n, k), (0, 0))
 
     def apply_skinny(self, _, n, k, inp_view, weights):
-        if n > 4 or k % 8 != 0 or inp_view.dtype != torch.float16:
-            return None
         out = torch.empty(inp_view.shape[0],
-                            weights.shape[0],
-                            dtype=inp_view.dtype,
-                            device='cuda')
+                          weights.shape[0],
+                          dtype=inp_view.dtype,
+                          device='cuda')
         _custom_C.wvSpltK(weights, inp_view, out, n, self.cu_count)
         """
         Old LLMM1 code path that is now covered by wvSpltK
@@ -94,9 +92,8 @@ class TunedGemm:
         n = inp_view.shape[0]
         k = inp_view.shape[1]
         soltype, solidx = self.query_sol(m=m, n=n, k=k)
-        out = self.apply_skinny(m, n, k, inp_view, weights)
-        if out is not None:
-            pass
+        if n < 4 and k % 8 != 0 and inp_view.dtype != torch.float16:
+            out = self.apply_skinny(m, n, k, inp_view, weights)
         elif soltype == 1:
             out = hipb_mm(inp_view, weights.t(), solidx)
         elif soltype == 2:
