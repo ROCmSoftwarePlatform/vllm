@@ -71,7 +71,7 @@ class TunedGemm:
         else:
             return None
 
-    def mm(self, inp, weights, bias = None):
+    def mm(self, inp, weights, bias=None):
         # F.Linear can take a 3 dimensional input. vllm
         # uses this for linear units. However, sampler
         # will use torch.matmul with 2 dimensions only
