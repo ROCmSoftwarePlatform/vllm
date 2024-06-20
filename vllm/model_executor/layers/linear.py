@@ -2,7 +2,6 @@ from abc import abstractmethod
 from typing import List, Optional
 
 import torch
-import torch.nn.functional as F
 from torch.nn.parameter import Parameter
 
 from vllm.distributed import (divide, get_tensor_model_parallel_rank,
