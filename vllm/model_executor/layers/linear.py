@@ -69,7 +69,7 @@ class UnquantizedLinearMethod(LinearMethodBase):
                            multiplication.
     """
 
-    def __init__(self, separate_bias_add: bool = True):
+    def __init__(self, separate_bias_add: bool = False):
         self.separate_bias_add = separate_bias_add
 
     def create_weights(self, layer: torch.nn.Module,
@@ -90,11 +90,9 @@ class UnquantizedLinearMethod(LinearMethodBase):
               x: torch.Tensor,
               bias: Optional[torch.Tensor] = None) -> torch.Tensor:
         weight = layer.weight
-        if bias is not None:
-            if self.separate_bias_add:
-                return tgemm.mm(x, weight) + bias
-            return F.linear(x, weight, bias)
-        return tgemm.mm(x, weight)
+        if self.separate_bias_add and bias is not None:
+            return tgemm.mm(x, weight) + bias
+        return F.linear(x, weight, bias)
 
 
 class LinearBase(torch.nn.Module):

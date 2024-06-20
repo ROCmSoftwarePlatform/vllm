@@ -71,7 +71,7 @@ class TunedGemm:
         else:
             return None
 
-    def mm(self, inp, weights):
+    def mm(self, inp, weights, bias = None):
         # F.Linear can take a 3 dimensional input. vllm
         # uses this for linear units. However, sampler
         # will use torch.matmul with 2 dimensions only
@@ -107,11 +107,12 @@ class TunedGemm:
                     })
                 ]).drop_duplicates()
                 self.tuned_df.to_csv(self.untune_path, index=False)
-            out = F.linear(inp_view, weights)
+            return F.linear(inp, weights, bias)
         if batched:
-            return out.view(inp.shape[0], inp.shape[1], weights.shape[0])
-        else:
-            return out
+            out = out.view(inp.shape[0], inp.shape[1], weights.shape[0])
+        if bias is not None:
+            return out + bias
+        return out
 
 
 tgemm = TunedGemm()
