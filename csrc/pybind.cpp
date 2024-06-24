@@ -116,7 +116,6 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
                 "allocate_meta_buffer");
   custom_ar.def("get_meta_buffer_ipc_handle", &get_meta_buffer_ipc_handle,
                 "get_meta_buffer_ipc_handle");
-  custom_ar.def("get_device_bdf", &get_device_bdf,
-                "get_device_bdf");
+  custom_ar.def("get_device_bdf", &get_device_bdf, "get_device_bdf");
 #endif
 }

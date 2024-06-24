@@ -3,7 +3,7 @@
 #include <cuda.h>
 #ifdef USE_ROCM
   #include <hip/hip_bf16.h>
-  typedef __hip_bfloat16 nv_bfloat16;
+typedef __hip_bfloat16 nv_bfloat16;
 #else
   #include <cuda_bf16.h>
 #endif
@@ -34,13 +34,13 @@ constexpr int kMaxBlocks = 64;
 struct Signal {
   alignas(128) uint32_t start[kMaxBlocks][8];
   alignas(128) uint32_t end[kMaxBlocks][8];
-  alignas(128) uint32_t _flag[kMaxBlocks]; // incremental flags for each rank
+  alignas(128) uint32_t _flag[kMaxBlocks];  // incremental flags for each rank
 };
 
 #ifdef USE_ROCM
-  struct __align__(16) RankData { const void * ptrs[8]; };
+struct __align__(16) RankData { const void* ptrs[8]; };
 #else
-  struct __align__(16) RankData { const void *__restrict__ ptrs[8]; };
+struct __align__(16) RankData { const void* __restrict__ ptrs[8]; };
 #endif
 
 struct __align__(16) RankSignals { volatile Signal* signals[8]; };
@@ -141,14 +141,15 @@ template <int ngpus>
 DINLINE void start_sync(const RankSignals& sg, volatile Signal* self_sg,
                         int rank) {
 #ifdef USE_ROCM
-  uint32_t flag = self_sg->_flag[blockIdx.x]+1;
+  uint32_t flag = self_sg->_flag[blockIdx.x] + 1;
   if (threadIdx.x < ngpus) {
     // simultaneously write to the corresponding flag of all ranks.
     // Latency = 1 p2p write
-    __atomic_store_n(&sg.signals[threadIdx.x]->start[blockIdx.x][rank], flag, __ATOMIC_RELAXED);
+    __atomic_store_n(&sg.signals[threadIdx.x]->start[blockIdx.x][rank], flag,
+                     __ATOMIC_RELAXED);
     // wait until we got true from all ranks
-    while (__atomic_load_n(&self_sg->start[blockIdx.x][threadIdx.x], __ATOMIC_RELAXED) < flag)
-      ;
+    while (__atomic_load_n(&self_sg->start[blockIdx.x][threadIdx.x],
+                           __ATOMIC_RELAXED) < flag);
   }
   __syncthreads();
   // use one thread to update flag
@@ -179,14 +180,16 @@ DINLINE void end_sync(const RankSignals& sg, volatile Signal* self_sg,
   // visible. Note that I did not managed to make this happen through a lot of
   // testing. Might be the case that hardware provides stronger guarantee than
   // the memory model.
-  uint32_t flag = self_sg->_flag[blockIdx.x]+1;
+  uint32_t flag = self_sg->_flag[blockIdx.x] + 1;
   if (threadIdx.x < ngpus) {
     // simultaneously write to the corresponding flag of all ranks.
     // Latency = 1 p2p write
-    __atomic_store_n(&sg.signals[threadIdx.x]->end[blockIdx.x][rank], flag, final_sync ? __ATOMIC_RELAXED : __ATOMIC_RELEASE);
+    __atomic_store_n(&sg.signals[threadIdx.x]->end[blockIdx.x][rank], flag,
+                     final_sync ? __ATOMIC_RELAXED : __ATOMIC_RELEASE);
     // wait until we got true from all ranks
-    while (__atomic_load_n(&self_sg->end[blockIdx.x][threadIdx.x], final_sync ? __ATOMIC_RELAXED : __ATOMIC_ACQUIRE) < flag)
-      ;
+    while (__atomic_load_n(&self_sg->end[blockIdx.x][threadIdx.x],
+                           final_sync ? __ATOMIC_RELAXED : __ATOMIC_ACQUIRE) <
+           flag);
   }
   __syncthreads();
   // use one thread to update flag

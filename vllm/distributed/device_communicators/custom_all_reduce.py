@@ -11,10 +11,13 @@ from vllm.distributed.device_communicators.custom_all_reduce_utils import (
 from vllm.distributed.parallel_state import (
     get_local_rank, get_tensor_model_parallel_cpu_group)
 from vllm.logger import init_logger
+from vllm.utils import is_hip
 
 try:
-    if torch.version.hip:
-        from amdsmi import *
+    if is_hip():
+        from amdsmi import (AmdSmiException,
+                            amdsmi_get_processor_handle_from_bdf, amdsmi_init,
+                            amdsmi_shut_down, amdsmi_topo_get_link_type)
     else:
         import pynvml
 
@@ -58,12 +61,11 @@ def _is_full_nvlink(device_ids: List[int], world_size) -> bool:
     Note that `pynvml` is not affected by `CUDA_VISIBLE_DEVICES`,
     so it works on real physical device ids.
     """
-    if torch.version.hip:
+    if is_hip():
         # get devices' BDF in order to get XGMI link info from  amdsmi
         bdf = custom_ar.get_device_bdf(torch.cuda.current_device())
-        all_bdf = [None] * world_size
+        all_bdf = [0] * world_size
         dist.all_gather_object(all_bdf, bdf)
-        print(all_bdf)
         hsmi = [None] * world_size
         try:
             for i in range(world_size):
@@ -76,7 +78,7 @@ def _is_full_nvlink(device_ids: List[int], world_size) -> bool:
                     if link_type['hops'] != 1 or link_type['type'] != 2:
                         return False
         except AmdSmiException as e:
-            print(e)
+            logger.warning(e)
             return False
         return True
     else:
@@ -196,8 +198,8 @@ class CustomAllreduce:
         # test P2P capability, this checks software/cudaruntime support
         # this is expensive to compute at the first time
         # then we cache the result
-        # On AMG GPU, p2p is always enabled between XGMI connected GPUs
-        if torch.version.cuda and not _can_p2p(rank, world_size):
+        # On AMD GPU, p2p is always enabled between XGMI connected GPUs
+        if not is_hip() and not _can_p2p(rank, world_size):
             logger.warning(
                 "Custom allreduce is disabled because your platform lacks "
                 "GPU P2P capability or P2P test failed. To silence this "
@@ -209,7 +211,7 @@ class CustomAllreduce:
         # meta data composes of two parts: meta data for synchronization
         # (256 bytes) and a temporary buffer for storing intermediate
         # allreduce results.
-        if torch.version.hip:
+        if is_hip():
             # meta data buffers need to be "uncached" for signal on MI200
             self.meta = custom_ar.allocate_meta_buffer(custom_ar.meta_size() +
                                                        max_size)
@@ -233,7 +235,7 @@ class CustomAllreduce:
         self.max_size = max_size
         self.rank = rank
         self.world_size = world_size
-        if torch.version.hip:
+        if is_hip():
             # _share_cuda_() doesn't accept meta buffer not allocated from
             # PyTorch cache allocator, use direct HIP call to get IPC handle
             handle = custom_ar.get_meta_buffer_ipc_handle(self.meta)

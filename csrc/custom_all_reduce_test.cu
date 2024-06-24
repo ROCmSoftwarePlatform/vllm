@@ -23,7 +23,7 @@
 #include "mpi.h"
 #ifdef USE_ROCM
   #include <hip/hip_bf16.h>
-  typedef __hip_bfloat16 nv_bfloat16;
+typedef __hip_bfloat16 nv_bfloat16;
   #include "rccl/rccl.h"
   #include "custom_all_reduce_hip.cuh"
 #else
@@ -55,8 +55,9 @@ __global__ void dummy_kernel() {
   for (int i = 0; i < 100; i++) {
     uint64_t start = wall_clock64();
     uint64_t cycles_elapsed;
-    do { cycles_elapsed = wall_clock64() - start; }
-    while (cycles_elapsed < 100);
+    do {
+      cycles_elapsed = wall_clock64() - start;
+    } while (cycles_elapsed < 100);
   }
 #else
   for (int i = 0; i < 100; i++) __nanosleep(1000000);  // 100ms
@@ -131,8 +132,9 @@ void run(int myRank, int nRanks, ncclComm_t& comm, int threads, int block_limit,
    * convenience.
    */
 #ifdef USE_ROCM
-  CUDACHECK(
-      hipExtMallocWithFlags((void**)&buffer, 2 * data_size * sizeof(T) + sizeof(vllm::Signal), hipDeviceMallocUncached));
+  CUDACHECK(hipExtMallocWithFlags(
+      (void**)&buffer, 2 * data_size * sizeof(T) + sizeof(vllm::Signal),
+      hipDeviceMallocUncached));
 #else
   CUDACHECK(
       cudaMalloc(&buffer, 2 * data_size * sizeof(T) + sizeof(vllm::Signal)));
