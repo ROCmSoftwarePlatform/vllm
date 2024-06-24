@@ -17,22 +17,24 @@ dtype = torch.float16
 
 class Gemm:
 
-    def __init__(self, m, n, k, dtype, rocblas_decode=False):
+    def __init__(self, m, n, k, indtype, outdtype, rocblas_decode=False):
         self.m = m
         self.k = k
         self.n = n
-        self.dtype = dtype
+        self.indtype = indtype
+        self.outdtype = outdtype
+        self.use_rocblas = indtype == outdtype and indtype is not torch.float8_e4m3fnuz
         self.nb = 37
         self.inp = torch.randn((self.n, self.k),
-                               dtype=self.dtype,
+                               dtype=self.indtype,
                                device='cuda')
         self.weights = torch.randn((self.m, self.k),
-                                   dtype=self.dtype,
+                                   dtype=self.indtype,
                                    device='cuda')
         # weights2 is used in measurement/warm iters to ensure
         # HBM fetch for weight tensors
         self.weights2 = torch.randn((self.nb, self.m, self.k),
-                                    dtype=self.dtype,
+                                    dtype=self.indtype,
                                     device='cuda')
         self.blob = torch.ones(128 * 1024 * 1024,
                                dtype=torch.float32,
@@ -228,9 +230,10 @@ class Gemm:
 
 class GemmTuner:
 
-    def __init__(self, dtype, tuned_file=None, rocblas_decode=False):
+    def __init__(self, indtype, outdtype, tuned_file=None, rocblas_decode=False):
         self.gemm_problems = pd.DataFrame(columns=['M', 'N', 'K'])
-        self.dtype = dtype
+        self.indtype = indtype
+        self.outdtype = outdtype
         self.rocblas_decode = rocblas_decode
         self.tuned_file = tuned_file
         if Path(tuned_file).is_file():
@@ -259,7 +262,8 @@ class GemmTuner:
             gemmobj = Gemm(ds['M'],
                            ds['N'],
                            ds['K'],
-                           dtype=self.dtype,
+                           indtype=self.indtype,
+                           outdtype=self.outdtype,
                            rocblas_decode=self.rocblas_decode)
             gemmobj.find_fastest_solution()
             soldf.loc[i, 'libtype'] = gemmobj.best_libtype
