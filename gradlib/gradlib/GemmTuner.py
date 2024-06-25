@@ -22,7 +22,8 @@ class Gemm:
         self.n = n
         self.indtype = indtype
         self.outdtype = outdtype
-        self.use_rocblas = indtype == outdtype and indtype is not torch.float8_e4m3fnuz
+        self.use_rocblas = (indtype == outdtype and 
+                            indtype is not torch.float8_e4m3fnuz)
         self.nb = 37
         self.inp = torch.randn((self.n, self.k),
                                device='cuda').to(self.indtype)
@@ -48,7 +49,8 @@ class Gemm:
         self.rocblas_decode = rocblas_decode
 
     def find_hipblas_sols(self):
-        sols = hipbsolidxgemm.hipb_findallsols(self.inp, self.weights.t(), self.outdtype)
+        sols = hipbsolidxgemm.hipb_findallsols(self.inp, self.weights.t(),
+                                               self.outdtype)
         print('M N K',
               self.m,
               self.n,
@@ -60,11 +62,11 @@ class Gemm:
         self.hipb_sols = sols
 
     def check_gemm_ref(self, libtype, solidx):
-        ref = F.linear(self.inp.to(torch.float32), 
+        ref = F.linear(self.inp.to(torch.float32),
                        self.weights.to(torch.float32)).to(self.outdtype)
         if libtype == 'hipblaslt':
-            c = hipbsolidxgemm.hipb_mm(self.inp, self.weights.t(), 
-                                       solidx, self.outdtype)
+            c = hipbsolidxgemm.hipb_mm(self.inp, self.weights.t(), solidx,
+                                       self.outdtype)
         elif libtype == 'rocblas':
             c = rocsolidxgemm.rocb_mm(self.inp, self.weights.t(), solidx)
         if torch.allclose(c, ref, atol=self.atol, rtol=self.rtol):
@@ -84,7 +86,8 @@ class Gemm:
     def hipb_time_sol(self, solidx, cold_iters=2, warm_iters=10):
         #print('>>>hipbtime',solidx)
         for i in range(cold_iters):
-            hipbsolidxgemm.hipb_mm(self.inp, self.weights.t(), solidx, self.outdtype)
+            hipbsolidxgemm.hipb_mm(self.inp, self.weights.t(), solidx,
+                                   self.outdtype)
         self.start.record()
         for i in range(warm_iters):
             hipbsolidxgemm.hipb_mm(
@@ -230,7 +233,11 @@ class Gemm:
 
 class GemmTuner:
 
-    def __init__(self, indtype, outdtype, tuned_file=None, rocblas_decode=False):
+    def __init__(self,
+                 indtype,
+                 outdtype,
+                 tuned_file=None,
+                 rocblas_decode=False):
         self.gemm_problems = pd.DataFrame(columns=['M', 'N', 'K'])
         self.indtype = indtype
         self.outdtype = outdtype

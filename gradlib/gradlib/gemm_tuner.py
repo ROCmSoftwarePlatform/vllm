@@ -95,7 +95,7 @@ if __name__ == '__main__':
                         help="N sizes to tune for: 1,128,2048")
     args = parser.parse_args()
 
-    if args.outdtype == None:
+    if args.outdtype is None:
         args.outdtype = args.indtype
     indtype = get_dtype(args.indtype)
     outdtype = get_dtype(args.outdtype)
