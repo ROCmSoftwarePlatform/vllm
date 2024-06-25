@@ -12,7 +12,6 @@ hipbsolidxgemm.hipb_create_extension()
 
 rtol = 1e-5
 atol = 1
-dtype = torch.float16
 
 
 class Gemm:
@@ -26,21 +25,19 @@ class Gemm:
         self.use_rocblas = indtype == outdtype and indtype is not torch.float8_e4m3fnuz
         self.nb = 37
         self.inp = torch.randn((self.n, self.k),
-                               dtype=self.indtype,
-                               device='cuda')
+                               device='cuda').to(self.indtype)
         self.weights = torch.randn((self.m, self.k),
-                                   dtype=self.indtype,
-                                   device='cuda')
+                                   device='cuda').to(self.indtype)
         # weights2 is used in measurement/warm iters to ensure
         # HBM fetch for weight tensors
         self.weights2 = torch.randn((self.nb, self.m, self.k),
-                                    dtype=self.indtype,
-                                    device='cuda')
+                                    device='cuda').to(self.indtype)
         self.blob = torch.ones(128 * 1024 * 1024,
                                dtype=torch.float32,
                                device='cuda')
         self.topn = 20  #number of top solutions from each source
         self.hipb_sols = []
+        self.rocb_sols = []
         self.rtol = 1e-5
         self.atol = 1
         self.start = torch.cuda.Event(enable_timing=True)
@@ -51,7 +48,7 @@ class Gemm:
         self.rocblas_decode = rocblas_decode
 
     def find_hipblas_sols(self):
-        sols = hipbsolidxgemm.hipb_findallsols(self.inp, self.weights.t())
+        sols = hipbsolidxgemm.hipb_findallsols(self.inp, self.weights.t(), self.outdtype)
         print('M N K',
               self.m,
               self.n,
@@ -63,34 +60,36 @@ class Gemm:
         self.hipb_sols = sols
 
     def check_gemm_ref(self, libtype, solidx):
-        ref = F.linear(self.inp, self.weights)
+        ref = F.linear(self.inp.to(torch.float32), 
+                       self.weights.to(torch.float32)).to(self.outdtype)
         if libtype == 'hipblaslt':
-            c = hipbsolidxgemm.hipb_mm(self.inp, self.weights.t(), solidx)
+            c = hipbsolidxgemm.hipb_mm(self.inp, self.weights.t(), 
+                                       solidx, self.outdtype)
         elif libtype == 'rocblas':
             c = rocsolidxgemm.rocb_mm(self.inp, self.weights.t(), solidx)
         if torch.allclose(c, ref, atol=self.atol, rtol=self.rtol):
             #print('>>>',libtype,'Solidx',solidx,'passed reference test')
             return True
-        else:
-            print('>>>',
-                  libtype,
-                  'Solidx',
-                  solidx,
-                  'FAILED reference test',
-                  flush=True)
-            print(ref, flush=True)
-            print(c, flush=True)
-            return False
+
+        print('>>>',
+              libtype,
+              'Solidx',
+              solidx,
+              'FAILED reference test',
+              flush=True)
+        print(ref, flush=True)
+        print(c, flush=True)
+        return False
 
     def hipb_time_sol(self, solidx, cold_iters=2, warm_iters=10):
         #print('>>>hipbtime',solidx)
         for i in range(cold_iters):
-            hipbsolidxgemm.hipb_mm(self.inp, self.weights.t(), solidx)
+            hipbsolidxgemm.hipb_mm(self.inp, self.weights.t(), solidx, self.outdtype)
         self.start.record()
         for i in range(warm_iters):
             hipbsolidxgemm.hipb_mm(
                 self.inp, self.weights2[random.randint(0, self.nb - 1)].t(),
-                solidx)
+                solidx, self.outdtype)
         self.end.record()
         torch.cuda.synchronize()
         gtime = self.start.elapsed_time(self.end) / warm_iters
@@ -180,7 +179,8 @@ class Gemm:
         self.hipb_top_sols = hipb_topn
 
     def find_fastest_solution(self):
-        self.find_rocblas_sols()
+        if self.use_rocblas:
+            self.find_rocblas_sols()
         if not (self.rocblas_decode and self.n == 1):
             self.find_hipblas_sols()
         self.warmup()
@@ -269,7 +269,8 @@ class GemmTuner:
             soldf.loc[i, 'libtype'] = gemmobj.best_libtype
             soldf.loc[i, 'solidx'] = gemmobj.best_solidx
             soldf.loc[i, 'soltimems'] = gemmobj.best_soltime
-        soldf['dtype'] = self.dtype
+        soldf['indtype'] = self.indtype
+        soldf['outdtype'] = self.outdtype
         finaldf = pd.concat([self.gemm_problems, soldf], axis=1)
         finaldf = pd.concat([finaldf, self.gdf])
         finaldf.to_csv(self.tuned_file, index=False)
