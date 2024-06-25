@@ -36,7 +36,7 @@ def get_dtype(dtype_str):
         dtype = torch.bfloat16
     elif dtype_str == 'f16':
         dtype = torch.float16
-    elif dtype_str == 'f8':
+    elif dtype_str == 'fp8':
         dtype = torch.float8_e4m3fnuz
     else:
         print('>>> Warning! Invalid dtype', dtype_str,
@@ -75,11 +75,11 @@ if __name__ == '__main__':
     parser.add_argument("--indtype",
                         type=str,
                         default='f16',
-                        choices=["f32", "f16", "bf16", "f8"],
+                        choices=["f32", "f16", "bf16", "fp8"],
                         help="dtype f32 f16 bf16 fp8")
     parser.add_argument("--outdtype",
                         type=str,
-                        choices=["f32", "f16", "bf16", "f8"],
+                        choices=["f32", "f16", "bf16", "fp8"],
                         help="dtype f32 f16 bf16 fp8")
     parser.add_argument("--rocblas-decode",
                         action="store_true",
