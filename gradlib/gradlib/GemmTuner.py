@@ -22,8 +22,8 @@ class Gemm:
         self.n = n
         self.indtype = indtype
         self.outdtype = outdtype
-        self.use_rocblas = (indtype == outdtype and 
-                            indtype is not torch.float8_e4m3fnuz)
+        self.use_rocblas = (indtype == outdtype
+                            and indtype is not torch.float8_e4m3fnuz)
         self.nb = 37
         self.inp = torch.randn((self.n, self.k),
                                device='cuda').to(self.indtype)
