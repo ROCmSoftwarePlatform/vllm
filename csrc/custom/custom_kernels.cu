@@ -771,7 +771,7 @@ __global__ void wvSpltK_hf_m1_(const int K, const int N, const DTYPE* B,
         asm("s_nop 0\n\tv_add_f32 %0, %2, %3 row_bcast:31 bound_ctrl:0"
             : "=v"(sum[m][y])
             : "0"(sum[m][y]), "v"(sum[m][y]), "v"(sum[m][y]));
-       }
+      }
     }
 
     if (threadIdx.x == 63) {
