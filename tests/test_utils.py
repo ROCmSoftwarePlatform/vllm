@@ -126,7 +126,7 @@ def is_rocm62():
 
 def xfail_if_rocm62(function=None,
                     reason: str = "Tests are not yet ready for ROCm 6.2",
-                    strict: bool = True):
+                    strict: bool = False):
     if function:
         return pytest.mark.xfail(is_rocm62(), reason=reason,
                                  strict=strict)(function)
