@@ -145,9 +145,9 @@ torch::Tensor fp8_gemm(torch::Tensor& a, torch::Tensor& b,
   auto strideB = n * k;
   auto strideC = m * n;
 
-  CHECK_HIPBLASLT_ERROR(gemm.setProblem(m, n, k, 1, lda, ldb, ldc,
-                                        ldc, strideA, strideB, strideC, strideC, epilogue, inputs,
-                                        problem));
+  CHECK_HIPBLASLT_ERROR(gemm.setProblem(m, n, k, 1, lda, ldb, ldc, ldc, strideA,
+                                        strideB, strideC, strideC, epilogue,
+                                        inputs, problem));
 
   if (algo_idx == 0) {
     constexpr int request_solutions = 1024;
@@ -287,9 +287,9 @@ torch::Tensor fp8_gemm_16(torch::Tensor& a, torch::Tensor& b,
   auto strideB = n * k;
   auto strideC = m * n;
 
-  CHECK_HIPBLASLT_ERROR(gemm.setProblem(m, n, k, 1, lda, ldb, ldc,
-                                        ldc, strideA, strideB, strideC, strideC, epilogue, inputs,
-                                        problem));
+  CHECK_HIPBLASLT_ERROR(gemm.setProblem(m, n, k, 1, lda, ldb, ldc, ldc, strideA,
+                                        strideB, strideC, strideC, epilogue,
+                                        inputs, problem));
   if (algo_idx == 0) {
     constexpr int request_solutions = 1024;
     std::vector<hipblasLtMatmulHeuristicResult_t> heuristicResult;
