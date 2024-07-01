@@ -4,7 +4,7 @@ from transformers import AutoConfig, PretrainedConfig
 
 from vllm.logger import init_logger
 from vllm.transformers_utils.configs import (ChatGLMConfig, DbrxConfig,
-                                             JAISConfig, MPTConfig, RWConfig)
+                                             JAISConfig, MPTConfig, RWConfig, Grok1Config)
 
 logger = init_logger(__name__)
 
