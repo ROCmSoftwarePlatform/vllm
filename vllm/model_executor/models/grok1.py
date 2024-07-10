@@ -21,6 +21,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Inference-only Grok1 model."""
+import os
 from typing import Iterable, List, Optional, Tuple
 
 import torch
@@ -596,6 +597,162 @@ class Grok1ForCausalLM(nn.Module):
                                             default_weight_loader)
                     weight_loader(param, loaded_weight)
 
+    def load_quantized_weights(self, weights: Iterable[Tuple[str,
+                                                             torch.Tensor]]):
+
+        def load_ammo():
+            params_dict = dict(self.named_parameters())
+            
+            quant_map = [
+                ("attn.o_proj", "attention.dense"),
+                ("attn.qkv_proj", "attention.qkv"),
+            ]
+            for name, loaded_weight in weights:
+                name = name.replace('transformer', 'model')
+                name = name.replace('kv_cache_scaling_factor',
+                                    'qkv.output_scaling_factor')
+                loaded_weight = loaded_weight.to("cuda")
+                if loaded_weight.dtype == torch.int8:
+                    loaded_weight[loaded_weight == -128] = 0
+                    assert loaded_weight.is_contiguous
+                    loaded_weight = loaded_weight.view(torch.float8_e4m3fnuz)
+                for (param_name, weight_name, shard_id) in quant_shards:
+                    if weight_name not in name:
+                        continue
+                    name = name.replace(weight_name, param_name)
+                    # Skip loading extra bias for GPTQ models.
+                    if name.endswith(".bias") and name not in params_dict:
+                        continue
+                    param = params_dict[name]
+                    weight_loader = param.weight_loader
+                    weight_loader(param, loaded_weight, shard_id)
+                    break
+                else:
+                    # Skip loading extra bias for GPTQ models.
+                    for (param_name, weight_name) in quant_map:
+                        if weight_name not in name:
+                            continue
+                        name = name.replace(weight_name, param_name)
+                        param = params_dict[name]
+                        if ("activation_scaling_factor" in name
+                                or "weights_scaling_factor" in name
+                                or "output_scaling_factor" in name):
+                            param.data.copy_(loaded_weight)
+                        else:
+                            weight_loader = getattr(param, "weight_loader",
+                                                    default_weight_loader)
+                            weight_loader(param, loaded_weight)
+                        break
+
+        def load_quark():
+            params_dict = dict(self.named_parameters())
+            
+            quant_map = [
+                ("attn.o_proj", "attn.o_proj"),
+                ("attn.qkv_proj", "attn.qkv"),
+            ]
+
+            expert_params_mapping = [
+                # These are the weight scales for the experts
+                # (param_name, weight_name, expert_id)
+                ("w13_weights_scaling_factor" if weight_name in ["linear", "linear_v"] else "w2_weights_scaling_factor",
+                 f"experts.{expert_id}.{weight_name}.weights_scaling_factor", expert_id)
+                for expert_id in range(self.config.num_experts)
+                for weight_name in ["linear", "linear_1", "linear_v"]
+            ] + [
+                # These are the weights for the experts
+                # (param_name, weight_name, expert_id)
+                ("w13_weight" if weight_name in ["linear", "linear_v"] else "w2_weight",
+                 f"experts.{expert_id}.{weight_name}.weight", expert_id)
+                for expert_id in range(self.config.num_experts)
+                for weight_name in ["linear", "linear_1", "linear_v"]
+            ] + [
+                # These are the activation scales for the experts
+                # (param_name, weight_name, expert_id)
+                ("w13_activation_scaling_factor" if weight_name in ["linear", "linear_v"] else "w2_activation_scaling_factor",
+                 f"experts.{expert_id}.{weight_name}.activation_scaling_factor", expert_id)
+                for expert_id in range(self.config.num_experts)
+                for weight_name in ["linear", "linear_1", "linear_v"]
+            ]
+
+            scaling_factor_map = [
+                ("activation_scaling_factor", "input_quant_scale"),
+                ("weights_scaling_factor", "weight_quant_scale"),
+                ("output_scaling_factor", "output_quant_scale"),
+            ]
+            for name, loaded_weight in weights:
+                if "zero_point" in name:
+                    continue
+                if len(loaded_weight.shape) == 0:
+                    loaded_weight = torch.Tensor([loaded_weight])
+                # replace the name for scaling factor
+                for (scale_name, weight_name) in scaling_factor_map:
+                    if weight_name not in name:
+                        continue
+                    name = name.replace(weight_name, scale_name)
+                if loaded_weight.dtype == torch.int8:
+                    loaded_weight[loaded_weight == -128] = 0
+                    assert loaded_weight.is_contiguous
+                    loaded_weight = loaded_weight.view(torch.float8_e4m3fnuz)
+
+                for (param_name, weight_name) in quant_map:
+                    if weight_name not in name:
+                        continue
+                    name = name.replace(weight_name, param_name)
+                    param = params_dict[name]
+                    if ("activation_scaling_factor" in name
+                            or "weights_scaling_factor" in name
+                            or "output_scaling_factor" in name):
+                        param.data.copy_(loaded_weight)
+                    else:
+                        weight_loader = getattr(param, "weight_loader",
+                                                default_weight_loader)
+                        weight_loader(param, loaded_weight)
+                    break
+                else:
+                    for param_name, weight_name, expert_id in expert_params_mapping:
+                        if weight_name not in name:
+                            continue
+                        name = name.replace(weight_name, param_name)
+                        param = params_dict[name]
+                        if ("activation_scaling_factor" in name
+                                or "weights_scaling_factor" in name
+                                or "output_scaling_factor" in name):
+                            param.data.copy_(loaded_weight)
+                        else:
+                            weight_loader = getattr(param, "weight_loader",
+                                                    default_weight_loader)
+                            weight_loader(param, loaded_weight, weight_name, expert_id)
+                        break
+
+
+        load_func = load_ammo if os.getenv(
+            "VLLM_FP8_USE_AMMO") == "1" else load_quark
+        load_func()
+
+    # If this function is called, it should always initialize KV cache scale
+    # factors (or else raise an exception). Thus, handled exceptions should
+    # make sure to leave KV cache scale factors in a known good (dummy) state
+    def load_kv_cache_scales(self, quantization_param_path: str) -> None:
+        tp_size = get_tensor_model_parallel_world_size()
+        tp_rank = get_tensor_model_parallel_rank()
+        for layer_idx, scaling_factor in kv_cache_scales_loader(
+                quantization_param_path, tp_rank, tp_size,
+                self.config.num_hidden_layers,
+                self.config.__class__.model_type):
+            layer_self_attn = self.model.layers[layer_idx].attn
+
+            if is_hip():
+                # The scaling factor convention we are assuming is
+                # quantized_value * scaling_factor ~= true_value
+                # which is consistent with the practice of setting
+                # scaling_factor = tensor_amax / FPtype_max
+                scaling_factor *= 2
+            if hasattr(layer_self_attn.attn, "_kv_scale"):
+                layer_self_attn.attn._kv_scale = scaling_factor
+            else:
+                raise RuntimeError("Self attention has no KV cache scaling "
+                                   "factor attribute!")
 
 def all_close_1d(x: torch.Tensor) -> bool:
     assert len(x.shape) == 1
