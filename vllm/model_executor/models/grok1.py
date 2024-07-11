@@ -43,6 +43,7 @@ from vllm.model_executor.layers.logits_processor import LogitsProcessor
 from vllm.model_executor.layers.quantization.base_config import (
     QuantizationConfig)
 from vllm.model_executor.layers.quantization.fp8 import Fp8Config
+from vllm.model_executor.layers.quantization.fp8_rocm import Fp8RocmConfig
 from vllm.model_executor.layers.rotary_embedding import get_rope
 from vllm.model_executor.layers.sampler import Sampler
 from vllm.model_executor.layers.vocab_parallel_embedding import (
@@ -51,7 +52,11 @@ from vllm.model_executor.model_loader.weight_utils import default_weight_loader
 from vllm.model_executor.sampling_metadata import SamplingMetadata
 from vllm.model_executor.utils import set_weight_attrs
 from vllm.sequence import SamplerOutput
-from vllm.utils import print_warning_once
+from vllm.utils import is_hip, print_warning_once
+
+from vllm.logger import init_logger
+
+logger = init_logger(__name__)
 
 embedding_multiplier_scale = 78.38367176906169
 attn_output_multiplier = 0.08838834764831845
@@ -88,6 +93,7 @@ class Grok1MoE(nn.Module):
         # FIXME(pcmoritz): Make this more general to support different
         # quantization schemes
         self.use_fp8 = isinstance(quant_config, Fp8Config)
+        self.use_rocm_fp8 = isinstance(quant_config, Fp8RocmConfig)
 
         if params_dtype is None:
             params_dtype = torch.get_default_dtype()
@@ -100,59 +106,54 @@ class Grok1MoE(nn.Module):
                                      params_dtype=self.params_dtype,
                                      quant_config=None)
 
-        if self.use_fp8 and self.quant_config.is_checkpoint_fp8_serialized:
-            params_dtype = torch.float8_e4m3fn
+        if is_hip():
+            if self.use_rocm_fp8:
+                params_dtype = torch.float8_e4m3fn
 
-        self.w13_weight = nn.Parameter(
-            torch.empty(self.num_total_experts,
-                        2 * self.intermediate_size,
-                        self.hidden_size,
-                        dtype=params_dtype))
-        self.w2_weight = nn.Parameter(
-            torch.empty(self.num_total_experts,
-                        self.hidden_size,
-                        self.intermediate_size,
-                        dtype=params_dtype))
+            self.w13_weight = nn.Parameter(
+                torch.empty(self.num_total_experts,
+                            2 * self.intermediate_size,
+                            self.hidden_size,
+                            dtype=params_dtype))
+            self.w2_weight = nn.Parameter(
+                torch.empty(self.num_total_experts,
+                            self.hidden_size,
+                            self.intermediate_size,
+                            dtype=params_dtype))
 
-        set_weight_attrs(self.w13_weight, {
-            "weight_loader": self.weight_loader,
-        })
-        set_weight_attrs(self.w2_weight, {
-            "weight_loader": self.weight_loader,
-        })
+            set_weight_attrs(self.w13_weight, {
+                "weight_loader": self.weight_loader,
+            })
+            set_weight_attrs(self.w2_weight, {
+                "weight_loader": self.weight_loader,
+            })
 
-        # Used for fp8.
-        self.w13_scale = None
-        self.w2_scale = None
-        self.a13_scale = None
-        self.a2_scale = None
+            # Used for fp8.
+            self.w13_scale = None
+            self.w2_scale = None
+            self.a13_scale = None
+            self.a2_scale = None
 
-        if self.use_fp8:
-            # WEIGHT_SCALE (for fp8)
-            self.w13_scale = nn.Parameter(torch.ones(self.num_total_experts,
-                                                     dtype=torch.float32),
-                                          requires_grad=False)
-            self.w2_scale = nn.Parameter(torch.ones(self.num_total_experts,
-                                                    dtype=torch.float32),
-                                         requires_grad=False)
+            if self.use_rocm_fp8:
+                # WEIGHT_SCALE (for fp8)
+                self.w13_scale = nn.Parameter(torch.ones(self.num_total_experts,
+                                                         dtype=torch.float32),
+                                              requires_grad=False)
+                self.w2_scale = nn.Parameter(torch.ones(self.num_total_experts,
+                                                        dtype=torch.float32),
+                                             requires_grad=False)
 
-            # If loading fp8 checkpoint, pass the weight loaders.
-            # If loading an fp16 checkpoint, do not (we will quantize in
-            #   process_weights_after_loading()
-            if quant_config.is_checkpoint_fp8_serialized:
+                # If loading fp8 checkpoint, pass the weight loaders.
+                # If loading an fp16 checkpoint, do not (we will quantize in
+                #   process_weights_after_loading()
                 set_weight_attrs(self.w13_scale, {
-                    "weight_loader": self.weight_loader,
+                        "weight_loader": self.weight_loader,
                 })
                 set_weight_attrs(self.w2_scale, {
                     "weight_loader": self.weight_loader,
                 })
 
-            # ACT_SCALE (for fp8)
-            if quant_config.activation_scheme == "static":
-                if not quant_config.is_checkpoint_fp8_serialized:
-                    raise ValueError(
-                        "Found static activation scheme for checkpoint that "
-                        "was not serialized fp8.")
+                # ACT_SCALE (for fp8)
                 self.a13_scale = nn.Parameter(torch.zeros(
                     self.num_total_experts, dtype=torch.float32),
                                               requires_grad=False)
@@ -167,6 +168,74 @@ class Grok1MoE(nn.Module):
                     "weight_loader": self.weight_loader,
                 })
 
+        else:
+            if self.use_fp8 and self.quant_config.is_checkpoint_fp8_serialized:
+                params_dtype = torch.float8_e4m3fnuz
+
+            self.w13_weight = nn.Parameter(
+                torch.empty(self.num_total_experts,
+                            2 * self.intermediate_size,
+                            self.hidden_size,
+                            dtype=params_dtype))
+            self.w2_weight = nn.Parameter(
+                torch.empty(self.num_total_experts,
+                            self.hidden_size,
+                            self.intermediate_size,
+                            dtype=params_dtype))
+
+            set_weight_attrs(self.w13_weight, {
+                "weight_loader": self.weight_loader,
+            })
+            set_weight_attrs(self.w2_weight, {
+                "weight_loader": self.weight_loader,
+            })
+
+            # Used for fp8.
+            self.w13_scale = None
+            self.w2_scale = None
+            self.a13_scale = None
+            self.a2_scale = None
+
+            if self.use_fp8:
+                # WEIGHT_SCALE (for fp8)
+                self.w13_scale = nn.Parameter(torch.ones(self.num_total_experts,
+                                                         dtype=torch.float32),
+                                              requires_grad=False)
+                self.w2_scale = nn.Parameter(torch.ones(self.num_total_experts,
+                                                        dtype=torch.float32),
+                                             requires_grad=False)
+
+                # If loading fp8 checkpoint, pass the weight loaders.
+                # If loading an fp16 checkpoint, do not (we will quantize in
+                #   process_weights_after_loading()
+                if quant_config.is_checkpoint_fp8_serialized:
+                    set_weight_attrs(self.w13_scale, {
+                        "weight_loader": self.weight_loader,
+                    })
+                    set_weight_attrs(self.w2_scale, {
+                        "weight_loader": self.weight_loader,
+                    })
+
+                # ACT_SCALE (for fp8)
+                if quant_config.activation_scheme == "static":
+                    if not quant_config.is_checkpoint_fp8_serialized:
+                        raise ValueError(
+                            "Found static activation scheme for checkpoint that "
+                            "was not serialized fp8.")
+                    self.a13_scale = nn.Parameter(torch.zeros(
+                        self.num_total_experts, dtype=torch.float32),
+                                                  requires_grad=False)
+                    self.a2_scale = nn.Parameter(torch.zeros(
+                        self.num_total_experts, dtype=torch.float32),
+                                                 requires_grad=False)
+
+                    set_weight_attrs(self.a13_scale, {
+                        "weight_loader": self.weight_loader,
+                    })
+                    set_weight_attrs(self.a2_scale, {
+                        "weight_loader": self.weight_loader,
+                    })
+
     def weight_loader(self, param: nn.Parameter, loaded_weight: torch.Tensor,
                       weight_name: str, expert_id: int):
         tp_rank = get_tensor_model_parallel_rank()
@@ -180,7 +249,7 @@ class Grok1MoE(nn.Module):
                        shard_size:2 * shard_size, :] = loaded_weight[shard, :]
         if weight_name.endswith("linear_1.weight"):
             param_data[expert_id, :, :] = loaded_weight[:, shard]
-        if "act_scale" in weight_name or "weight_scale" in weight_name:
+        if "activation_scaling_factor" in weight_name or "weights_scaling_factor" in weight_name:
             param_data[expert_id] = loaded_weight
 
     def process_weights_after_loading(self):
@@ -229,6 +298,7 @@ class Grok1MoE(nn.Module):
         hidden_states = hidden_states.view(-1, self.hidden_size)
         # router_logits: (num_tokens, n_experts)
         router_logits, _ = self.gate(hidden_states)
+        use_fp8 = self.use_rocm_fp8 or self.use_fp8
         final_hidden_states = fused_moe(hidden_states,
                                         self.w13_weight,
                                         self.w2_weight,
@@ -236,7 +306,7 @@ class Grok1MoE(nn.Module):
                                         self.top_k,
                                         renormalize=True,
                                         inplace=True,
-                                        use_fp8=self.use_fp8,
+                                        use_fp8=use_fp8,
                                         w1_scale=self.w13_scale,
                                         w2_scale=self.w2_scale,
                                         a1_scale=self.a13_scale,
@@ -646,6 +716,7 @@ class Grok1ForCausalLM(nn.Module):
 
         def load_quark():
             params_dict = dict(self.named_parameters())
+
             
             quant_map = [
                 ("attn.o_proj", "attn.o_proj"),
@@ -655,7 +726,7 @@ class Grok1ForCausalLM(nn.Module):
             expert_params_mapping = [
                 # These are the weight scales for the experts
                 # (param_name, weight_name, expert_id)
-                ("w13_weights_scaling_factor" if weight_name in ["linear", "linear_v"] else "w2_weights_scaling_factor",
+                ("w13_scale" if weight_name in ["linear", "linear_v"] else "w2_scale",
                  f"experts.{expert_id}.{weight_name}.weights_scaling_factor", expert_id)
                 for expert_id in range(self.config.num_experts)
                 for weight_name in ["linear", "linear_1", "linear_v"]
@@ -669,7 +740,7 @@ class Grok1ForCausalLM(nn.Module):
             ] + [
                 # These are the activation scales for the experts
                 # (param_name, weight_name, expert_id)
-                ("w13_activation_scaling_factor" if weight_name in ["linear", "linear_v"] else "w2_activation_scaling_factor",
+                ("a13_scale" if weight_name in ["linear", "linear_v"] else "a2_scale",
                  f"experts.{expert_id}.{weight_name}.activation_scaling_factor", expert_id)
                 for expert_id in range(self.config.num_experts)
                 for weight_name in ["linear", "linear_1", "linear_v"]
@@ -715,8 +786,8 @@ class Grok1ForCausalLM(nn.Module):
                             continue
                         name = name.replace(weight_name, param_name)
                         param = params_dict[name]
-                        if ("activation_scaling_factor" in name
-                                or "weights_scaling_factor" in name
+                        if ("act_scale" in name
+                                or "weight_scale" in name
                                 or "output_scaling_factor" in name):
                             param.data.copy_(loaded_weight)
                         else:
@@ -724,7 +795,6 @@ class Grok1ForCausalLM(nn.Module):
                                                     default_weight_loader)
                             weight_loader(param, loaded_weight, weight_name, expert_id)
                         break
-
 
         load_func = load_ammo if os.getenv(
             "VLLM_FP8_USE_AMMO") == "1" else load_quark
