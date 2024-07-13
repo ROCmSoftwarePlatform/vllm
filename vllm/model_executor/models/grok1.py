@@ -108,7 +108,7 @@ class Grok1MoE(nn.Module):
 
         if is_hip():
             if self.use_rocm_fp8:
-                params_dtype = torch.float8_e4m3fn
+                params_dtype = torch.float8_e4m3fnuz
 
             self.w13_weight = nn.Parameter(
                 torch.empty(self.num_total_experts,
