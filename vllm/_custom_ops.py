@@ -285,9 +285,9 @@ def scaled_fp8_quant(
         shape = (max(batch_dim_padding, input.shape[0]), *input.shape[1:])
         output = torch.empty(shape,
                              device=input.device,
-                             dtype=torch.float8_e4m3fn)
+                             dtype=torch.e4m3fnuz)
     else:
-        output = torch.empty_like(input, dtype=torch.float8_e4m3fn)
+        output = torch.empty_like(input, dtype=torch.float8_e4m3fnuz)
     if scale is None:
         scale = torch.zeros(1, device=input.device, dtype=torch.float32)
         vllm_ops.dynamic_scaled_fp8_quant(output, input, scale)
