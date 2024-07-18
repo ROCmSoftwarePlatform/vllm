@@ -644,6 +644,10 @@ class LLMEngine:
         """Gets the number of unfinished requests."""
         return self.scheduler.get_num_unfinished_seq_groups()
 
+    def get_num_waiting_requests(self) -> int:
+        """Gets the number of unfinished requests."""
+        return self.scheduler.get_num_waiting_seq_groups()
+
     def has_unfinished_requests(self) -> bool:
         """Returns True if there are unfinished requests."""
         return self.scheduler.has_unfinished_seqs()
