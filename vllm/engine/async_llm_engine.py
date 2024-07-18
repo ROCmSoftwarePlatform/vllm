@@ -50,18 +50,28 @@ def _raise_exception_on_finish(
 
 class AsyncStream:
     """A stream of RequestOutputs or EmbeddingRequestOutputs for a request
-    that can be iterated over asynchronously."""
+    that can be iterated over asynchronously.
+        Args:
+        first_item_only: Only emit the first and the finished request to the queue.
+    """
 
-    def __init__(self, request_id: str) -> None:
+    def __init__(self, request_id: str, first_item_only: bool = False) -> None:
         self.request_id = request_id
         self._queue: asyncio.Queue = asyncio.Queue()
         self._finished = False
+        self._first_item_only = first_item_only
+        self._first_item = first_item_only
 
     def put(self, item: Union[RequestOutput, EmbeddingRequestOutput,
                               Exception]) -> None:
         if self._finished:
             return
-        self._queue.put_nowait(item)
+        if self._first_item_only:
+            if self._first_item or item.finished:
+                self._first_item = False
+                self._queue.put_nowait(item)
+        else:
+            self._queue.put_nowait(item)
 
     def finish(self) -> None:
         self._queue.put_nowait(StopAsyncIteration())
@@ -135,14 +145,16 @@ class RequestTracker:
             logger.info("Finished request %s.", request_id)
         self.abort_request(request_id)
 
-    def add_request(self, request_id: str,
+    def add_request(self,
+                    request_id: str,
+                    first_token_only: bool = False,
                     **engine_add_request_kwargs) -> AsyncStream:
         """Add a request to be sent to the engine on the next background
         loop iteration."""
         if request_id in self._request_streams:
             raise KeyError(f"Request {request_id} already exists.")
 
-        stream = AsyncStream(request_id)
+        stream = AsyncStream(request_id, first_token_only)
         self._new_requests.put_nowait((stream, {
             "request_id": request_id,
             **engine_add_request_kwargs
@@ -223,7 +235,7 @@ class _AsyncLLMEngine(LLMEngine):
                 num_lookahead_slots=scheduler_outputs.num_lookahead_slots,
                 running_queue_size=scheduler_outputs.running_queue_size,
             )
-            output = await self.model_executor.execute_model_async(
+            output = self.model_executor.execute_model(
                 execute_model_req)
         else:
             output = []
@@ -534,6 +546,7 @@ class AsyncLLMEngine:
         params: Union[SamplingParams, PoolingParams],
         arrival_time: Optional[float] = None,
         lora_request: Optional[LoRARequest] = None,
+        first_token_only: bool = False,
     ) -> AsyncStream:
         if self.log_requests:
             if isinstance(inputs, str):
@@ -587,6 +600,7 @@ class AsyncLLMEngine:
             params=params,
             arrival_time=arrival_time,
             lora_request=lora_request,
+            first_token_only=first_token_only,
         )
 
         return stream
@@ -597,6 +611,7 @@ class AsyncLLMEngine:
         sampling_params: SamplingParams,
         request_id: str,
         lora_request: Optional[LoRARequest] = None,
+        first_token_only: bool = False,
     ) -> AsyncIterator[RequestOutput]:
         """Generate outputs for a request.
 
@@ -611,6 +626,7 @@ class AsyncLLMEngine:
             sampling_params: The sampling parameters of the request.
             request_id: The unique id of the request.
             lora_request: LoRA request to use for generation, if any.
+            first_token_only: Only return the first token(s) and the final output
 
         Yields:
             The output `RequestOutput` objects from the LLMEngine
@@ -663,6 +679,7 @@ class AsyncLLMEngine:
                 request_id,
                 inputs,
                 sampling_params,
+                first_token_only=first_token_only,
                 lora_request=lora_request,
         ):
             yield LLMEngine.validate_output(output, RequestOutput)
@@ -737,6 +754,7 @@ class AsyncLLMEngine:
                 request_id,
                 inputs,
                 pooling_params,
+                first_token_only=False,
                 lora_request=lora_request,
         ):
             yield LLMEngine.validate_output(output, EmbeddingRequestOutput)
@@ -748,6 +766,7 @@ class AsyncLLMEngine:
         params: Union[SamplingParams, PoolingParams],
         *,
         lora_request: Optional[LoRARequest] = None,
+        first_token_only: bool = False,
     ) -> AsyncIterator[Union[RequestOutput, EmbeddingRequestOutput]]:
         """Common logic to process requests with SamplingParams or
         PoolingParams."""
@@ -759,6 +778,7 @@ class AsyncLLMEngine:
             params,
             arrival_time=arrival_time,
             lora_request=lora_request,
+            first_token_only=first_token_only,
         )
 
         try:
