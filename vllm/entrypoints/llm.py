@@ -117,6 +117,7 @@ class LLM:
         max_context_len_to_capture: Optional[int] = None,
         max_seq_len_to_capture: int = 32768,
         disable_custom_all_reduce: bool = False,
+        sample_injection_cb = None,
         **kwargs,
     ) -> None:
         if "disable_log_stats" not in kwargs:
@@ -144,6 +145,9 @@ class LLM:
         self.llm_engine = LLMEngine.from_engine_args(
             engine_args, usage_context=UsageContext.LLM_CLASS)
         self.request_counter = Counter()
+
+        self.sample_injection_cb = sample_injection_cb
+
 
     def get_tokenizer(
             self) -> Union[PreTrainedTokenizer, PreTrainedTokenizerFast]:
@@ -549,6 +553,12 @@ class LLM:
         outputs: List[Union[RequestOutput, EmbeddingRequestOutput]] = []
         total_toks = 0
         while self.llm_engine.has_unfinished_requests():
+            if self.sample_injection_cb:
+                num_added_requests = self.sample_injection_cb()
+                if num_added_requests < 0:
+                    self.sample_injection_cb = None
+                if use_tqdm:
+                    pbar.total += num_added_requests
             step_outputs = self.llm_engine.step()
             for output in step_outputs:
                 if output.finished:
@@ -567,3 +577,20 @@ class LLM:
         # This is necessary because some requests may be finished earlier than
         # its previous requests.
         return sorted(outputs, key=lambda x: int(x.request_id))
+
+    def add_prompt_token_ids(
+        self,
+        prompt_token_ids: Optional[Union[List[int], List[List[int]]]] = None,
+        sampling_params: Optional[Union[SamplingParams,
+                                    Sequence[SamplingParams]]] = None,):
+        inputs = self._convert_v1_inputs(
+                prompts=None,
+                prompt_token_ids=prompt_token_ids,
+                multi_modal_data=None,
+        )
+
+        self._validate_and_add_requests(
+            inputs=inputs,
+            params=sampling_params,
+            lora_request=None,
+        )

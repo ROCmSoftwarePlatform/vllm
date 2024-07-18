@@ -365,6 +365,9 @@ class Scheduler:
     def get_num_unfinished_seq_groups(self) -> int:
         return len(self.waiting) + len(self.running) + len(self.swapped)
 
+    def get_num_waiting_seq_groups(self) -> int:
+        return len(self.waiting)
+
     def _schedule_running(
         self,
         running_queue: deque,
