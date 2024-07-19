@@ -133,6 +133,26 @@ class ModelConfig:
                                     code_revision, rope_scaling)
         self.hf_text_config = get_hf_text_config(self.hf_config)
         self.dtype = _get_and_verify_dtype(self.hf_text_config, dtype)
+
+        if (getattr(self.hf_config, "max_position_embeddings", 0) == 131072
+                and getattr(self.hf_config, "rope_scaling", None) is None):
+            # Note(simon): this is a special case for a model that doesn't
+            # supply rope_scaling. We should remove this once the model is
+            # updated.
+            self.hf_config.update({"rope_scaling": {
+                "type": "extended",
+            }})
+
+        if (not self.disable_sliding_window
+                and self.hf_text_config.model_type == "gemma2"
+                and self.hf_text_config.sliding_window is not None):
+            print_warning_once(
+                "Gemma 2 uses sliding window attention for every odd layer, "
+                "which is currently not supported by vLLM. Disabling sliding "
+                "window and capping the max length to the sliding window size "
+                f"({self.hf_text_config.sliding_window}).")
+            self.disable_sliding_window = True
+
         self.max_model_len = _get_and_verify_max_len(
             hf_config=self.hf_text_config,
             max_model_len=max_model_len,
@@ -1225,7 +1245,11 @@ def _get_and_verify_max_len(
         derived_max_model_len = default_max_len
 
     rope_scaling = getattr(hf_config, "rope_scaling", None)
-    if rope_scaling is not None and rope_scaling["type"] != "su":
+    # The correct one should be "longrope", kept "su" here
+    # to be backward compatible
+    if rope_scaling is not None and rope_scaling["type"] not in {
+            "su", "longrope", "extended"
+    }:
         if disable_sliding_window:
             # TODO(robertgshaw): Find a model that supports rope_scaling
             # with sliding window to see if this case should be allowed.
