@@ -18,7 +18,6 @@ from vllm.usage.usage_lib import UsageContext
 from vllm.utils import Counter, deprecate_kwargs
 import multiprocessing as mp
 import queue
-import threading
 
 logger = init_logger(__name__)
 
@@ -291,24 +290,30 @@ class QueueLLM:
             )
         # Run the engine.
         total_toks = 0
-        first_token_sent = set()
+        request_stats = {}
         while not self.finish and self.llm_engine.has_unfinished_requests():
             self._pull_tokens_from_input_queue(block=False)
             step_outputs = self.llm_engine.step()
             for output in step_outputs:
-                if len(output.outputs) > 0 and (output.request_id not in first_token_sent):
-                    self.first_token_queue.put(output)
-                    first_token_sent.add(output.request_id)
-                if output.finished:
-                    self.result_queue.put_nowait(output)
-                    first_token_sent.remove(output.request_id)
-                    if use_tqdm:
-                        if isinstance(output, RequestOutput):
-                            # Calculate tokens only for RequestOutput
-                            total_toks += sum(
-                                len(stp.token_ids) for stp in output.outputs)
-                            spd = total_toks / pbar.format_dict["elapsed"]
-                            pbar.postfix = f"Generation Speed: {spd:.2f} toks/s"
-                        pbar.update(1)
+                output_len = len(output.outputs[0].token_ids)
+                if output_len > 0 and (output.request_id not in request_stats):
+                    self.first_token_queue.put((output.request_id, output.outputs[0].token_ids))
+                    request_stats[output.request_id] = output_len
+                if request_stats[output.request_id] < output_len:
+                    self.result_queue.put_nowait((output.request_id, output.outputs[0].token_ids[request_stats[output.request_id]: output_len]))
+                    if output.finished:
+                        # signal end of stream with None
+                        self.result_queue.put_nowait((output.request_id, None))
+                        del request_stats[output.request_id]
+                        if use_tqdm:
+                            if isinstance(output, RequestOutput):
+                                # Calculate tokens only for RequestOutput
+                                total_toks += sum(
+                                    len(stp.token_ids) for stp in output.outputs)
+                                spd = total_toks / pbar.format_dict["elapsed"]
+                                pbar.postfix = f"Generation Speed: {spd:.2f} toks/s"
+                            pbar.update(1)
+                    else:
+                        request_stats[output.request_id] = output_len
         if use_tqdm:
             pbar.close()
