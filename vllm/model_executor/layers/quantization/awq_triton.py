@@ -243,7 +243,7 @@ def main():
                         scales_cols,
                         dtype=scales_dtype,
                         device=device)
-    zeros = torch.randint(305441741, 305441741 + 1, (zeros_rows,
+    zeros = torch.randint(0, 10000000, (zeros_rows,
                           zeros_cols),
                           dtype=zeros_dtype,
                           device=device)
