@@ -38,7 +38,6 @@ def awq_dequantize_kernel(qweight_ptr,   # quantized matrix
     result_offsets = (8 * num_cols * result_offsets_y[:, None]
                       + result_offsets_x[None, :])
 
-
     result_masks_y = result_offsets_y < num_rows
     result_masks_x = result_offsets_x < num_cols * 8
     result_masks = result_masks_y[:, None] & result_masks_x[None, :]
@@ -51,13 +50,13 @@ def awq_dequantize_kernel(qweight_ptr,   # quantized matrix
     reverse_awq_order_tensor =  tl.load(reverse_awq_order_ptr +
             reverse_awq_order_offsets)
 
-    # Use this to compute a set of shifts to use, so that the correct
-    # values will be shifted out of the iweights and zeros tensors.
+    # Use this to compute a set of shifts that can be used to unpack and
+    # reorder the values in iweights and zeros.
     shifts = reverse_awq_order_tensor * 4
     shift_weights = shifts[None, :].broadcast_to(BLOCK_SIZE_Y * BLOCK_SIZE_X, 8)
     shift_weights = shift_weights.reshape(BLOCK_SIZE_Y, BLOCK_SIZE_X * 8)
 
-    # Get the correct values in the correct order for iweight.
+    # Unpack and reorder: shift out the correct 4-bit value and mask.
     iweights = (iweights >> shift_weights) & 0xF
 
     # Compute zero offsets and masks.
@@ -73,7 +72,7 @@ def awq_dequantize_kernel(qweight_ptr,   # quantized matrix
     # Load the zeros.
     zeros = tl.load(zeros_ptr + zero_offsets, zero_masks)
 
-    # Get the correct values in the correct order for zeros.
+    # Unpack and reorder: shift out the correct 4-bit value and mask.
     zeros = zeros >> shift_weights & 0xF
 
     # Compute scale offsets and masks.
