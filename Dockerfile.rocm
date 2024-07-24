@@ -150,7 +150,10 @@ if ls /install/*.deb; then \
 fi
 # Build vLLM
 RUN cd vllm \
-    && python3 setup.py clean --all && python3 setup.py bdist_wheel --dist-dir=dist
+    && python3 setup.py clean --all \
+    && python3 setup.py build \
+    && python3 setup_cython.py build_ext --inplace \
+    && python3 setup.py bdist_wheel --dist-dir=dist
 # Build gradlib
 RUN cd vllm/gradlib \
     && python3 setup.py clean --all && python3 setup.py bdist_wheel --dist-dir=dist
