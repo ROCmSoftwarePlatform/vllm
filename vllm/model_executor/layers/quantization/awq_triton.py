@@ -223,8 +223,6 @@ def main():
     thx=0
     thy=0
     device='cuda'
-    # AWQ_REVERSE_ORDER = [0, 4, 1, 5, 2, 6, 3, 7]
-    # qweight = torch.randint(-1412623820,-1412623820 + 1, (qweight_rows,
     torch.manual_seed(0)
 
     qweight = torch.randint(0,10000000, (qweight_rows,
@@ -240,10 +238,6 @@ def main():
                           dtype=zeros_dtype,
                           device=device)
     print(f"zeros.shape = {zeros.shape}")
-    # zeros = torch.zeros(zeros_rows,
-                       # zeros_cols,
-                       # dtype=zeros_dtype,
-                       # device=device)
     print(f"qweight = {qweight}")
     if use_triton:
       iweights_triton = awq_dequantize_triton(
