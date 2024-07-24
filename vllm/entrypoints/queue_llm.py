@@ -166,28 +166,36 @@ class QueueLLM:
         self._pull_tokens_from_input_queue(block=True)
         self._run_engine(use_tqdm=use_tqdm)
 
+    def _pull_all_tokens_from_input_queue(self, block: bool = True):
+        while self._pull_tokens_from_input_queue(block=False):
+            pass
+        if block:
+            self._pull_tokens_from_input_queue(block)
+
     def _pull_tokens_from_input_queue(self, block: bool = True):
         try:
             input = self.input_queue.get() if block else self.input_queue.get_nowait()
             if input is None:
                 self.finish = True
-            for sample_id, token_ids in input:
-                inputs = self._convert_v1_inputs(
-                    prompts=None,
-                    prompt_token_ids=token_ids,
-                    multi_modal_data=None,
-                )
+            else:
+                for sample_id, token_ids in input:
+                    inputs = self._convert_v1_inputs(
+                        prompts=None,
+                        prompt_token_ids=token_ids,
+                        multi_modal_data=None,
+                    )
 
-                self._validate_and_add_requests(
-                    inputs=inputs,
-                    params=self.sampling_params,
-                    request_id=sample_id,
-                )
+                    self._validate_and_add_requests(
+                        inputs=inputs,
+                        params=self.sampling_params,
+                        request_id=sample_id,
+                    )
         except queue.Empty:
-            pass
+            return False
         except Exception as e:
             logger.error(f"Unexpected exception during pulling tokens: {e}")
-
+            return False
+        return True
 
     def _convert_v1_inputs(
         self,
@@ -291,8 +299,9 @@ class QueueLLM:
         # Run the engine.
         total_toks = 0
         request_stats = {}
-        while not self.finish and self.llm_engine.has_unfinished_requests():
-            self._pull_tokens_from_input_queue(block=False)
+        while not self.finish or self.llm_engine.has_unfinished_requests():
+            block = not self.llm_engine.has_unfinished_requests() and not self.finish
+            self._pull_all_tokens_from_input_queue(block=block)
             step_outputs = self.llm_engine.step()
             for output in step_outputs:
                 output_len = len(output.outputs[0].token_ids)
