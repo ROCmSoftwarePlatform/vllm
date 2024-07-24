@@ -2,6 +2,8 @@ from typing import Optional, Tuple, Type
 
 import torch
 
+from vllm.model_executor.layers.quantization.awq_triton import awq_dequantize_triton
+
 try:
     from vllm._C import cache_ops as vllm_cache_ops
     from vllm._C import ops as vllm_ops
@@ -139,10 +141,12 @@ def awq_dequantize(qweight: torch.Tensor, scales: torch.Tensor,
           f"thx={thx},",
           f"thy={thy}")
     # return torch.zeros(qweight.shape[0], scales.shape[1], device=qweight.device, dtype = torch.float16)
-    return torch.zeros(qweight.shape[0], 8 * qweight.shape[1], device=qweight.device, dtype = torch.float16)
+    # return torch.zeros(qweight.shape[0], 8 * qweight.shape[1], device=qweight.device, dtype = torch.float16)
     #return torch.empty_like(qweight, dtype=torch.float16)
     # return vllm_ops.awq_dequantize(qweight, scales, zeros, split_k_iters, thx,
                                    # thy)
+    return awq_dequantize_triton(qweight, scales, zeros, split_k_iters, thx,
+                                   thy)
 
 
 def awq_gemm(input: torch.Tensor, qweight: torch.Tensor, qzeros: torch.Tensor,
