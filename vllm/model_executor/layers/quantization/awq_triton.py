@@ -3,7 +3,6 @@ import torch
 import triton
 import triton.language as tl
 
-
 @triton.jit
 def awq_dequantize_kernel(qweight_ptr,   # quantized matrix
                           scales_ptr,    # scales, per group
@@ -53,11 +52,11 @@ def awq_dequantize_kernel(qweight_ptr,   # quantized matrix
     # Use this to compute a set of shifts that can be used to unpack and
     # reorder the values in iweights and zeros.
     shifts = reverse_awq_order_tensor * 4
-    shift_weights = shifts[None, :].broadcast_to(BLOCK_SIZE_Y * BLOCK_SIZE_X, 8)
-    shift_weights = shift_weights.reshape(BLOCK_SIZE_Y, BLOCK_SIZE_X * 8)
+    shifts = shifts[None, :].broadcast_to(BLOCK_SIZE_Y * BLOCK_SIZE_X, 8)
+    shifts = shifts.reshape(BLOCK_SIZE_Y, BLOCK_SIZE_X * 8)
 
     # Unpack and reorder: shift out the correct 4-bit value and mask.
-    iweights = (iweights >> shift_weights) & 0xF
+    iweights = (iweights >> shifts) & 0xF
 
     # Compute zero offsets and masks.
     zero_offsets_y = (pid_y * BLOCK_SIZE_Y // group_size
@@ -73,7 +72,7 @@ def awq_dequantize_kernel(qweight_ptr,   # quantized matrix
     zeros = tl.load(zeros_ptr + zero_offsets, zero_masks)
 
     # Unpack and reorder: shift out the correct 4-bit value and mask.
-    zeros = zeros >> shift_weights & 0xF
+    zeros = (zeros >> shifts) & 0xF
 
     # Compute scale offsets and masks.
     scale_offsets_y  = (pid_y * BLOCK_SIZE_Y // group_size
