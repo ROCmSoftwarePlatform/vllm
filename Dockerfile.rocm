@@ -72,6 +72,7 @@ FROM export_rccl_${BUILD_RCCL} AS export_rccl
 FROM base AS build_flash_attn
 ARG FA_BRANCH="ae7928c"
 ARG FA_REPO="https://github.com/ROCm/flash-attention.git"
+ARG PYTORCH_ROCM_ARCH="gfx90a;gfx942"
 RUN git clone ${FA_REPO} \
     && cd flash-attention \
     && git checkout ${FA_BRANCH} \
