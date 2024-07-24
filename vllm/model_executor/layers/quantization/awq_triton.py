@@ -18,38 +18,49 @@ def awq_dequantize_kernel(qweight_ptr,   # quantized matrix
                           reverse_awq_order_ptr,
                           BLOCK_SIZE_X: tl.constexpr,
                           BLOCK_SIZE_Y: tl.constexpr):
+    # Setup the pids.
     pid_x = tl.program_id(axis=0)
     pid_y = tl.program_id(axis=1)
 
-    reverse_awq_order_offsets = tl.arange(0, 8)
-    reverse_awq_order_tensor =  tl.load(reverse_awq_order_ptr +
-            reverse_awq_order_offsets)
-
+    # Compute offsets and masks for qweight_ptr.
     offsets_y = pid_y * BLOCK_SIZE_Y + tl.arange(0, BLOCK_SIZE_Y)
     offsets_x = pid_x * BLOCK_SIZE_X + tl.arange(0, BLOCK_SIZE_X * 8) // 8
     offsets = num_cols  * offsets_y[:, None] + offsets_x[None, :]
-
-    result_offsets_y = pid_y * BLOCK_SIZE_Y + tl.arange(0, BLOCK_SIZE_Y)
-    result_offsets_x = pid_x * BLOCK_SIZE_X * 8 + tl.arange(0, BLOCK_SIZE_X * 8)
-    result_offsets = (8 * num_cols * result_offsets_y[:, None]
-                      + result_offsets_x[None, :])
 
     masks_y = offsets_y < num_rows
     masks_x = offsets_x < num_cols 
 
     masks = masks_y[:, None] & masks_x[None, :]
 
+    # Compute offsets and masks for result output ptr.
+    result_offsets_y = pid_y * BLOCK_SIZE_Y + tl.arange(0, BLOCK_SIZE_Y)
+    result_offsets_x = pid_x * BLOCK_SIZE_X * 8 + tl.arange(0, BLOCK_SIZE_X * 8)
+    result_offsets = (8 * num_cols * result_offsets_y[:, None]
+                      + result_offsets_x[None, :])
+
+
     result_masks_y = result_offsets_y < num_rows
     result_masks_x = result_offsets_x < num_cols * 8
     result_masks = result_masks_y[:, None] & result_masks_x[None, :]
 
+    # Load the weights.
     iweights = tl.load(qweight_ptr + offsets, masks)
+
+    # Load the AWQ reverse order offsets.
+    reverse_awq_order_offsets = tl.arange(0, 8)
+    reverse_awq_order_tensor =  tl.load(reverse_awq_order_ptr +
+            reverse_awq_order_offsets)
+
+    # Use this to compute a set of shifts to use, so that the correct
+    # values will be shifted out of the iweights and zeros tensors.
     shifts = reverse_awq_order_tensor * 4
     shift_weights = shifts[None, :].broadcast_to(BLOCK_SIZE_Y * BLOCK_SIZE_X, 8)
     shift_weights = shift_weights.reshape(BLOCK_SIZE_Y, BLOCK_SIZE_X * 8)
 
+    # Get the correct values in the correct order for iweight.
     iweights = (iweights >> shift_weights) & 0xF
 
+    # Compute zero offsets and masks.
     zero_offsets_y = (pid_y * BLOCK_SIZE_Y // group_size
                       + tl.arange(0, BLOCK_SIZE_Y) // group_size)
     zero_offsets_x = pid_x * BLOCK_SIZE_X + tl.arange(0, BLOCK_SIZE_X * 8) // 8
@@ -59,9 +70,13 @@ def awq_dequantize_kernel(qweight_ptr,   # quantized matrix
     zero_masks_x = zero_offsets_x < num_cols
     zero_masks = zero_masks_y[:, None] & zero_masks_x[None, :]
 
+    # Load the zeros.
     zeros = tl.load(zeros_ptr + zero_offsets, zero_masks)
+
+    # Get the correct values in the correct order for zeros.
     zeros = zeros >> shift_weights & 0xF
 
+    # Compute scale offsets and masks.
     scale_offsets_y  = (pid_y * BLOCK_SIZE_Y // group_size
                        + tl.arange(0, BLOCK_SIZE_Y) // group_size)
     scale_offsets_x = (pid_x * BLOCK_SIZE_X * 8
@@ -72,11 +87,14 @@ def awq_dequantize_kernel(qweight_ptr,   # quantized matrix
     scale_masks_x = scale_offsets_x < num_cols * 8
     scale_masks = scale_masks_y[:, None] & scale_masks_x[None, :]
 
+    # Load the scales.
     scales = tl.load(scales_ptr + scale_offsets, scale_masks)
 
+    # Dequantize.
     iweights = (iweights - zeros) * scales
     iweights = iweights.to(tl.float16)
 
+    # Finally, store.
     tl.store(result_ptr + result_offsets, iweights, result_masks)
 
 # Example input: 
