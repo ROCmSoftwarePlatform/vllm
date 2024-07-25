@@ -130,7 +130,6 @@ def fused_add_rms_norm(input: torch.Tensor, residual: torch.Tensor,
 def awq_dequantize(qweight: torch.Tensor, scales: torch.Tensor,
                 zeros: torch.Tensor, split_k_iters: int, thx: int,
                    thy: int) -> torch.Tensor:
-    
     print(f"awq_dequantize:qweight.size={qweight.size()},"
           f"qweight.dtype = {qweight.dtype},"
           f"scales.size={scales.size()},"
