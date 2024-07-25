@@ -15,6 +15,11 @@ from vllm.model_executor.layers.linear import LinearBase, LinearMethodBase
 from vllm.model_executor.layers.quantization.base_config import (
     QuantizationConfig)
 from vllm.model_executor.utils import set_weight_attrs
+from vllm.distributed import (get_tensor_model_parallel_rank,
+                              get_tensor_model_parallel_world_size)
+from vllm.logger import init_logger
+
+logger = init_logger(__name__)
 
 logger = init_logger(__name__)
 
@@ -274,3 +279,43 @@ def _per_tensor_dequantize(tensor: torch.Tensor,
     fake_qweight = tensor.to(torch.float16)
     dq_weight = fake_qweight * inv_scale
     return dq_weight
+
+def get_gemm_count(df, search_key, rank):
+
+    for i in range(len(df)):
+        ds = df.iloc[i]
+        key = (ds['M'], ds['N'], ds['K'])
+
+        if search_key == key:
+            return ds['Count'],i
+
+    return None, len(df)
+
+def _save_shape(m, n, k):
+    if os.getenv("TUNE_FP8") == "1":
+        rank = get_tensor_model_parallel_rank()
+        shape_file = f"/tmp/fp8_shapes_{rank}.csv"
+        old_count = 1
+        loc = 0
+        
+        #logger.info(" _save_shape rank:%d m:%d, n:%d, k:%d shape_file:%s", rank, m, n, k, shape_file)
+        try:
+            df = pd.read_csv(shape_file)
+            old_count, loc = get_gemm_count(df, (m,n,k), rank)
+            if old_count != None:
+                count = old_count + 1
+            else:
+                count = 1
+        except (IOError, pd.errors.EmptyDataError, pd.errors.ParserError):
+            df = pd.DataFrame(columns=["M", "N", "K", "Count"])
+            count = 1
+        df = pd.concat([df, pd.DataFrame({
+            "M": [m],
+            "N": [n],
+            "K": [k],
+            "Count": old_count
+        })]).drop_duplicates()
+
+        df.iloc[loc, [3]] = count
+
+        df.to_csv(shape_file, index=False)

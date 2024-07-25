@@ -56,14 +56,72 @@ __device__ __forceinline__ float atomicMaxFloat(float* addr, float value) {
   return old;
 }
 
+template <typename scalar_t>
+struct __align__(8) vec4_t {
+  scalar_t x;
+  scalar_t y;
+  scalar_t z;
+  scalar_t w;
+};
+
+typedef struct __align__(4) {
+  c10::Float8_e4m3fnuz x;
+  c10::Float8_e4m3fnuz y;
+  c10::Float8_e4m3fnuz z;
+  c10::Float8_e4m3fnuz w;
+}
+float8x4_t;
+
 #define FP8_E4M3_MAX std::numeric_limits<c10::Float8_e4m3fnuz>::max()
 
-template <typename scalar_t>
+template <bool is_scale_inverted>
 __device__ __forceinline__ c10::Float8_e4m3fnuz scaled_fp8_conversion(
-    const scalar_t val, const float scale) {
-  float x = static_cast<float>(val) / scale;
+    float const val, float const scale) {
+  float x = 0.0f;
+  if constexpr (is_scale_inverted) {
+    x = val * scale;
+  } else {
+    x = val / scale;
+  }
+
   float r = fmax(-FP8_E4M3_MAX, fmin(x, FP8_E4M3_MAX));
   return static_cast<c10::Float8_e4m3fnuz>(r);
+}
+
+template <typename scalar_t, bool is_scale_inverted>
+__device__ void scaled_fp8_conversion_vec(c10::Float8_e4m3fnuz* __restrict__ out,
+                                          scalar_t const* __restrict__ input,
+                                          float const scale,
+                                          int64_t const num_elems,
+                                          int const tid, int const step) {
+  // Vectorized input/output to better utilize memory bandwidth.
+  vec4_t<scalar_t> const* vectorized_in =
+      reinterpret_cast<vec4_t<scalar_t> const*>(input);
+  float8x4_t* vectorized_out = reinterpret_cast<float8x4_t*>(out);
+
+  int64_t const num_vec_elems = num_elems >> 2;
+
+#pragma unroll 4
+  for (int64_t i = tid; i < num_vec_elems; i += step) {
+    vec4_t<scalar_t> in_vec = vectorized_in[i];
+    float8x4_t out_vec;
+
+    out_vec.x = scaled_fp8_conversion<is_scale_inverted>(
+        static_cast<float>(in_vec.x), scale);
+    out_vec.y = scaled_fp8_conversion<is_scale_inverted>(
+        static_cast<float>(in_vec.y), scale);
+    out_vec.z = scaled_fp8_conversion<is_scale_inverted>(
+        static_cast<float>(in_vec.z), scale);
+    out_vec.w = scaled_fp8_conversion<is_scale_inverted>(
+        static_cast<float>(in_vec.w), scale);
+    vectorized_out[i] = out_vec;
+  }
+
+  // Handle the remaining elements if num_elems is not divisible by 4
+  for (int64_t i = num_vec_elems * 4 + tid; i < num_elems; i += step) {
+    out[i] = scaled_fp8_conversion<is_scale_inverted>(
+        static_cast<float>(input[i]), scale);
+  }
 }
 
 // Compute the absolute maximum m of the input tensor and store
@@ -113,11 +171,13 @@ __global__ void scaled_fp8_quant_kernel(c10::Float8_e4m3fnuz* __restrict__ out,
                                         const scalar_t* __restrict__ input,
                                         const float* __restrict__ scale,
                                         int64_t num_elems) {
-  int i = blockDim.x * blockIdx.x + threadIdx.x;
-  while (i < num_elems) {
-    out[i] = scaled_fp8_conversion(input[i], *scale);
-    i += blockDim.x * gridDim.x;
-  }
+  int tid = blockDim.x * blockIdx.x + threadIdx.x;
+
+  // Invert the scale so that we can use multiplications to avoid expensive
+  // division.
+  const float inverted_scale = 1.0f / (*scale);
+  scaled_fp8_conversion_vec<scalar_t, true>(
+      out, input, inverted_scale, num_elems, tid, blockDim.x * gridDim.x);
 }
 
 }  // namespace vllm
