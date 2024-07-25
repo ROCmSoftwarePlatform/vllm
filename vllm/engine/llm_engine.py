@@ -775,7 +775,7 @@ class LLMEngine:
             #Check if we've run enough iterations to trigger garbage collection
             self.step_count += 1
             if (self.step_count == VLLM_GC_LIMIT):
-                gc.collect
+                gc.collect()
                 self.step_count = 0
             execute_model_req = ExecuteModelRequest(
                 seq_group_metadata_list=seq_group_metadata_list,
