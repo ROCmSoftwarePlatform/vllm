@@ -38,10 +38,13 @@ from vllm.transformers_utils.tokenizer_group import (BaseTokenizerGroup,
 from vllm.usage.usage_lib import (UsageContext, is_usage_stats_enabled,
                                   usage_message)
 from vllm.utils import Counter
+import os
+import gc
 
 logger = init_logger(__name__)
 _LOCAL_LOGGING_INTERVAL_SEC = 5
 
+VLLM_GC_LIMIT= int(os.getenv("VLLM_GC_LIMIT", 10000))  # noqa
 
 def _load_generation_config_dict(model_config: ModelConfig):
     try:
@@ -207,6 +210,11 @@ class LLMEngine:
         self.load_config = load_config
         self.decoding_config = decoding_config or DecodingConfig()
         self.log_stats = log_stats
+
+        self.step_count = 0
+
+        if VLLM_GC_LIMIT > 0:
+            gc.disable()
 
         if not self.model_config.skip_tokenizer_init:
             self.tokenizer = self._init_tokenizer()
@@ -764,6 +772,11 @@ class LLMEngine:
         seq_group_metadata_list, scheduler_outputs = self.scheduler.schedule()
 
         if not scheduler_outputs.is_empty():
+            #Check if we've run enough iterations to trigger garbage collection
+            self.step_count += 1
+            if (self.step_count == VLLM_GC_LIMIT):
+                gc.collect
+                self.step_count = 0
             execute_model_req = ExecuteModelRequest(
                 seq_group_metadata_list=seq_group_metadata_list,
                 blocks_to_swap_in=scheduler_outputs.blocks_to_swap_in,
