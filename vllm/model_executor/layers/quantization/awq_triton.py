@@ -3,6 +3,8 @@ import torch
 import triton
 import triton.language as tl
 
+import argparse
+
 @triton.jit
 def awq_dequantize_kernel(qweight_ptr,   # quantized matrix
                           scales_ptr,    # scales, per group
@@ -199,7 +201,8 @@ def awq_dequantize_torch(qweight: torch.Tensor,
     # return iweights.to(torch.float16)
     return (iweights - zeros) * scales
 
-def main():
+def test_dequantize():
+    print("=" * 10 + " TESTING DEQUANTIZE" + "=" * 10)
     use_triton = True 
     use_torch = True
 
@@ -236,7 +239,6 @@ def main():
                           zeros_cols),
                           dtype=zeros_dtype,
                           device=device)
-    print(f"zeros.shape = {zeros.shape}")
     print(f"qweight = {qweight}")
     if use_triton:
       iweights_triton = awq_dequantize_triton(
@@ -253,6 +255,38 @@ def main():
         diff = iweights_torch - iweights_triton
         error = torch.sum(torch.sqrt(diff * diff))
         print(f"error = {error}")
+
+def awq_gemm_triton(input: torch.Tensor, qweight: torch.Tensor,
+                   qzeros: torch.Tensor, scales: torch.Tensor,
+                   split_k_iters: int) -> torch.Tensor:
+    return torch.zeros((input.shape[0], qweight.shape[1] * 8),
+                       device=qweight.device, dtype = torch.float16)
+
+def awq_gemm_torch(input: torch.Tensor, qweight: torch.Tensor,
+                   qzeros: torch.Tensor, scales: torch.Tensor,
+                   split_k_iters: int) -> torch.Tensor:
+    return torch.zeros((input.shape[0], qweight.shape[1] * 8),
+                       device=qweight.device, dtype = torch.float16)
+
+def test_gemm():
+    print("=" * 10 + " TESTING GEMM " + "=" * 10)
+
+def main():
+    parser = argparse.ArgumentParser(description="awq_triton test driver",
+                formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument("--test")
+    known_args, unknown_args = parser.parse_known_args()
+    if known_args.test is not None:
+        if known_args.test == "dequantize":
+            test_dequantize()
+        elif known_args.test == "gemm":
+            test_gemm()
+        else:
+            print(f"Unknown test {known_args.test}")
+    else:
+        print("No test provided.")
+        parser.print_help()
+
 
 if __name__ == '__main__':
     main()
