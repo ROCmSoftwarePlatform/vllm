@@ -1220,7 +1220,8 @@ def _get_and_verify_max_len(
         logger.warning(
             "The model's config.json does not contain any of the following "
             "keys to determine the original maximum length of the model: "
-            f"{possible_keys_str}" + ". Assuming the model's maximum length is %d.",
+            f"{possible_keys_str}" + ". Assuming the model's maximum length"
+            "is %d.",
             default_max_len)
         derived_max_model_len = default_max_len
 
