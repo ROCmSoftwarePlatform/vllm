@@ -57,12 +57,11 @@ class FastSyncLLM:
 
             else:
                 try:
-                    (request_id, prompt, sampling_params
-                     ) = self.input_queue.get_nowait()
+                    (request_id, prompt,
+                     sampling_params) = self.input_queue.get_nowait()
                 except Empty:
                     break
-            self._add_request(prompt, sampling_params, request_id
-                              )
+            self._add_request(prompt, sampling_params, request_id)
 
     #@async_rpd_trace()
     def run_engine(self):
@@ -70,11 +69,17 @@ class FastSyncLLM:
             self.engine_args, usage_context=UsageContext.LLM_CLASS)
 
         request_stats = {}
+        log_interval = 100
         try:
             while True:
                 self._poll_requests()
-                logger.info("Running step")
+                #logger.info("Running step")
                 step_outputs = self.llm_engine.step()
+                log_interval -= 1
+                if log_interval == 0:
+                    log_interval = 100
+                    logger.info("Step finished. Unfinished requests: %d",
+                                self.llm_engine.get_num_unfinished_requests())
                 if not self.llm_engine.has_unfinished_requests():
                     logger.info("Broadcast stop")
                     broadcast_tensor_dict({}, src=0)
@@ -100,7 +105,8 @@ class FastSyncLLM:
                         del request_stats[output.request_id]
                     else:
                         request_stats[output.request_id] = output_len
-                    self.result_queue.put_nowait((output.request_id, result, stats))
+                    self.result_queue.put_nowait(
+                        (output.request_id, result, stats))
         except Exception as e:
             logger.error(f"Error in run_engine: {e}")
             raise e

@@ -52,6 +52,7 @@ class BackgroundRunner:
         self.result_queues[id] = queue
 
     def remove_result_queue(self, id):
+        assert id in self.result_queues
         del self.result_queues[id]
 
     def thread_proc(self):
@@ -110,7 +111,7 @@ route.path_regex = re.compile('^/metrics(?P<path>.*)$')
 app.routes.append(route)
 
 
-async def completion_generator(model, result_queue, choices, created_time):
+async def completion_generator(model, result_queue, choices, created_time, ids):
     completed = 0
     try:
         while True:
@@ -141,6 +142,8 @@ async def completion_generator(model, result_queue, choices, created_time):
             response_json = res.model_dump_json(exclude_unset=True)
             yield f"data: {response_json}\n\n"
             if completed == len(choices):
+                for id in ids:
+                    runner.remove_result_queue(id)
                 break
 
         yield "data: [DONE]\n\n"
@@ -171,7 +174,7 @@ async def completions(request: CompletionRequest, raw_request: Request):
     if request.stream:
         created_time = int(time.time())
         return StreamingResponse(content=completion_generator(
-            request.model, result_queue, choices, created_time),
+            request.model, result_queue, choices, created_time, ids),
                                  media_type="text/event-stream")
     while True:
         request_id, token, stats = await result_queue.get()
@@ -184,6 +187,8 @@ async def completions(request: CompletionRequest, raw_request: Request):
             res.choices[choice_idx].stop_reason = stats["stop_reason"]
             completed += 1
             if completed == len(ids):
+                for id in ids:
+                    runner.remove_result_queue(id)
                 break
             continue
     res.usage.total_tokens = (  # type: ignore
