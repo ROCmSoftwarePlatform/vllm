@@ -150,7 +150,15 @@ def awq_dequantize(qweight: torch.Tensor, scales: torch.Tensor,
 
 def awq_gemm(input: torch.Tensor, qweight: torch.Tensor, qzeros: torch.Tensor,
              scales: torch.Tensor, split_k_iters: int) -> torch.Tensor:
-    print(f"awq_gemm:input.size = {input.size()}, qweight.size = {qweight.size()}, qzeros.size = {qzeros.size()}, scales.size = {scales.size()}, split_k_iters = {split_k_iters}")
+    print(f"awq_gemm:input.size = {input.size()},"
+          f"input.dtype = {input.dtype},"
+          f"qweight.size = {qweight.size()},"
+          f"qweight.dtype = {qweight.dtype},"
+          f"qzeros.size = {qzeros.size()},"
+          f"qzeros.dtype = {qzeros.dtype},"
+          f"scales.size = {scales.size()},"
+          f"scales.dtype={scales.dtype},"
+          f"split_k_iters = {split_k_iters}")
     # return torch.zeros(qweight.shape[0], qzeros.shape[1], device=qweight.device, dtype = torch.float16)
     return torch.zeros((input.shape[0], qweight.shape[1] * 8), device=qweight.device, dtype = torch.float16)
     # return torch.zeros(input.shape[0], qweight.shape[1], device=qweight.device, dtype = torch.float16)

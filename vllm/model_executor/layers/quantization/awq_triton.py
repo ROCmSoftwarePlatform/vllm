@@ -219,9 +219,9 @@ def reverse_awq_order(t: torch.Tensor):
     return t 
 
 
-# qweightss [R     , C // 8], int32
-# scales  - [R // G, C     ], float16
-# zeros   - [R // G, C // 8], int32
+# qweights - [R     , C // 8], int32
+# scales   - [R // G, C     ], float16
+# zeros    - [R // G, C // 8], int32
 def awq_dequantize_torch(qweight: torch.Tensor,
                          scales: torch.Tensor,
                          qzeros: torch.Tensor,
@@ -325,15 +325,66 @@ def awq_gemm_triton(input: torch.Tensor, qweight: torch.Tensor,
     return torch.zeros((input.shape[0], qweight.shape[1] * 8),
                        device=qweight.device, dtype = torch.float16)
 
+# input   - [N, K]
+# qweight - [K, M // 8]
+# qzeros  - [K // G, M // 8]
+# scales  - [K // G, M]
+# split_k_iters - parallelism along K-dimension, int, power of 2.
 def awq_gemm_torch(input: torch.Tensor, qweight: torch.Tensor,
                    qzeros: torch.Tensor, scales: torch.Tensor,
                    split_k_iters: int) -> torch.Tensor:
-    return torch.zeros((input.shape[0], qweight.shape[1] * 8),
-                       device=qweight.device, dtype = torch.float16)
+    weights = awq_dequantize_torch(qweight, scales, qzeros, split_k_iters, 0, 0)
+    return torch.matmul(input, weights)
 
 def test_gemm():
     print("=" * 10 + " TESTING GEMM " + "=" * 10)
 
+    split_k_iters = 1
+    group_size = 128
+    device = "cuda"
+
+    # input.size = torch.Size([1, 3584]),
+    # input.dtype = torch.float16
+    # qweight.size = torch.Size([3584, 448]),
+    # qweight.dtype = torch.int32
+    # qzeros.size = torch.Size([28, 3584]),
+    # qzeros.dtype = torch.float16
+    # scales.size = torch.Size([28, 448]),
+    # scales.dtype = torch.int32
+    # split_k_iters = 8
+    input_rows = 1
+    input_cols = 3584
+    input_dtype = torch.float16
+    qweight_rows = input_cols
+    qweight_cols = 448
+    qweight_dtype = torch.int32
+    scales_rows = qweight_rows // group_size
+    scales_cols = qweight_cols * 8
+    scales_dtype = torch.float16
+    qzeros_rows = scales_rows
+    qzeros_cols = qweight_cols
+    qzeros_dtype = torch.int32
+
+
+    input = torch.rand((input_rows, input_cols),
+                       dtype = input_dtype)
+    qweight = torch.randint(0, torch.iinfo(torch.int32).max,
+                            (qweight_rows, qweight_cols))
+    qzeros = torch.randint(0, torch.iinfo(torch.int32).max,
+                            (qzeros_rows, qzeros_cols))
+    scales = torch.rand((scales_rows, scales_cols),
+                        dtype = scales_dtype)
+
+    use_triton = False
+    use_torch = True
+
+    torch.manual_seed(0)
+
+    if use_torch:
+      output_torch = awq_gemm_torch(input, qweight, qzeros, scales,
+                                    split_k_iters)
+      print(f"output_torch = {output_torch}")
+    
 def main():
     parser = argparse.ArgumentParser(description="awq_triton test driver",
                 formatter_class=argparse.ArgumentDefaultsHelpFormatter)
