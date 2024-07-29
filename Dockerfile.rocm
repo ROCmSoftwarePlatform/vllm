@@ -1,5 +1,5 @@
 # default base image
-ARG BASE_IMAGE="rocm/pytorch:rocm6.1.1_ubuntu20.04_py3.9_pytorch_staging"
+ARG BASE_IMAGE="rocm/pytorch:rocm6.1.2_ubuntu20.04_py3.9_pytorch_staging"
 
 ARG COMMON_WORKDIR=/app
 
@@ -104,7 +104,7 @@ FROM export_cupy_${BUILD_CUPY} AS export_cupy
 # -----------------------
 # Triton build stages
 FROM base AS build_triton
-ARG TRITON_BRANCH="main"
+ARG TRITON_BRANCH="6ddb79b"
 ARG TRITON_REPO="https://github.com/OpenAI/triton.git"
 RUN git clone ${TRITON_REPO} \
     && cd triton \
@@ -161,6 +161,10 @@ COPY --from=build_vllm ${COMMON_WORKDIR}/vllm/gradlib/dist/*.whl /
 COPY --from=build_vllm ${COMMON_WORKDIR}/vllm/rocm_patch /rocm_patch
 COPY --from=build_vllm ${COMMON_WORKDIR}/vllm/requirements*.txt /
 COPY --from=build_vllm ${COMMON_WORKDIR}/vllm/benchmarks /benchmarks
+COPY --from=build_vllm ${COMMON_WORKDIR}/vllm/tests /tests
+COPY --from=build_vllm ${COMMON_WORKDIR}/vllm/examples /examples
+COPY --from=build_vllm ${COMMON_WORKDIR}/vllm/.buildkite /.buildkite
+
 
 # -----------------------
 # Final vLLM image
@@ -195,21 +199,29 @@ RUN --mount=type=bind,from=export_rccl,src=/,target=/install \
 
 RUN --mount=type=bind,from=export_flash_attn,src=/,target=/install \
     if ls /install/*.whl; then \
-        pip install /install/*.whl; \
+        # Preemptively uninstall to prevent pip same-version no-installs
+        pip uninstall -y flash-attn \
+        && pip install /install/*.whl; \
     fi
 
 RUN --mount=type=bind,from=export_cupy,src=/,target=/install \
     if ls /install/*.whl; then \
-        pip install /install/*.whl; \
+        # Preemptively uninstall to prevent pip same-version no-installs
+        pip uninstall -y cupy \
+        && pip install /install/*.whl; \
     fi
 
 RUN --mount=type=bind,from=export_triton,src=/,target=/install \
     if ls /install/*.whl; then \
-        pip install /install/*.whl; \
+        # Preemptively uninstall to prevent pip same-version no-installs
+        pip uninstall -y triton \
+        && pip install /install/*.whl; \
     fi
 
 RUN --mount=type=bind,from=export_amdsmi,src=/,target=/install \
-    pip install /install/*.whl;
+    # Preemptively uninstall to prevent pip same-version no-installs
+    pip uninstall -y amdsmi \
+    && pip install /install/*.whl;
 
 RUN python3 -m pip install --upgrade numba scipy huggingface-hub[cli]
 
@@ -225,10 +237,15 @@ RUN --mount=type=bind,from=export_vllm,src=/,target=/install \
            *"rocm-6.1"*) \
                cp rocm_patch/libamdhip64.so.6 /opt/rocm/lib/libamdhip64.so.6;; \
            *) ;; esac \
+    && pip uninstall -y vllm gradlib \
     && pip install *.whl
 
 # Copy over the benchmark scripts as well
 COPY --from=export_vllm /benchmarks ${COMMON_WORKDIR}/vllm/benchmarks
+COPY --from=export_vllm /tests ${COMMON_WORKDIR}/vllm/tests
+COPY --from=export_vllm /examples ${COMMON_WORKDIR}/vllm/examples
+COPY --from=export_vllm /.buildkite ${COMMON_WORKDIR}/vllm/.buildkite
+
 
 ENV RAY_EXPERIMENTAL_NOSET_ROCR_VISIBLE_DEVICES=1
 ENV TOKENIZERS_PARALLELISM=false

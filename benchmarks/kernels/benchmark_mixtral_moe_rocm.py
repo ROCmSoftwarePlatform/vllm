@@ -1,3 +1,4 @@
+import argparse
 import json
 import os
 import sys
@@ -5,25 +6,22 @@ import sys
 import torch
 import torch.nn.functional as F
 import triton
+import triton.language as tl
 from tqdm import tqdm
 
 import vllm._moe_C as moe_kernels
 from vllm._C import ops
-from vllm.model_executor.layers.fused_moe import (fused_moe,
-                                                  get_config_file_name,
+from vllm.model_executor.layers.fused_moe import (get_config_file_name,
                                                   invoke_fused_moe_kernel,
                                                   moe_align_block_size)
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "2"
-os.environ["HIP_FORCE_DEV_KERNARG"] = "1"
-os.environ["DEBUG_CLR_GRAPH_PACKET_CAPTURE"] = "1"
-os.environ["OPTIMIZE_EPILOGUE"] = "1"
 
-TP = 8
+def main(args):
+    os.environ["HIP_VISIBLE_DEVICES"] = args.GPUID
+    os.environ["HIP_FORCE_DEV_KERNARG"] = "1"
+    os.environ["DEBUG_CLR_GRAPH_PACKET_CAPTURE"] = "1"
+    os.environ["OPTIMIZE_EPILOGUE"] = "1"
 
-
-def main():
-    method = fused_moe
     for bs in [
             1,
             2,
@@ -44,7 +42,7 @@ def main():
             3072,
             4096,
     ]:
-        run_grid(bs, method=method)
+        run_grid(bs, model=args.model, TP=args.TP)
 
 
 ## Utilize method from rocm/Triton tuning script
@@ -168,8 +166,9 @@ def prune_configs(M, N, K, configs):
 
 def union_of_list_of_dicts(l1, l2):
     result = []
-    l1.extend(l2)
-    for myDict in l1:
+    temp_list = l1.copy()
+    temp_list.extend(l2)
+    for myDict in temp_list:
         if myDict not in result:
             result.append(myDict)
 
@@ -180,13 +179,19 @@ def need_split_k(SIZE_M, SIZE_N, SIZE_K):
     return (SIZE_M < 64 or SIZE_N < 64) and SIZE_K > 1024
 
 
-def run_grid(bs, method):
-    d_model = 4096
+def run_grid(bs, model, TP):
+    if model == '8x7B':
+        d_model = 4096
+        model_intermediate_size = 14336
+    elif model == '8x22B':
+        d_model = 6144
+        model_intermediate_size = 16384
+    else:
+        raise ValueError(f'Unsupported Mixtral model {model}')
+
     num_total_experts = 8
     top_k = 2
     tp_size = TP
-    model_intermediate_size = 14336
-    # num_layers = 32
     num_calls = 100
 
     num_warmup_trials = 1
@@ -195,11 +200,11 @@ def run_grid(bs, method):
     full_configs = get_full_tuning_space()
     M1 = bs * 2
     N1 = model_intermediate_size * 2 // tp_size
-    K1 = 4096
+    K1 = d_model
     prune_configs_1 = prune_configs(M1, N1, K1, full_configs)
 
     M2 = bs * 2
-    N2 = 4096
+    N2 = d_model
     K2 = model_intermediate_size // tp_size
     prune_configs_2 = prune_configs(M2, N2, K2, full_configs)
 
@@ -222,7 +227,6 @@ def run_grid(bs, method):
                     top_k=top_k,
                     tp_size=tp_size,
                     model_intermediate_size=model_intermediate_size,
-                    method=method,
                     config=config,
                 )
         except triton.runtime.autotuner.OutOfResources:
@@ -238,7 +242,6 @@ def run_grid(bs, method):
                 top_k=top_k,
                 tp_size=tp_size,
                 model_intermediate_size=model_intermediate_size,
-                method=method,
                 config=config,
             )
 
@@ -258,7 +261,8 @@ def run_grid(bs, method):
 
     # holds Dict[str, Dict[str, int]]
     filename = get_config_file_name(num_total_experts,
-                                    model_intermediate_size // tp_size)
+                                    model_intermediate_size // tp_size,
+                                    dtype=None)
     print(f"writing config to file {filename}")
     existing_content = {}
     if os.path.exists(filename):
@@ -278,14 +282,13 @@ def run_timing(
     top_k: int,
     tp_size: int,
     model_intermediate_size: int,
-    method,
     config,
 ) -> float:
     shard_intermediate_size = model_intermediate_size // tp_size
 
     hidden_states = torch.rand(
         (bs, d_model),
-        device="cuda:0",
+        device="cuda",
         dtype=torch.float16,
     )
 
@@ -378,6 +381,8 @@ def run_timing(
             hidden_states,
             w1,
             intermediate_cache1,
+            None,  # a1_scale
+            None,  # w1_scale
             topk_weights,
             topk_ids,
             sorted_token_ids,
@@ -386,6 +391,9 @@ def run_timing(
             False,
             topk_ids.shape[1],
             config,
+            compute_type=(tl.bfloat16 if hidden_states.dtype == torch.bfloat16
+                          else tl.float16),
+            use_fp8=False,
         )
 
         ops.silu_and_mul(intermediate_cache2, intermediate_cache1.view(-1, N))
@@ -394,6 +402,8 @@ def run_timing(
             intermediate_cache2,
             w2,
             intermediate_cache3,
+            None,  # a2_scale
+            None,  # w2_scale
             topk_weights,
             topk_ids,
             sorted_token_ids,
@@ -402,6 +412,9 @@ def run_timing(
             True,
             1,
             config,
+            compute_type=(tl.bfloat16 if hidden_states.dtype == torch.bfloat16
+                          else tl.float16),
+            use_fp8=False,
         )
 
     end_event.record()
@@ -412,4 +425,30 @@ def run_timing(
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    parser = argparse.ArgumentParser(
+        prog="benchmark_mixtral_moe_rocm",
+        description="Tune the fused_moe kernel for mixtral.")
+    parser.add_argument(
+        "--TP",
+        type=int,
+        choices=[8, 4, 2, 1],
+        help="Specify the TP value that the actual model will run on",
+        required=True,
+    )
+    parser.add_argument(
+        "--GPUID",
+        type=str,
+        help="This script uses single GPU. Specify the GPU to use for tuning",
+        default="0",
+    )
+    parser.add_argument('--model',
+                        type=str,
+                        choices=['8x7B', '8x22B'],
+                        help='The Mixtral model to benchmark')
+
+    args = parser.parse_args()
+
+    print(f"Running tuning for {args.model} model")
+    print(f"TP is set to: {args.TP}")
+    print(f"GPU-ID being used for tuning: {args.GPUID}")
+    sys.exit(main(args))

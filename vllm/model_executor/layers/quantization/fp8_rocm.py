@@ -26,6 +26,13 @@ class Fp8RocmConfig(QuantizationConfig):
     def __init__(self) -> None:
         self._tuned = {}
         gemm_type = os.getenv("FP8_GEMM", "fp8_16")
+        vllm_ops.create_workspace()
+
+        self.shapes = []
+        if os.getenv("TUNE_FP8") == "1" and os.path.isfile(
+                "/tmp/fp8_shapes.csv"):
+            self.shapes = pd.read_csv("/tmp/fp8_shapes.csv").values.tolist()
+
         if gemm_type == "fp8_8":
             self.gemm_method = Fp8RocmLinearMethod.apply_fp8_8
             tuned_filename = "/tmp/tuned_fp8_8.csv"
@@ -80,6 +87,12 @@ class Fp8RocmConfig(QuantizationConfig):
 
     def get_scaled_act_names(self) -> List[str]:
         return []
+
+    def save_shape(self, m, n, k):
+        if os.getenv("TUNE_FP8") == "1" and [m, n, k] not in self.shapes:
+            self.shapes.append([m, n, k])
+            df = pd.DataFrame(self.shapes, columns=["M", "N", "K"])
+            df.to_csv("/tmp/fp8_shapes.csv", index=False)
 
 
 class Fp8RocmLinearMethod(LinearMethodBase):
@@ -180,6 +193,14 @@ class Fp8RocmLinearMethod(LinearMethodBase):
         weight = layer.weight
         layer.weight = Parameter(weight, requires_grad=False)
 
+        if layer.weight.dtype == torch.float8_e4m3fnuz:
+            layer.activation_scaling_factor = Parameter(
+                layer.activation_scaling_factor * 2.0, requires_grad=False)
+            layer.weights_scaling_factor = Parameter(
+                layer.weights_scaling_factor * 2.0, requires_grad=False)
+            layer.output_scaling_factor = Parameter(
+                layer.output_scaling_factor / 2.0, requires_grad=False)
+
     def scales_shard_indexer(
             self, param: torch.Tensor, loaded_weight: torch.Tensor,
             shard_id: Union[str, int]) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -218,7 +239,7 @@ class Fp8RocmLinearMethod(LinearMethodBase):
 
         algo = self._config._tuned.get((m, n, k))
         if algo is None:
-            _save_shape(m, n, k)
+            self._config.save_shape(m, n, k)
             res, _ = torch._scaled_mm(x8,
                                       weight.t(),
                                       out_dtype=x.dtype,
@@ -247,7 +268,7 @@ class Fp8RocmLinearMethod(LinearMethodBase):
 
         algo = self._config._tuned.get((m, n, k))
         if algo is None:
-            _save_shape(m, n, k)
+            self._config.save_shape(m, n, k)
             res, _ = torch._scaled_mm(x8,
                                       weight.t(),
                                       out_dtype=x8.dtype,
@@ -267,15 +288,14 @@ class Fp8RocmLinearMethod(LinearMethodBase):
         x: torch.Tensor,
         bias: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        weight: torch.Tensor = layer.weight
-        if weight.dtype == torch.float8_e4m3fnuz:
-            asf: torch.Tensor = layer.activation_scaling_factor * 2
-            wsf: torch.Tensor = layer.weights_scaling_factor * 2
-            osf: torch.Tensor = layer.output_scaling_factor / 2
+        if layer.weight.dtype == torch.float8_e4m3fnuz:
 
-            return self._config.gemm_method(self, x, weight, asf, wsf, osf)
+            return self._config.gemm_method(self, x, layer.weight,
+                                            layer.activation_scaling_factor,
+                                            layer.weights_scaling_factor,
+                                            layer.output_scaling_factor)
 
-        return F.linear(x, weight, bias)
+        return F.linear(x, layer.weight, bias)
 
 
 def _per_tensor_quantize(tensor: torch.Tensor,
@@ -290,17 +310,3 @@ def _per_tensor_dequantize(tensor: torch.Tensor,
     fake_qweight = tensor.to(torch.float16)
     dq_weight = fake_qweight * inv_scale
     return dq_weight
-
-
-def _save_shape(m, n, k):
-    if os.getenv("TUNE_FP8") == "1":
-        try:
-            df = pd.read_csv("/tmp/fp8_shapes.csv")
-        except (IOError, pd.errors.EmptyDataError, pd.errors.ParserError):
-            df = pd.DataFrame(columns=["M", "N", "K"])
-        df = pd.concat([df, pd.DataFrame({
-            "M": [m],
-            "N": [n],
-            "K": [k]
-        })]).drop_duplicates()
-        df.to_csv("/tmp/fp8_shapes.csv", index=False)
