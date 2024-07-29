@@ -31,13 +31,17 @@ class Fp8RocmConfig(QuantizationConfig):
             self.shapes = pd.read_csv("/tmp/fp8_shapes.csv").values.tolist()
 
         if gemm_type == "fp8_8":
-            self.gemm_method = Fp8RocmLinearMethod.apply_fp8_8
+            self.gemm_out_type = torch.float8_e4m3fnuz
             tuned_filename = "/tmp/tuned_fp8_8.csv"
         elif gemm_type == "fp8_16":
-            self.gemm_method = Fp8RocmLinearMethod.apply_fp8_16
+            self.gemm_out_type = torch.float16
             tuned_filename = "/tmp/tuned_fp8_16.csv"
+        elif gemm_type == "fp8_b16":
+            self.gemm_out_type = torch.bfloat16
+            tuned_filename = "/tmp/tuned_fp8_b16.csv"
         else:
             raise ValueError(f"Unknown fp8 gemm type: {gemm_type}")
+
         try:
             df = pd.read_csv(tuned_filename)
         except pd.errors.ParserError as e:
@@ -225,11 +229,11 @@ class Fp8RocmLinearMethod(LinearMethodBase):
         bias: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         weight: torch.Tensor = layer.weight
-        out_dtype = x.dtype
+        out_dtype = self._config.gemm_out_type
 
-        asf: torch.Tensor = layer.activation_scaling_factor * 2
-        wsf: torch.Tensor = layer.weight_scaling_factor * 2
-        osf: Optional[torch.Tensor] = layer.output_scaling_factor / 2 \
+        asf: torch.Tensor = layer.activation_scaling_factor
+        wsf: torch.Tensor = layer.weights_scaling_factor
+        osf: Optional[torch.Tensor] = layer.output_scaling_factor \
             if out_dtype == torch.float8_e4m3fnuz else None
 
         x_quant = torch.empty_like(x, dtype=torch.float8_e4m3fnuz)

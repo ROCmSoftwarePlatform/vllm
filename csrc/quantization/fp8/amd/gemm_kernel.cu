@@ -67,7 +67,7 @@ void create_workspace() {
 
 void fp8_mm(torch::Tensor& a, torch::Tensor& b, torch::Tensor& result,
             torch::Tensor& scale_a, torch::Tensor& scale_b,
-            const c10::optional<torch::Tensor>& scale_result, int64_t solidx) {
+            const c10::optional<torch::Tensor>& scale_result, int64_t algo_idx) {
   auto a_strides{a.strides()};
   auto b_strides{b.strides()};
   auto a_sizes{a.sizes()};
@@ -190,7 +190,7 @@ void fp8_mm(torch::Tensor& a, torch::Tensor& b, torch::Tensor& result,
     TORCH_CHECK(!heuristicResult.empty(), "No valid solution found!");
   }
   std::vector<int> algoIndex(1);
-  algoIndex[0] = solidx;
+  algoIndex[0] = algo_idx;
   std::vector<hipblasLtMatmulHeuristicResult_t> tmpAlgo;
   TORCH_CUDABLAS_CHECK(
       hipblaslt_ext::getAlgosFromIndex(handle, algoIndex, tmpAlgo));
