@@ -1,5 +1,5 @@
 import multiprocessing as mp
-from multiprocessing.queues import Empty
+from queue import Empty
 from typing import Union
 
 from vllm.distributed.communication_op import broadcast_tensor_dict

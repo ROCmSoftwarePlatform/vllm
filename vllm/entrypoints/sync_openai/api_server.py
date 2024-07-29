@@ -46,7 +46,8 @@ class BackgroundRunner:
         self.result_queues: Dict[str, asyncio.Queue] = {}
         self.t: threading.Thread = threading.Thread(target=self.thread_proc)
         self.loop = None
-        self.proc = None
+        self.llm = None
+        self.proc: multiprocessing.Process = None # type: ignore
 
     def set_engine_args(self, engine_args):
         self.engine_args = engine_args
@@ -74,7 +75,7 @@ class BackgroundRunner:
             result_queue=self.result_queue,
         )
         self.loop = asyncio.get_event_loop()
-        self.proc: multiprocessing.Process = mp.Process(
+        self.proc = mp.Process(
             target=self.llm.run_engine)
         self.t.start()
         self.proc.start()
