@@ -25,14 +25,15 @@ from vllm.utils import random_uuid
 
 mp = multiprocessing.get_context(envs.VLLM_WORKER_MULTIPROC_METHOD)
 
-logger = init_logger(__name__)
+logger = init_logger("api_server.py")
 
 
 def put_in_queue(queue, item, loop):
     try:
         asyncio.run_coroutine_threadsafe(queue.put(item), loop)
     except Exception as e:
-        print(f"Error in put_in_queue: {e}")
+        logger.error("Exception in put_in_queue: %s", e)
+        raise e
 
 
 class BackgroundRunner:
@@ -53,9 +54,12 @@ class BackgroundRunner:
     def add_result_queue(self, id, queue):
         self.result_queues[id] = queue
 
-    def remove_result_queue(self, id):
-        assert id in self.result_queues
-        del self.result_queues[id]
+    def remove_result_queues(self, ids):
+        for id in ids:
+            assert id in self.result_queues
+            del self.result_queues[id]
+        logger.debug("Removed result queue from %d ids. %d remaining",
+                     len(ids), len(self.result_queues))
 
     def thread_proc(self):
         while True:
@@ -80,16 +84,12 @@ class BackgroundRunner:
         ids = []
         if isinstance(prompt, str) or (isinstance(prompt, list)
                                        and isinstance(prompt[0], int)):
+            prompt = [prompt]
+        for p in prompt:
             id = random_uuid()
-            self.input_queue.put_nowait((id, prompt, sampling_params))
-            ids.append(id)
-        else:
-            for p in prompt:
-                id = random_uuid()
-                self.input_queue.put_nowait((id, p, sampling_params))
-                ids.append(id)
-        for id in ids:
             self.add_result_queue(id, result_queue)
+            self.input_queue.put_nowait((id, p, sampling_params))
+            ids.append(id)
         return ids, result_queue
 
 
@@ -146,8 +146,7 @@ async def completion_generator(model, result_queue, choices, created_time,
             response_json = res.model_dump_json(exclude_unset=True)
             yield f"data: {response_json}\n\n"
             if completed == len(choices):
-                for id in ids:
-                    runner.remove_result_queue(id)
+                runner.remove_result_queues(ids)
                 break
 
         yield "data: [DONE]\n\n"
@@ -191,8 +190,7 @@ async def completions(request: CompletionRequest, raw_request: Request):
             res.choices[choice_idx].stop_reason = stats["stop_reason"]
             completed += 1
             if completed == len(ids):
-                for id in ids:
-                    runner.remove_result_queue(id)
+                runner.remove_result_queues(ids)
                 break
             continue
     res.usage.total_tokens = (  # type: ignore

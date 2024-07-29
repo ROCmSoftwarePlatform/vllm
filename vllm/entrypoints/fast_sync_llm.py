@@ -73,7 +73,6 @@ class FastSyncLLM:
         try:
             while True:
                 self._poll_requests()
-                #logger.info("Running step")
                 step_outputs = self.llm_engine.step()
                 log_interval -= 1
                 if log_interval == 0:
