@@ -15,7 +15,7 @@ from vllm import FastSyncLLM as LLM
 
 from vllm.engine.arg_utils import EngineArgs
 from vllm.entrypoints.openai.cli_args import make_arg_parser
-from vllm.entrypoints.sync_openai.model import (CompletionRequest,
+from vllm.entrypoints.sync_openai.protocol import (CompletionRequest,
                                                 CompletionResponse,
                                                 CompletionResponseChoice,
                                                 UsageInfo)
