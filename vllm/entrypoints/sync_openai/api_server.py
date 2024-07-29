@@ -40,10 +40,12 @@ class BackgroundRunner:
     def __init__(self):
         self.value = 0
         self.engine_args = None
-        self.proc = None
+        self.input_queue: multiprocessing.Queue = mp.Queue()
+        self.result_queue: multiprocessing.Queue = mp.Queue()
         self.result_queues: Dict[str, asyncio.Queue] = {}
         self.t: threading.Thread = threading.Thread(target=self.thread_proc)
         self.loop = None
+        self.proc = None
 
     def set_engine_args(self, engine_args):
         self.engine_args = engine_args
@@ -58,19 +60,19 @@ class BackgroundRunner:
     def thread_proc(self):
         while True:
             req_id, result, stats = self.result_queue.get()
-            put_in_queue(self.result_queues[req_id], (req_id, result, stats), self.loop)
+            put_in_queue(self.result_queues[req_id], (req_id, result, stats),
+                         self.loop)
 
     async def run_main(self):
-        self.input_queue: mp.Queue = mp.Queue()
-        self.result_queue: mp.Queue = mp.Queue()
         self.llm = LLM(
             engine_args=self.engine_args,
             input_queue=self.input_queue,
             result_queue=self.result_queue,
         )
         self.loop = asyncio.get_event_loop()
+        self.proc: multiprocessing.Process = mp.Process(
+            target=self.llm.run_engine)
         self.t.start()
-        self.proc = mp.Process(target=self.llm.run_engine)
         self.proc.start()
 
     async def add_request(self, prompt, sampling_params):
@@ -79,14 +81,12 @@ class BackgroundRunner:
         if isinstance(prompt, str) or (isinstance(prompt, list)
                                        and isinstance(prompt[0], int)):
             id = random_uuid()
-            self.input_queue.put_nowait(
-                (id, prompt, sampling_params))
+            self.input_queue.put_nowait((id, prompt, sampling_params))
             ids.append(id)
         else:
             for p in prompt:
                 id = random_uuid()
-                self.input_queue.put_nowait(
-                    (id, p, sampling_params))
+                self.input_queue.put_nowait((id, p, sampling_params))
                 ids.append(id)
         for id in ids:
             self.add_result_queue(id, result_queue)
@@ -98,7 +98,10 @@ runner = BackgroundRunner()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    runner.result_queues["Ready"] = asyncio.Queue()
     asyncio.create_task(runner.run_main())
+    await runner.result_queues["Ready"].get()
+    del runner.result_queues["Ready"]
     yield
 
 
@@ -111,7 +114,8 @@ route.path_regex = re.compile('^/metrics(?P<path>.*)$')
 app.routes.append(route)
 
 
-async def completion_generator(model, result_queue, choices, created_time, ids):
+async def completion_generator(model, result_queue, choices, created_time,
+                               ids):
     completed = 0
     try:
         while True:

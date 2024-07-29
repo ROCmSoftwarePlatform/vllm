@@ -63,11 +63,11 @@ class FastSyncLLM:
                     break
             self._add_request(prompt, sampling_params, request_id)
 
-    #@async_rpd_trace()
     def run_engine(self):
         self.llm_engine = LLMEngine.from_engine_args(
             self.engine_args, usage_context=UsageContext.LLM_CLASS)
 
+        self.result_queue.put(("Ready", None, None))
         request_stats = {}
         log_interval = 100
         try:
@@ -108,5 +108,5 @@ class FastSyncLLM:
                     self.result_queue.put_nowait(
                         (output.request_id, result, stats))
         except Exception as e:
-            logger.error(f"Error in run_engine: {e}")
+            logger.error("Error in run_engine: %s", e)
             raise e
