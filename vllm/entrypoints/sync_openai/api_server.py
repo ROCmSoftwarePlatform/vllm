@@ -1,4 +1,5 @@
 import asyncio
+import multiprocessing
 import re
 import threading
 import time
@@ -12,16 +13,14 @@ from fastapi.routing import Mount
 from prometheus_client import make_asgi_app
 
 from vllm import FastSyncLLM as LLM
-
 from vllm.engine.arg_utils import EngineArgs
 from vllm.entrypoints.openai.cli_args import make_arg_parser
 from vllm.entrypoints.sync_openai.protocol import (CompletionRequest,
-                                                CompletionResponse,
-                                                CompletionResponseChoice,
-                                                UsageInfo)
+                                                   CompletionResponse,
+                                                   CompletionResponseChoice,
+                                                   UsageInfo)
 from vllm.logger import init_logger
 from vllm.utils import random_uuid
-import multiprocessing
 
 mp = multiprocessing.get_context("spawn")
 

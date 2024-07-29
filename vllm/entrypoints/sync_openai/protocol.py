@@ -1,10 +1,11 @@
 import time
+from typing import Dict, List, Optional, Union
+
+import torch
 from pydantic import BaseModel, Field
 from typing_extensions import Annotated
-from vllm import SamplingParams
-from typing import Dict, List, Optional, Union
-import torch
 
+from vllm import SamplingParams
 from vllm.utils import random_uuid
 
 

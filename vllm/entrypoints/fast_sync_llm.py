@@ -1,3 +1,5 @@
+import multiprocessing as mp
+from multiprocessing.queues import Empty
 from typing import Union
 
 from vllm.distributed.communication_op import broadcast_tensor_dict
@@ -9,8 +11,6 @@ from vllm.pooling_params import PoolingParams
 from vllm.sampling_params import SamplingParams
 from vllm.usage.usage_lib import UsageContext
 from vllm.utils import Counter
-import multiprocessing as mp
-from multiprocessing.queues import Empty
 
 logger = init_logger(__name__)
 
