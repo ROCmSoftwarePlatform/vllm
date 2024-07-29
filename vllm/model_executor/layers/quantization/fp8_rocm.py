@@ -3,7 +3,6 @@ from typing import List, Optional, Tuple, Union
 
 import pandas as pd
 import torch
-import torch.nn.functional as F
 from torch.nn import Module
 from torch.nn.parameter import Parameter
 
@@ -253,6 +252,7 @@ class Fp8RocmLinearMethod(LinearMethodBase):
         if bias is not None:
             res += bias
         return res
+
 
 def _per_tensor_quantize(tensor: torch.Tensor,
                          inv_scale: float) -> torch.Tensor:

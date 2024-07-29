@@ -67,7 +67,8 @@ void create_workspace() {
 
 void fp8_mm(torch::Tensor& a, torch::Tensor& b, torch::Tensor& result,
             torch::Tensor& scale_a, torch::Tensor& scale_b,
-            const c10::optional<torch::Tensor>& scale_result, int64_t algo_idx) {
+            const c10::optional<torch::Tensor>& scale_result,
+            int64_t algo_idx) {
   auto a_strides{a.strides()};
   auto b_strides{b.strides()};
   auto a_sizes{a.sizes()};
