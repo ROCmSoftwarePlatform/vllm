@@ -13,6 +13,7 @@ from fastapi.routing import Mount
 from prometheus_client import make_asgi_app
 
 from vllm import FastSyncLLM as LLM
+from vllm import envs
 from vllm.engine.arg_utils import EngineArgs
 from vllm.entrypoints.openai.cli_args import make_arg_parser
 from vllm.entrypoints.sync_openai.protocol import (CompletionRequest,
@@ -22,7 +23,7 @@ from vllm.entrypoints.sync_openai.protocol import (CompletionRequest,
 from vllm.logger import init_logger
 from vllm.utils import random_uuid
 
-mp = multiprocessing.get_context("spawn")
+mp = multiprocessing.get_context(envs.VLLM_WORKER_MULTIPROC_METHOD)
 
 logger = init_logger(__name__)
 
