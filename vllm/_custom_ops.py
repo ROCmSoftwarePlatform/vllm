@@ -332,7 +332,8 @@ def convert_fp8(output: torch.Tensor,
     if scale is None:
         scale = torch.Tensor([1.0], device=input.device)
     vllm_ops.convert_fp8(output, input, scale)
-    
+
+
 def fp8_mm(a: torch.Tensor, b: torch.Tensor, out_dtype: torch.dtype,
            scale_a: torch.Tensor, scale_b: torch.Tensor,
            scale_result: Optional[torch.Tensor], solidx: int) -> torch.Tensor:
@@ -341,5 +342,6 @@ def fp8_mm(a: torch.Tensor, b: torch.Tensor, out_dtype: torch.dtype,
                          device=a.device)
     vllm_ops.fp8_mm(a, b, result, scale_a, scale_b, scale_result, solidx)
     return result
+
 
 #TODO: cuda_utils, custom_ar
