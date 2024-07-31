@@ -13,6 +13,7 @@ from vllm import LLM, SamplingParams
 from vllm.inputs import PromptStrictInputs
 from vllm.model_executor.layers.quantization import QUANTIZATION_METHODS
 
+from data_loader import *
 from rpd_handler import *
 
 def main(args: argparse.Namespace):
@@ -20,30 +21,27 @@ def main(args: argparse.Namespace):
 
     # NOTE(woosuk): If the request cannot be processed in a single batch,
     # the engine will automatically process the request in multiple batches.
-    llm = LLM(
-        model=args.model,
-        speculative_model=args.speculative_model,
-        num_speculative_tokens=args.num_speculative_tokens,
-        tokenizer=args.tokenizer,
-        quantization=args.quantization,
-        quantized_weights_path=args.quantized_weights_path,
-        tensor_parallel_size=args.tensor_parallel_size,
-        trust_remote_code=args.trust_remote_code,
-        dtype=args.dtype,
-        enforce_eager=args.enforce_eager,
-        kv_cache_dtype=args.kv_cache_dtype,
-        quantization_param_path=args.quantization_param_path,
-        device=args.device,
-        ray_workers_use_nsight=args.ray_workers_use_nsight,
-        worker_use_ray=args.worker_use_ray,
-        use_v2_block_manager=args.use_v2_block_manager,
-        enable_chunked_prefill=args.enable_chunked_prefill,
-        download_dir=args.download_dir,
-        block_size=args.block_size,
-        disable_custom_all_reduce=args.disable_custom_all_reduce,
-        gpu_memory_utilization=args.gpu_memory_utilization,
-        distributed_executor_backend=args.distributed_executor_backend,
-    )
+    llm = LLM(model=args.model,
+              speculative_model=args.speculative_model,
+              num_speculative_tokens=args.num_speculative_tokens,
+              tokenizer=args.tokenizer,
+              quantization=args.quantization,
+              quantized_weights_path=args.quantized_weights_path,
+              tensor_parallel_size=args.tensor_parallel_size,
+              trust_remote_code=args.trust_remote_code,
+              dtype=args.dtype,
+              enforce_eager=args.enforce_eager,
+              kv_cache_dtype=args.kv_cache_dtype,
+              quantization_param_path=args.quantization_param_path,
+              device=args.device,
+              ray_workers_use_nsight=args.ray_workers_use_nsight,
+              worker_use_ray=args.worker_use_ray,
+              use_v2_block_manager=args.use_v2_block_manager,
+              enable_chunked_prefill=args.enable_chunked_prefill,
+              download_dir=args.download_dir,
+              block_size=args.block_size,
+              disable_custom_all_reduce=args.disable_custom_all_reduce,
+              gpu_memory_utilization=args.gpu_memory_utilization)
 
     sampling_params = SamplingParams(
         n=args.n,
@@ -54,12 +52,20 @@ def main(args: argparse.Namespace):
         max_tokens=args.output_len,
     )
     print(sampling_params)
-    dummy_prompt_token_ids = np.random.randint(10000,
-                                               size=(args.batch_size,
-                                                     args.input_len))
-    dummy_inputs: List[PromptStrictInputs] = [{
-        "prompt_token_ids": batch
-    } for batch in dummy_prompt_token_ids.tolist()]
+    #dummy_prompt_token_ids = np.random.randint(10000,
+    #                                           size=(args.batch_size,
+    #                                                 args.input_len))
+    #dummy_inputs: List[PromptStrictInputs] = [{
+    #    "prompt_token_ids": batch
+    #} for batch in dummy_prompt_token_ids.tolist()]
+    from transformers import AutoTokenizer
+    tokenizer = AutoTokenizer.from_pretrained("hpcai-tech/grok-1", trust_remote_code=True)
+    input_tokens = get_input_sentences(args.batch_size, args.input_len, "wikitext", 'wikitext-2-raw-v1', tokenizer)
+    prompts = [tokenizer.decode(sample) for sample in input_tokens]
+
+    #dummy_inputs: List[PromptStrictInputs] = [{
+    #    "prompt_token_ids": batch
+    #} for batch in input_tokens]
 
     def run_to_completion(profile_dir: Optional[str] = None):
         if profile_dir:
@@ -70,16 +76,20 @@ def main(args: argparse.Namespace):
                     ],
                     on_trace_ready=torch.profiler.tensorboard_trace_handler(
                         str(profile_dir))) as p:
-                llm.generate(dummy_inputs,
+                llm.generate(prompts,
                              sampling_params=sampling_params,
                              use_tqdm=False)
             print(p.key_averages())
         else:
             start_time = time.perf_counter()
-            llm.generate(dummy_inputs,
+            outputs = llm.generate(prompts,
                          sampling_params=sampling_params,
                          use_tqdm=False)
             end_time = time.perf_counter()
+            for output in outputs:
+                prompt = output.prompt
+                generated_text = output.outputs[0].text
+                print(f"Prompt: {prompt!r}, Generated text: {generated_text!r}")
             latency = end_time - start_time
             return latency
 
@@ -154,7 +164,7 @@ if __name__ == '__main__':
                         help='Number of iterations to run for warmup.')
     parser.add_argument('--num-iters',
                         type=int,
-                        default=5,
+                        default=1,
                         help='Number of iterations to run.')
     parser.add_argument('--trust-remote-code',
                         action='store_true',
@@ -249,14 +259,6 @@ if __name__ == '__main__':
                         help='the fraction of GPU memory to be used for '
                         'the model executor, which can range from 0 to 1.'
                         'If unspecified, will use the default value of 0.9.')
-    parser.add_argument(
-        '--distributed-executor-backend',
-        choices=['ray', 'mp', 'torchrun'],
-        default=None,
-        help='Backend to use for distributed serving. When more than 1 GPU '
-        'is used, on CUDA this will be automatically set to "ray" if '
-        'installed or "mp" (multiprocessing) otherwise. On ROCm, this is '
-        'instead set to torchrun by default.')
     parser.add_argument(
         "--enable-prof",
         action='store_true',

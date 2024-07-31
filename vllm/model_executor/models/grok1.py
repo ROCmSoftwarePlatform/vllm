@@ -35,7 +35,7 @@ from vllm.distributed import (get_tensor_model_parallel_rank,
                               get_tensor_model_parallel_world_size,
                               tensor_model_parallel_all_reduce)
 from vllm.model_executor.layers.fused_moe import fused_moe
-from vllm.model_executor.layers.layernorm import RMSNorm
+from vllm.model_executor.layers.layernorm import RMSNorm, ScaledRMSNorm
 from vllm.model_executor.layers.linear import (QKVParallelLinear,
                                                ReplicatedLinear,
                                                RowParallelLinear)
@@ -48,7 +48,7 @@ from vllm.model_executor.layers.rotary_embedding import get_rope
 from vllm.model_executor.layers.sampler import Sampler
 from vllm.model_executor.layers.vocab_parallel_embedding import (
     DEFAULT_VOCAB_PADDING_SIZE, ParallelLMHead, VocabParallelEmbedding)
-from vllm.model_executor.model_loader.weight_utils import default_weight_loader
+from vllm.model_executor.model_loader.weight_utils import (default_weight_loader, kv_cache_scales_loader)
 from vllm.model_executor.sampling_metadata import SamplingMetadata
 from vllm.model_executor.utils import set_weight_attrs
 from vllm.sequence import SamplerOutput
@@ -62,6 +62,9 @@ embedding_multiplier_scale = 78.38367176906169
 attn_output_multiplier = 0.08838834764831845
 output_multiplier_scale = 0.5773502691896257
 max_attn_val = 30.0
+
+reduce_conversion_kernel: bool = True if os.getenv("VLLM_FP8_REDUCE_CONV",
+                                                   '0') == "1" else False
 
 class Grok1MoE(nn.Module):
     """A tensor-parallel MoE implementation for Grok1 that shards each expert
@@ -422,7 +425,7 @@ class Grok1DecoderLayer(nn.Module):
             hidden_size=config.hidden_size,
             intermediate_size=config.intermediate_size,
             quant_config=quant_config)
-        self.pre_attn_norm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+        self.pre_attn_norm = ScaledRMSNorm(config.hidden_size, eps=config.rms_norm_eps) if reduce_conversion_kernel else RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.post_attn_norm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.pre_moe_norm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.post_moe_norm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
@@ -438,9 +441,9 @@ class Grok1DecoderLayer(nn.Module):
         # Self Attention
         if residual is None:
             residual = hidden_states
-            hidden_states = self.pre_attn_norm(hidden_states)
+            hidden_states = self.pre_attn_norm(hidden_states, self.attn.qkv_proj.activation_scaling_factor) if reduce_conversion_kernel else self.pre_attn_norm(hidden_states)
         else:
-            hidden_states, residual = self.pre_attn_norm(
+            hidden_states, residual = self.pre_attn_norm(hidden_states, self.attn.qkv_proj.activation_scaling_factor, residual) if reduce_conversion_kernel else self.pre_attn_norm(
                 hidden_states, residual)
         hidden_states = self.attn(
             positions=positions,
