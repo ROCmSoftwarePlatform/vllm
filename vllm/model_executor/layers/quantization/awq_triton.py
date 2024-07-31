@@ -54,8 +54,8 @@ def awq_dequantize_kernel(qweight_ptr,   # quantized matrix
     # Use this to compute a set of shifts that can be used to unpack and
     # reorder the values in iweights and zeros.
     shifts = reverse_awq_order_tensor * 4
-    shifts = shifts[None, :].broadcast_to(BLOCK_SIZE_Y * BLOCK_SIZE_X, 8)
-    shifts = shifts.reshape(BLOCK_SIZE_Y, BLOCK_SIZE_X * 8)
+    shifts = tl.broadcast_to(shifts[None, :], (BLOCK_SIZE_Y * BLOCK_SIZE_X, 8))
+    shifts = tl.reshape(shifts, (BLOCK_SIZE_Y, BLOCK_SIZE_X * 8))
 
     # Unpack and reorder: shift out the correct 4-bit value and mask.
     iweights = (iweights >> shifts) & 0xF
