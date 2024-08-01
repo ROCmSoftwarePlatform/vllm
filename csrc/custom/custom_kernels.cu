@@ -5,8 +5,6 @@
 #include <stdexcept>
 #include <algorithm>
 
-#if defined(__gfx942__)
-
 constexpr int WARP_SIZE = 64;
 
 template <typename T>
@@ -332,6 +330,8 @@ __device__ __forceinline__ T loadnt(T* addr) {
 #define M 1
 #define DTYPE half
 
+#if defined(__gfx942__) // TODO: Add NAVI support
+
 __global__ void wvSpltK_hf_m1_sml_(const int K, const int N, const DTYPE* B,
                                    const DTYPE* __restrict__ A, DTYPE* C,
                                    const int CuCount) {
@@ -458,6 +458,18 @@ __global__ void wvSpltK_hf_m1_sml_(const int K, const int N, const DTYPE* B,
     n += CuCount * WvPrGrp * YTILE;
   }
 }
+
+#else // !defined(__gfx942__) TODO: Add NAVI support
+
+__global__ void wvSpltK_hf_m1_sml_(const int K, const int N, const DTYPE* B,
+                               const DTYPE* __restrict__ A, DTYPE* C,
+                               const int CuCount) {
+  assert(false);
+}
+
+#endif // defined(__gfx942__) TODO: Add NAVI support
+
+#if defined(__gfx942__) // TODO: Add NAVI support
 
 __global__ void wvSpltK_hf_m1_(const int K, const int N, const DTYPE* B,
                                const DTYPE* __restrict__ A, DTYPE* C,
@@ -804,6 +816,16 @@ __global__ void wvSpltK_hf_m1_(const int K, const int N, const DTYPE* B,
   }
 }
 
+#else // !defined(__gfx942__) TODO: Add NAVI support
+
+__global__ void wvSpltK_hf_m1_(const int K, const int N, const DTYPE* B,
+                               const DTYPE* __restrict__ A, DTYPE* C,
+                               const int CuCount) {
+  assert(false);
+}
+
+#endif // defined(__gfx942__) TODO: Add NAVI support
+
 #undef YTILE
 #undef UNRL
 #undef M
@@ -811,6 +833,8 @@ __global__ void wvSpltK_hf_m1_(const int K, const int N, const DTYPE* B,
 #define YTILE 2
 #define UNRL 2
 #define M 2
+
+#if defined(__gfx942__) // TODO: Add NAVI support
 
 __global__ void wvSpltK_hf_m2_(const int K, const int N, const DTYPE* B,
                                const DTYPE* __restrict__ A, DTYPE* C,
@@ -1157,6 +1181,16 @@ __global__ void wvSpltK_hf_m2_(const int K, const int N, const DTYPE* B,
   }
 }
 
+#else // !defined(__gfx942__) TODO: Add NAVI support
+
+__global__ void wvSpltK_hf_m2_(const int K, const int N, const DTYPE* B,
+                               const DTYPE* __restrict__ A, DTYPE* C,
+                               const int CuCount) {
+  assert(false);
+}
+
+#endif // defined(__gfx942__) TODO: Add NAVI support
+
 #undef YTILE
 #undef UNRL
 #undef M
@@ -1164,6 +1198,8 @@ __global__ void wvSpltK_hf_m2_(const int K, const int N, const DTYPE* B,
 #define YTILE 5
 #define UNRL 2
 #define M 3
+
+#if defined(__gfx942__) // TODO: Add NAVI support
 
 __global__ void wvSpltK_hf_m3_(const int K, const int N, const DTYPE* B,
                                const DTYPE* __restrict__ A, DTYPE* C,
@@ -1510,6 +1546,16 @@ __global__ void wvSpltK_hf_m3_(const int K, const int N, const DTYPE* B,
   }
 }
 
+#else // !defined(__gfx942__) TODO: Add NAVI support
+
+__global__ void wvSpltK_hf_m3_(const int K, const int N, const DTYPE* B,
+                               const DTYPE* __restrict__ A, DTYPE* C,
+                               const int CuCount) {
+  assert(false);
+}
+
+#endif // defined(__gfx942__) TODO: Add NAVI support
+
 #undef YTILE
 #undef UNRL
 #undef M
@@ -1517,6 +1563,8 @@ __global__ void wvSpltK_hf_m3_(const int K, const int N, const DTYPE* B,
 #define YTILE 7
 #define UNRL 1
 #define M 4
+
+#if defined(__gfx942__) // TODO: Add NAVI support
 
 __global__ void wvSpltK_hf_m4_(const int K, const int N, const DTYPE* B,
                                const DTYPE* __restrict__ A, DTYPE* C,
@@ -1863,6 +1911,16 @@ __global__ void wvSpltK_hf_m4_(const int K, const int N, const DTYPE* B,
   }
 }
 
+#else // !defined(__gfx942__) TODO: Add NAVI support
+
+__global__ void wvSpltK_hf_m4_(const int K, const int N, const DTYPE* B,
+                               const DTYPE* __restrict__ A, DTYPE* C,
+                               const int CuCount) {
+  assert(false);
+}
+
+#endif // defined(__gfx942__) TODO: Add NAVI support
+
 void wvSpltK_(void* in_a, void* in_b, void* out_c, const int M_in,
               const int K_in, const int N_in, cudaStream_t stream,
               const int CuCount = 0) {
@@ -1904,29 +1962,3 @@ void wvSpltK_(void* in_a, void* in_b, void* out_c, const int M_in,
     throw std::runtime_error("CUDA kernel failed : " + std::to_string(err));
   }
 }
-
-#else // defined(__gfx942__)
-
-void LLGemm1(void* in_a, void* in_b, void* out_c, const int M, const int K,
-             cudaStream_t stream, const int rows_per_block = 4) {
-  TORCH_CHECK(false, "LLGemm1 not supported on current arch");
-}
-
-void LLGemmZZ(void* in_a, void* in_b, void* out_c, const int M, const int K,
-              cudaStream_t stream, const int solidx = 0) {
-  TORCH_CHECK(false, "LLGemmZZ not supported on current arch");
-}
-
-void MMGPUKernel(float* in_a, float* in_b, float* out_c, int numARows,
-                 int numAColumns, int numBRows, int numBColumns, int numCRows,
-                 int numCColumns, cudaStream_t stream) {
-  TORCH_CHECK(false, "MMGPUKernel not supported on current arch");
-}
-
-void wvSpltK_(void* in_a, void* in_b, void* out_c, const int M_in,
-              const int K_in, const int N_in, cudaStream_t stream,
-              const int CuCount = 0) {
-  TORCH_CHECK(false, "wvSpltK not supported on current arch");
-}
-
-#endif

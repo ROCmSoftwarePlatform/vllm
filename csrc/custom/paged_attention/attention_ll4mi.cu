@@ -5,12 +5,12 @@
 
 #include <algorithm>
 
-#if defined(__gfx942__)
-
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 #define DIVIDE_ROUND_UP(a, b) (((a) + (b) - 1) / (b))
 #define WARP_SIZE 64
+
+#if defined(__gfx942__) // TODO: Add NAVI support
 
 #define GCN_MFMA_INSTR1 __builtin_amdgcn_mfma_f32_16x16x4f32
 #define GCN_MFMA_INSTR __builtin_amdgcn_mfma_f32_4x4x4f16
@@ -746,6 +746,54 @@ __launch_bounds__(NUM_THREADS) void paged_attention_ll4mi_reduce_kernel(
   out_ptr[threadIdx.x] = (scalar_t)acc;
 }
 
+#else // !defined(__gfx942__) TODO: Add NAVI support
+
+template <typename scalar_t, int BLOCK_SIZE, int HEAD_SIZE, int NUM_THREADS,
+          int GQA_RATIO>
+__global__ __launch_bounds__(NUM_THREADS) void paged_attention_ll4mi_QKV_kernel(
+    const scalar_t* __restrict__ q,        // [num_seqs, num_heads, head_size]
+    const scalar_t* __restrict__ k_cache,  // [num_blocks, num_kv_heads,
+                                           // head_size/x, block_size, x]
+    const scalar_t* __restrict__ v_cache,  // [num_blocks, num_kv_heads,
+                                           // head_size, block_size]
+    const int num_kv_heads, const float scale,
+    const int* __restrict__ block_tables,  // [num_seqs, max_num_blocks_per_seq]
+    const int* __restrict__ context_lens,  // [num_seqs]
+    const int max_num_blocks_per_seq,
+    const float* __restrict__ alibi_slopes,  // [num_heads]
+    const int q_stride, const int kv_block_stride, const int kv_head_stride,
+    float* __restrict__ exp_sums,  // [num_seqs, num_heads, max_num_partitions]
+    float* __restrict__ max_logits,  // [num_seqs, num_heads,
+                                     // max_num_partitions]
+    scalar_t* __restrict__ out,  // [num_seqs, num_heads, max_num_partitions,
+                                 // head_size]
+    scalar_t* __restrict__ final_out,  // [num_seqs, num_heads, head_size]
+#if 0
+  scalar_t* __restrict__ qk_out,             // [num_heads, num_seqs, max_ctx_blocks,block_size]
+#endif
+    int max_ctx_blocks) {
+  assert(false);
+}
+
+// Grid: (num_heads, num_seqs).
+template <typename scalar_t, int HEAD_SIZE, int NUM_THREADS,
+          int PARTITION_SIZE>
+__global__
+__launch_bounds__(NUM_THREADS) void paged_attention_ll4mi_reduce_kernel(
+    scalar_t* __restrict__ out,            // [num_seqs, num_heads, head_size]
+    const float* __restrict__ exp_sums,    // [num_seqs, num_heads,
+                                           // max_num_partitions]
+    const float* __restrict__ max_logits,  // [num_seqs, num_heads,
+                                           // max_num_partitions]
+    const scalar_t* __restrict__ tmp_out,  // [num_seqs, num_heads,
+                                           // max_num_partitions, head_size]
+    const int* __restrict__ context_lens,  // [num_seqs]
+    const int max_num_partitions) {
+  assert(false);
+}
+
+#endif // defined(__gfx942__) TODO: Add NAVI support
+
 #define LAUNCH_CUSTOM_ATTENTION(GQA_RATIO)                                    \
   paged_attention_ll4mi_QKV_kernel<T, BLOCK_SIZE, HEAD_SIZE, NTHR, GQA_RATIO> \
       <<<grid, block, 0, stream>>>(                                           \
@@ -948,32 +996,3 @@ void paged_attention_custom(
 #undef MAX
 #undef MIN
 #undef DIVIDE_ROUND_UP
-
-#else //defined(__gfx942__)
-
-void paged_attention_custom(
-    torch::Tensor& out,         // [num_seqs, num_heads, head_size]
-    torch::Tensor& exp_sums,    // [num_seqs, num_heads, max_num_partitions]
-    torch::Tensor& max_logits,  // [num_seqs, num_heads, max_num_partitions]
-    torch::Tensor&
-        tmp_out,  // [num_seqs, num_heads, max_num_partitions, head_size]
-    torch::Tensor& query,  // [num_seqs, num_heads, head_size]
-    torch::Tensor&
-        key_cache,  // [num_blocks, num_heads, head_size/x, block_size, x]
-    torch::Tensor&
-        value_cache,  // [num_blocks, num_heads, head_size, block_size]
-    int num_kv_heads, float scale,
-    torch::Tensor& block_tables,  // [num_seqs, max_num_blocks_per_seq]
-    torch::Tensor& context_lens,  // [num_seqs]
-    int block_size, int max_context_len,
-#if 0
-  torch::Tensor& qk_out,
-  torch::Tensor& softmax_out,
-#endif
-    const c10::optional<torch::Tensor>& alibi_slopes,
-    const std::string& kv_cache_dtype) {
-  TORCH_CHECK(false, "paged_attention_custom not supported on current arch");
-}
-
-
-#endif
