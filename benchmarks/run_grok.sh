@@ -8,6 +8,7 @@ export VLLM_FP8_REDUCE_CONV=1
 export VLLM_FP8_ACT_PADDING=1
 export VLLM_FP8_WEIGHT_PADDING=1
 export NCCL_MIN_NCHANNELS=112
+export VLLM_USE_TRITON_FLASH_ATTN=False
 
 for batch in $batches
 do
