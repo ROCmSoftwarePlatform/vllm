@@ -9,6 +9,7 @@ from vllm.attention.ops.prefix_prefill import context_attention_fwd
 from vllm.utils import is_hip
 
 custom_attn_available = is_hip() and \
+                    "gfx1" not in torch.cuda.get_device_properties('cuda').gcnArchName and \
                     (os.getenv("VLLM_USE_ROCM_CUSTOM_PAGED_ATTN", "1") != "0")
 if custom_attn_available:
     from vllm._custom_C import paged_attention_custom

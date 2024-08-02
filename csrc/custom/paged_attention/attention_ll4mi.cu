@@ -5,12 +5,17 @@
 
 #include <algorithm>
 
+#if defined(__HIPCC__) && \
+    (defined(__gfx940__) || defined(__gfx941__) || defined(__gfx942__))
+  #define __HIP__MI300__
+#endif
+
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 #define DIVIDE_ROUND_UP(a, b) (((a) + (b) - 1) / (b))
 #define WARP_SIZE 64
 
-#if defined(__gfx942__) // TODO: Add NAVI support
+#if defined(__HIP__MI300__) // TODO: Add NAVI support
 
 #define GCN_MFMA_INSTR1 __builtin_amdgcn_mfma_f32_16x16x4f32
 #define GCN_MFMA_INSTR __builtin_amdgcn_mfma_f32_4x4x4f16
@@ -746,7 +751,7 @@ __launch_bounds__(NUM_THREADS) void paged_attention_ll4mi_reduce_kernel(
   out_ptr[threadIdx.x] = (scalar_t)acc;
 }
 
-#else // !defined(__gfx942__) TODO: Add NAVI support
+#else // !defined(__HIP__MI300__) TODO: Add NAVI support
 
 template <typename scalar_t, int BLOCK_SIZE, int HEAD_SIZE, int NUM_THREADS,
           int GQA_RATIO>
@@ -792,7 +797,7 @@ __launch_bounds__(NUM_THREADS) void paged_attention_ll4mi_reduce_kernel(
   assert(false);
 }
 
-#endif // defined(__gfx942__) TODO: Add NAVI support
+#endif // defined(__HIP__MI300__) TODO: Add NAVI support
 
 #define LAUNCH_CUSTOM_ATTENTION(GQA_RATIO)                                    \
   paged_attention_ll4mi_QKV_kernel<T, BLOCK_SIZE, HEAD_SIZE, NTHR, GQA_RATIO> \

@@ -5,6 +5,11 @@
 #include <stdexcept>
 #include <algorithm>
 
+#if defined(__HIPCC__) && \
+    (defined(__gfx940__) || defined(__gfx941__) || defined(__gfx942__))
+  #define __HIP__MI300__
+#endif
+
 constexpr int WARP_SIZE = 64;
 
 template <typename T>
@@ -330,7 +335,7 @@ __device__ __forceinline__ T loadnt(T* addr) {
 #define M 1
 #define DTYPE half
 
-#if defined(__gfx942__) // TODO: Add NAVI support
+#if defined(__HIP__MI300__) // TODO: Add NAVI support
 
 __global__ void wvSpltK_hf_m1_sml_(const int K, const int N, const DTYPE* B,
                                    const DTYPE* __restrict__ A, DTYPE* C,
@@ -459,7 +464,7 @@ __global__ void wvSpltK_hf_m1_sml_(const int K, const int N, const DTYPE* B,
   }
 }
 
-#else // !defined(__gfx942__) TODO: Add NAVI support
+#else // !defined(__HIP__MI300__) TODO: Add NAVI support
 
 __global__ void wvSpltK_hf_m1_sml_(const int K, const int N, const DTYPE* B,
                                const DTYPE* __restrict__ A, DTYPE* C,
@@ -467,9 +472,9 @@ __global__ void wvSpltK_hf_m1_sml_(const int K, const int N, const DTYPE* B,
   assert(false);
 }
 
-#endif // defined(__gfx942__) TODO: Add NAVI support
+#endif // defined(__HIP__MI300__) TODO: Add NAVI support
 
-#if defined(__gfx942__) // TODO: Add NAVI support
+#if defined(__HIP__MI300__) // TODO: Add NAVI support
 
 __global__ void wvSpltK_hf_m1_(const int K, const int N, const DTYPE* B,
                                const DTYPE* __restrict__ A, DTYPE* C,
@@ -816,7 +821,7 @@ __global__ void wvSpltK_hf_m1_(const int K, const int N, const DTYPE* B,
   }
 }
 
-#else // !defined(__gfx942__) TODO: Add NAVI support
+#else // !defined(__HIP__MI300__) TODO: Add NAVI support
 
 __global__ void wvSpltK_hf_m1_(const int K, const int N, const DTYPE* B,
                                const DTYPE* __restrict__ A, DTYPE* C,
@@ -824,7 +829,7 @@ __global__ void wvSpltK_hf_m1_(const int K, const int N, const DTYPE* B,
   assert(false);
 }
 
-#endif // defined(__gfx942__) TODO: Add NAVI support
+#endif // defined(__HIP__MI300__) TODO: Add NAVI support
 
 #undef YTILE
 #undef UNRL
@@ -834,7 +839,7 @@ __global__ void wvSpltK_hf_m1_(const int K, const int N, const DTYPE* B,
 #define UNRL 2
 #define M 2
 
-#if defined(__gfx942__) // TODO: Add NAVI support
+#if defined(__HIP__MI300__) // TODO: Add NAVI support
 
 __global__ void wvSpltK_hf_m2_(const int K, const int N, const DTYPE* B,
                                const DTYPE* __restrict__ A, DTYPE* C,
@@ -1181,7 +1186,7 @@ __global__ void wvSpltK_hf_m2_(const int K, const int N, const DTYPE* B,
   }
 }
 
-#else // !defined(__gfx942__) TODO: Add NAVI support
+#else // !defined(__HIP__MI300__) TODO: Add NAVI support
 
 __global__ void wvSpltK_hf_m2_(const int K, const int N, const DTYPE* B,
                                const DTYPE* __restrict__ A, DTYPE* C,
@@ -1189,7 +1194,7 @@ __global__ void wvSpltK_hf_m2_(const int K, const int N, const DTYPE* B,
   assert(false);
 }
 
-#endif // defined(__gfx942__) TODO: Add NAVI support
+#endif // defined(__HIP__MI300__) TODO: Add NAVI support
 
 #undef YTILE
 #undef UNRL
@@ -1199,7 +1204,7 @@ __global__ void wvSpltK_hf_m2_(const int K, const int N, const DTYPE* B,
 #define UNRL 2
 #define M 3
 
-#if defined(__gfx942__) // TODO: Add NAVI support
+#if defined(__HIP__MI300__) // TODO: Add NAVI support
 
 __global__ void wvSpltK_hf_m3_(const int K, const int N, const DTYPE* B,
                                const DTYPE* __restrict__ A, DTYPE* C,
@@ -1546,7 +1551,7 @@ __global__ void wvSpltK_hf_m3_(const int K, const int N, const DTYPE* B,
   }
 }
 
-#else // !defined(__gfx942__) TODO: Add NAVI support
+#else // !defined(__HIP__MI300__) TODO: Add NAVI support
 
 __global__ void wvSpltK_hf_m3_(const int K, const int N, const DTYPE* B,
                                const DTYPE* __restrict__ A, DTYPE* C,
@@ -1554,7 +1559,7 @@ __global__ void wvSpltK_hf_m3_(const int K, const int N, const DTYPE* B,
   assert(false);
 }
 
-#endif // defined(__gfx942__) TODO: Add NAVI support
+#endif // defined(__HIP__MI300__) TODO: Add NAVI support
 
 #undef YTILE
 #undef UNRL
@@ -1564,7 +1569,7 @@ __global__ void wvSpltK_hf_m3_(const int K, const int N, const DTYPE* B,
 #define UNRL 1
 #define M 4
 
-#if defined(__gfx942__) // TODO: Add NAVI support
+#if defined(__HIP__MI300__) // TODO: Add NAVI support
 
 __global__ void wvSpltK_hf_m4_(const int K, const int N, const DTYPE* B,
                                const DTYPE* __restrict__ A, DTYPE* C,
@@ -1911,7 +1916,7 @@ __global__ void wvSpltK_hf_m4_(const int K, const int N, const DTYPE* B,
   }
 }
 
-#else // !defined(__gfx942__) TODO: Add NAVI support
+#else // !defined(__HIP__MI300__) TODO: Add NAVI support
 
 __global__ void wvSpltK_hf_m4_(const int K, const int N, const DTYPE* B,
                                const DTYPE* __restrict__ A, DTYPE* C,
@@ -1919,7 +1924,7 @@ __global__ void wvSpltK_hf_m4_(const int K, const int N, const DTYPE* B,
   assert(false);
 }
 
-#endif // defined(__gfx942__) TODO: Add NAVI support
+#endif // defined(__HIP__MI300__) TODO: Add NAVI support
 
 void wvSpltK_(void* in_a, void* in_b, void* out_c, const int M_in,
               const int K_in, const int N_in, cudaStream_t stream,
