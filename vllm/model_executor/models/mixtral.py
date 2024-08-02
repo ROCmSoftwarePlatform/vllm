@@ -21,11 +21,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Inference-only Mixtral model."""
+import os
 from typing import Iterable, List, Optional, Tuple
 
 import torch
 from torch import nn
-import os
 from transformers import MixtralConfig
 
 from vllm import _custom_ops as ops
