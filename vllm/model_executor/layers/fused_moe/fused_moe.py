@@ -13,7 +13,7 @@ from vllm import _custom_ops as ops
 from vllm.logger import init_logger
 
 logger = init_logger(__name__)
-padding_size = 128 if os.getenv("VLLM_MOE_PADDING", "0") == "1" else 0
+padding_size = 128 if os.getenv("VLLM_MOE_PADDING", "1") == "1" else 0
 
 
 @triton.jit

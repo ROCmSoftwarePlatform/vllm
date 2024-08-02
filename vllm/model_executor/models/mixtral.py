@@ -182,7 +182,7 @@ class MixtralMoE(nn.Module):
     def process_weights_after_loading(self):
         # Fp8 is the only case where we need to process after loading.
         if not self.use_fp8:
-            if os.getenv("VLLM_MOE_PADDING", "0") == "1":
+            if os.getenv("VLLM_MOE_PADDING", "1") == "1":
                 self.w13_weight = nn.Parameter(torch.nn.functional.pad(self.w13_weight.data, (0, 128), "constant", 0))
                 self.w2_weight = nn.Parameter(torch.nn.functional.pad(self.w2_weight.data, (0, 128), "constant", 0))
             return
