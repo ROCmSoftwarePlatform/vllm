@@ -11,7 +11,7 @@ from vllm import _custom_C
 from vllm.utils import is_hip
 
 use_skinny = is_hip() and \
-                    "gfx1" not in torch.cuda.get_device_properties('cuda').gcnArchName \
+                    "gfx1" not in torch.cuda.get_device_properties('cuda').gcnArchName and \
                     (os.getenv("VLLM_USE_ROCM_SKINNY_GEMM", "1") == "1")
 
 class TunedGemm:
