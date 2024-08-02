@@ -4,9 +4,10 @@ import re
 import threading
 import time
 from contextlib import asynccontextmanager
-from typing import Dict
+from typing import Dict, Iterable, List, cast
 
 import uvicorn
+from openai.types.chat import ChatCompletionContentPartTextParam
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -17,11 +18,20 @@ from vllm import FastSyncLLM as LLM
 from vllm import envs
 from vllm.engine.arg_utils import EngineArgs
 from vllm.entrypoints.openai.cli_args import make_arg_parser
-from vllm.entrypoints.sync_openai.protocol import (CompletionRequest,
-                                                   CompletionResponse,
-                                                   CompletionResponseChoice,
-                                                   UsageInfo)
+from vllm.entrypoints.openai.protocol import (
+    ChatCompletionContentPartParam, ChatCompletionMessageParam,
+    ChatCompletionRequest, ChatCompletionResponse,
+    ChatCompletionResponseChoice, ChatCompletionResponseStreamChoice,
+    ChatCompletionStreamResponse, ChatMessage, DeltaMessage, UsageInfo)
+from vllm.entrypoints.openai.serving_chat import (ChatMessageParseResult,
+                                                  ConversationMessage)
+from vllm.entrypoints.sync_openai.protocol import (
+    CompletionRequest,
+    CompletionResponse,
+    CompletionResponseChoice,
+)
 from vllm.logger import init_logger
+from vllm.transformers_utils.tokenizer import get_tokenizer
 from vllm.utils import random_uuid
 
 mp = multiprocessing.get_context(envs.VLLM_WORKER_MULTIPROC_METHOD)
@@ -49,6 +59,7 @@ class BackgroundRunner:
         self.loop = None
         self.llm: LLM
         self.proc: multiprocessing.Process
+        self.tokenizer = None
 
     def set_engine_args(self, engine_args):
         self.engine_args = engine_args
@@ -75,6 +86,7 @@ class BackgroundRunner:
             input_queue=self.input_queue,
             result_queue=self.result_queue,
         )
+
         self.loop = asyncio.get_event_loop()
         self.proc = mp.Process(target=self.llm.run_engine)
         self.t.start()
@@ -103,6 +115,15 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(runner.run_main())
     await runner.result_queues["Ready"].get()
     del runner.result_queues["Ready"]
+
+    tokenizer = get_tokenizer(
+        engine_args.tokenizer,
+        tokenizer_mode=engine_args.tokenizer_mode,
+        tokenizer_revision=engine_args.tokenizer_revision,
+        trust_remote_code=engine_args.trust_remote_code,
+        truncation_side="left")
+    runner.tokenizer = tokenizer
+
     yield
 
 
@@ -179,8 +200,7 @@ async def completions(request: CompletionRequest, raw_request: Request):
         created_time = int(time.time())
         return StreamingResponse(content=completion_generator(
             request.model, result_queue, choices, created_time, ids),
-                                 media_type="text/event-stream",
-                                 headers={"Access-Control-Allow-Origin": "*"})
+                                 media_type="text/event-stream")
     while True:
         request_id, token, stats = await result_queue.get()
         choice_idx = choices[request_id]
@@ -195,6 +215,148 @@ async def completions(request: CompletionRequest, raw_request: Request):
                 runner.remove_result_queues(ids)
                 break
             continue
+    res.usage.total_tokens = (  # type: ignore
+        res.usage.completion_tokens + res.usage.prompt_tokens)  # type: ignore
+    return res
+
+
+def parse_chat_message_content_parts(
+    role: str,
+    parts: Iterable[ChatCompletionContentPartParam],
+) -> ChatMessageParseResult:
+    texts: List[str] = []
+
+    for _, part in enumerate(parts):
+        part_type = part["type"]
+        if part_type == "text":
+            text = cast(ChatCompletionContentPartTextParam, part)["text"]
+
+            texts.append(text)
+        else:
+            raise NotImplementedError(f"Unknown part type: {part_type}")
+
+    messages = [ConversationMessage(role=role, content="\n".join(texts))]
+
+    return ChatMessageParseResult(messages=messages)
+
+
+def parse_chat_message_content(
+    message: ChatCompletionMessageParam, ) -> ChatMessageParseResult:
+    role = message["role"]
+    content = message.get("content")
+
+    if content is None:
+        return ChatMessageParseResult(messages=[])
+    if isinstance(content, str):
+        messages = [ConversationMessage(role=role, content=content)]
+        return ChatMessageParseResult(messages=messages)
+
+    return parse_chat_message_content_parts(role, content)
+
+
+async def chat_completion_generator(model, result_queue, created_time, id):
+    try:
+        first_token = ChatCompletionStreamResponse(
+            id=id,
+            created=created_time,
+            model=model,
+            choices=[
+                ChatCompletionResponseStreamChoice(
+                    index=0,
+                    delta=DeltaMessage(role="assistant"),
+                    logprobs=None,
+                    finish_reason=None,
+                    stop_reason=None)
+            ],
+            usage=None)
+        response_json = first_token.model_dump_json(exclude_unset=True)
+        yield f"data: {response_json}\n\n"
+
+        while True:
+            request_id, token, stats = await result_queue.get()
+            assert request_id == id
+
+            res = ChatCompletionStreamResponse(
+                id=request_id,
+                created=created_time,
+                model=model,
+                choices=[
+                    ChatCompletionResponseStreamChoice(
+                        index=0,
+                        delta=DeltaMessage(content=token),
+                        logprobs=None,
+                        finish_reason=None,
+                        stop_reason=None)
+                ],
+                usage=None)
+            if stats is not None:
+                res.usage = UsageInfo()
+                res.usage.completion_tokens = stats.get("tokens", 0)
+                res.usage.prompt_tokens = stats.get("prompt", 0)
+                res.usage.total_tokens = (res.usage.completion_tokens +
+                                          res.usage.prompt_tokens)
+                res.choices[0].finish_reason = stats["finish_reason"]
+                res.choices[0].stop_reason = stats["stop_reason"]
+            response_json = res.model_dump_json(exclude_unset=True)
+            yield f"data: {response_json}\n\n"
+            if stats is not None:
+                runner.remove_result_queues([id])
+                break
+
+        yield "data: [DONE]\n\n"
+    except Exception as e:
+        logger.error("Error in completion_generator: %s", e)
+    return
+
+
+@app.post("/v1/chat/completions")
+async def chat_completions(request: ChatCompletionRequest,
+                           raw_request: Request):
+    sampling_params = request.to_sampling_params()
+    conversation: List[ConversationMessage] = []
+
+    res = ChatCompletionResponse(model=request.model,
+                                 choices=[],
+                                 usage=UsageInfo(prompt_tokens=0,
+                                                 total_tokens=0,
+                                                 completion_tokens=0))
+
+    for msg in request.messages:
+        parsed_msg = parse_chat_message_content(msg)
+        conversation.extend(parsed_msg.messages)
+
+    prompt = runner.tokenizer.apply_chat_template(
+        conversation=conversation,
+        tokenize=False,
+        add_generation_prompt=request.add_generation_prompt,
+    )
+
+    ids, result_queue = await runner.add_request(prompt, sampling_params)
+    assert len(ids) == 1
+
+    if request.stream:
+        created_time = int(time.time())
+        return StreamingResponse(content=chat_completion_generator(
+            request.model, result_queue, created_time, ids[0]),
+                                 media_type="text/event-stream")
+
+    res.choices.append(
+        ChatCompletionResponseChoice(index=0,
+                                     message=ChatMessage(role="assistant",
+                                                         content=""),
+                                     finish_reason=None,
+                                     stop_reason=None))
+
+    while True:
+        request_id, token, stats = await result_queue.get()
+        res.choices[0].message.content += str(token)
+        if stats is not None:
+            res.usage.completion_tokens += stats["tokens"]  # type: ignore
+            res.usage.prompt_tokens += stats["prompt"]  # type: ignore
+            res.choices[0].finish_reason = stats["finish_reason"]
+            res.choices[0].stop_reason = stats["stop_reason"]
+            runner.remove_result_queues(ids)
+            break
     res.usage.total_tokens = (  # type: ignore
         res.usage.completion_tokens + res.usage.prompt_tokens)  # type: ignore
     return res

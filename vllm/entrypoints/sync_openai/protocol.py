@@ -6,13 +6,8 @@ from pydantic import BaseModel, Field
 from typing_extensions import Annotated
 
 from vllm import SamplingParams
+from vllm.entrypoints.openai.protocol import UsageInfo
 from vllm.utils import random_uuid
-
-
-class UsageInfo(BaseModel):
-    prompt_tokens: int = 0
-    total_tokens: int = 0
-    completion_tokens: int = 0
 
 
 class CompletionLogProbs(BaseModel):
