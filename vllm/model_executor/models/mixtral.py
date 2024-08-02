@@ -30,6 +30,7 @@ from torch import nn
 from transformers import MixtralConfig
 
 from vllm import _custom_ops as ops
+from vllm import envs
 from vllm.attention import Attention, AttentionMetadata
 from vllm.config import CacheConfig, LoRAConfig
 from vllm.distributed import (get_tensor_model_parallel_rank,
@@ -183,7 +184,7 @@ class MixtralMoE(nn.Module):
     def process_weights_after_loading(self):
         # Fp8 is the only case where we need to process after loading.
         if not self.use_fp8:
-            if os.getenv("VLLM_MOE_PADDING", "1") == "1":
+            if envs.VLLM_MOE_PADDING:
                 self.w13_weight = nn.Parameter(F.pad(self.w13_weight.data,
                                                      (0, 128), "constant", 0),
                                                requires_grad=False)
