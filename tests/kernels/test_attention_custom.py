@@ -3,7 +3,7 @@ from typing import Optional, Tuple
 
 import pytest
 import torch
-from allclose_default import get_default_atol, get_default_rtol
+from .allclose_default import get_default_atol, get_default_rtol
 
 from vllm._C import cache_ops, ops
 from vllm._custom_C import paged_attention_custom
