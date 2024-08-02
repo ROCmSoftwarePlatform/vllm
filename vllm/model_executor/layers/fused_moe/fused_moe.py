@@ -263,7 +263,7 @@ def invoke_fused_moe_kernel(A: torch.Tensor, B: torch.Tensor, C: torch.Tensor,
         expert_ids,
         num_tokens_post_padded,
         B.shape[1],
-        B.shape[2]-padding_size,
+        B.shape[2] - padding_size,
         sorted_token_ids.shape[0],
         topk_ids.numel(),
         A.stride(0),
@@ -366,7 +366,8 @@ def fused_experts(hidden_states: torch.Tensor,
                   a1_scale: Optional[torch.Tensor] = None,
                   a2_scale: Optional[torch.Tensor] = None):
     # Check constraints.
-    assert hidden_states.shape[1] == w1.shape[2] - padding_size, "Hidden size mismatch"
+    assert hidden_states.shape[
+        1] == w1.shape[2] - padding_size, "Hidden size mismatch"
     assert topk_weights.shape == topk_ids.shape, "topk shape mismatch"
     assert hidden_states.is_contiguous(), "Hidden_states must be contiguous"
     assert w1.is_contiguous(), "Expert weights1 must be contiguous"
@@ -382,7 +383,7 @@ def fused_experts(hidden_states: torch.Tensor,
         config = override_config
     else:
         # First try to load optimal config from the file
-        configs = get_moe_configs(E, w2.shape[2]-padding_size,
+        configs = get_moe_configs(E, w2.shape[2] - padding_size,
                                   "float8" if use_fp8 else None)
 
         if configs:
