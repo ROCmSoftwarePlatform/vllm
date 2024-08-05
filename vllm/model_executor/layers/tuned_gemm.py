@@ -8,11 +8,11 @@ from hipbsolidxgemm import hipb_create_extension, hipb_mm
 from rocsolidxgemm import rocb_create_extension, rocb_mm
 
 from vllm import _custom_C
+from vllm.envs import VLLM_USE_ROCM_SKINNY_GEMM
 from vllm.utils import is_hip
 
-use_skinny = is_hip() and \
-                    "gfx1" not in torch.cuda.get_device_properties('cuda').gcnArchName and \
-                    (os.getenv("VLLM_USE_ROCM_SKINNY_GEMM", "1") == "1")
+use_skinny = is_hip() and VLLM_USE_ROCM_SKINNY_GEMM and \
+            "gfx1" not in torch.cuda.get_device_properties('cuda').gcnArchName
 
 class TunedGemm:
 
