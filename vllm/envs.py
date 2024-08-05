@@ -40,9 +40,9 @@ if TYPE_CHECKING:
     VLLM_INSTALL_PUNICA_KERNELS: bool = False
     CMAKE_BUILD_TYPE: Optional[str] = None
     VERBOSE: bool = False
-    VLLM_ENGINE_STEPS_BEFORE_YIELD: int = 10
-    VLLM_ENGINE_STEPS_FIRST_TOKEN: int = 1
-    VLLM_ENGINE_STEPS_COMPLETED_REQUEST: int = 1
+    VLLM_SYNC_SERVER_ACCUM_REQUESTS: int = 1
+    VLLM_SYNC_SERVER_ENGINE_STEPS_BETWEEN_POLLS: int = 1
+    VLLM_MOE_PADDING: bool = True
 
 # The begin-* and end* here are used by the documentation generator
 # to extract the used env vars.
@@ -235,20 +235,17 @@ environment_variables: Dict[str, Callable[[], Any]] = {
     "VLLM_WORKER_MULTIPROC_METHOD":
     lambda: os.getenv("VLLM_WORKER_MULTIPROC_METHOD", "spawn"),
 
-    # Number of steps before yielding in the sync engine for
-    # the sync server mode
-    "VLLM_ENGINE_STEPS_BEFORE_YIELD":
-    lambda: int(os.getenv("VLLM_ENGINE_STEPS_BEFORE_YIELD", "10")),
+    # Try to accumulate this many requests before proceeding
+    "VLLM_SYNC_SERVER_ACCUM_REQUESTS":
+    lambda: int(os.getenv("VLLM_SYNC_SERVER_ACCUM_REQUESTS", "1")),
 
-    # Maximum number of steps before yielding in the sync engine
-    # when a first token is ready for a request
-    "VLLM_ENGINE_STEPS_FIRST_TOKEN":
-    lambda: int(os.getenv("VLLM_ENGINE_STEPS_FIRST_TOKEN", "1")),
+    # Poll for new requests every this many steps
+    "VLLM_SYNC_SERVER_ENGINE_STEPS_BETWEEN_POLLS":
+    lambda: int(os.getenv("VLLM_SYNC_SERVER_ENGINE_STEPS_BETWEEN_POLLS", "1")),
 
-    # Maximum number of steps before yielding in the sync engine
-    # when a request is completed
-    "VLLM_ENGINE_STEPS_COMPLETED_REQUEST":
-    lambda: int(os.getenv("VLLM_ENGINE_STEPS_COMPLETED_REQUEST", "1")),
+    # Pad the weight for moe kernel or not
+    "VLLM_MOE_PADDING":
+    lambda: bool(int(os.getenv("VLLM_MOE_PADDING", "1"))),
 }
 
 # end-env-vars-definition
