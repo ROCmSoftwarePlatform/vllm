@@ -1,4 +1,3 @@
-import os
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
@@ -10,7 +9,7 @@ from vllm.envs import VLLM_USE_ROCM_CUSTOM_PAGED_ATTN
 from vllm.utils import is_hip
 
 custom_attn_available = is_hip() and VLLM_USE_ROCM_CUSTOM_PAGED_ATTN and \
-                    "gfx1" not in torch.cuda.get_device_properties('cuda').gcnArchName
+    "gfx1" not in torch.cuda.get_device_properties('cuda').gcnArchName
 if custom_attn_available:
     from vllm._custom_C import paged_attention_custom
 

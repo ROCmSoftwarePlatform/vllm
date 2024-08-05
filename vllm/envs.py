@@ -142,14 +142,13 @@ environment_variables: Dict[str, Callable[[], Any]] = {
 
     # small gemms custom implementation for MI3* cards
     "VLLM_USE_ROCM_SKINNY_GEMM":
-    lambda: (os.getenv("VLLM_USE_ROCM_SKINNY_GEMM", "True").lower() in 
+    lambda: (os.getenv("VLLM_USE_ROCM_SKINNY_GEMM", "True").lower() in
              ("true", "1")),
 
     # custom paged attention implemented for MI3* cards
     "VLLM_USE_ROCM_CUSTOM_PAGED_ATTN":
-    lambda: (os.getenv("VLLM_USE_ROCM_CUSTOM_PAGED_ATTN", "True").lower() in 
+    lambda: (os.getenv("VLLM_USE_ROCM_CUSTOM_PAGED_ATTN", "True").lower() in
              ("true", "1") != "0"),
-
 
     # rank of the process in the distributed setting, used to determine
     # the driver worker
