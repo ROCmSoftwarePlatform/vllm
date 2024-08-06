@@ -125,32 +125,6 @@ def awq_gemm_kernel(a_ptr, b_ptr, c_ptr, zeros_ptr, scales_ptr, M, N, K,
     pid_m = pid // num_pid_n
     pid_n = pid % num_pid_n
 
-    if SPLIT_K == 1:
-        offs_k = tl.arange(0, BLOCK_SIZE_K)
-    else:
-        offs_k = pid_z * BLOCK_SIZE_K + tl.arange(0, BLOCK_SIZE_K)
-    offs_am = (pid_m * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M))
-    offs_bn = (pid_n * BLOCK_SIZE_N // 8 + tl.arange(0, BLOCK_SIZE_N) // 8)
-    offs_zn = (pid_n * BLOCK_SIZE_N // 8 + tl.arange(0, BLOCK_SIZE_N) // 8)
-    offs_sn = (pid_n * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N))
-    a_ptrs = a_ptr + offs_am[:, None] * stride_am + offs_k[None, :] * stride_ak
-    b_ptrs = b_ptr + offs_k[:, None] * stride_bk + offs_bn[None, :] * stride_bn
-    offs_zk = (pid_z * BLOCK_SIZE_K // awq_group_size +
-               tl.arange(0, BLOCK_SIZE_K) // awq_group_size)
-    zeros_ptrs = (zeros_ptr + (offs_k[:, None] // awq_group_size) * stride_zk +
-                  offs_zn[None, :] * stride_zn)
-
-    offsets_zeros = offs_zk[:, None] * stride_zk + offs_zn[None, :] * stride_zn
-    zeros_ptrs = zeros_ptr + offsets_zeros
-    offs_sk = (pid_z * BLOCK_SIZE_K // awq_group_size +
-               tl.arange(0, BLOCK_SIZE_K) // awq_group_size)
-    offsets_scales = (offs_sk[:, None] * stride_sk +
-                      offs_sn[None, :] * stride_sn)
-    scales_ptrs = scales_ptr + offsets_scales
-    scales_ptrs = (scales_ptr +
-                   (offs_k[:, None] // awq_group_size) * stride_sk +
-                   offs_sn[None, :] * stride_sn)
-
     # NOTE: This doesn't work in TRITON_INTERPRET=1 mode
     accumulator = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N), dtype=tl.float32)
     # accumulator = tl.arange(0, BLOCK_SIZE_N)
@@ -166,37 +140,44 @@ def awq_gemm_kernel(a_ptr, b_ptr, c_ptr, zeros_ptr, scales_ptr, M, N, K,
                              (BLOCK_SIZE_K * (BLOCK_SIZE_N // 8), 8))
     shifts = tl.reshape(shifts, (BLOCK_SIZE_K, BLOCK_SIZE_N))
 
+    # Offsets and masks.
+    offsets_am = pid_m * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
+    masks_am = offsets_am < M
+
+    offsets_bn = (pid_n * (BLOCK_SIZE_N // 8) +
+                  tl.arange(0, BLOCK_SIZE_N) // 8)
+    masks_bn = offsets_bn < N // 8
+
+    offsets_zn = (pid_n * (BLOCK_SIZE_N // 8) +
+                  tl.arange(0, BLOCK_SIZE_N) // 8)
+    masks_zn = offsets_zn < N // 8
+
+    offsets_sn = pid_n * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
+    masks_sn = offsets_sn < N
+
     # NOTE: Use this in TRITON_INTERPRET=1 mode instead of tl.cdiv
     # block_offset = BLOCK_SIZE_K * SPLIT_K
     # for k in range(0, (K + block_offset - 1) // (block_offset)):
     for k in range(0, tl.cdiv(K, BLOCK_SIZE_K * SPLIT_K)):
-        offsets_am = pid_m * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
         offsets_k = (BLOCK_SIZE_K * SPLIT_K * k + pid_z * BLOCK_SIZE_K +
                      tl.arange(0, BLOCK_SIZE_K))
+
         offsets_a = K * offsets_am[:, None] + offsets_k[None, :]
-        masks_am = offsets_am < M
         masks_k = offsets_k < K
         masks_a = masks_am[:, None] & masks_k[None, :]
         a_ptrs = a_ptr + offsets_a
         a = tl.load(a_ptrs, mask=masks_a)
 
-        b = tl.zeros((BLOCK_SIZE_K, BLOCK_SIZE_N), dtype=tl.int32)
-        offsets_bn = (pid_n * (BLOCK_SIZE_N // 8) +
-                      tl.arange(0, BLOCK_SIZE_N) // 8)
         offsets_b = (N // 8) * offsets_k[:, None] + offsets_bn[None, :]
         b_ptrs = b_ptr + offsets_b
-        masks_bn = offsets_bn < N // 8
         masks_b = masks_k[:, None] & masks_bn[None, :]
         b = tl.load(b_ptrs, mask=masks_b)
 
         offsets_zk = ((BLOCK_SIZE_K * SPLIT_K * k + pid_z * BLOCK_SIZE_K) //
                       awq_group_size +
                       tl.arange(0, BLOCK_SIZE_K) // awq_group_size)
-        offsets_zn = (pid_n * (BLOCK_SIZE_N // 8) +
-                      tl.arange(0, BLOCK_SIZE_N) // 8)
         offsets_z = (N // 8) * offsets_zk[:, None] + offsets_zn[None, :]
         masks_zk = offsets_zk < K // awq_group_size
-        masks_zn = offsets_zn < N // 8
         masks_z = masks_zk[:, None] & masks_zn[None, :]
         zeros_ptrs = zeros_ptr + offsets_z
         zeros = tl.load(zeros_ptrs, mask=masks_z)
@@ -204,10 +185,8 @@ def awq_gemm_kernel(a_ptr, b_ptr, c_ptr, zeros_ptr, scales_ptr, M, N, K,
         offsets_sk = ((BLOCK_SIZE_K * SPLIT_K * k + pid_z * BLOCK_SIZE_K) //
                       awq_group_size +
                       tl.arange(0, BLOCK_SIZE_K) // awq_group_size)
-        offsets_sn = pid_n * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
         offsets_s = N * offsets_sk[:, None] + offsets_sn[None, :]
         masks_sk = offsets_sk < K // awq_group_size
-        masks_sn = offsets_sn < N
         masks_s = masks_sk[:, None] & masks_sn[None, :]
         scales_ptrs = scales_ptr + offsets_s
         scales = tl.load(scales_ptrs, mask=masks_s)
@@ -217,15 +196,6 @@ def awq_gemm_kernel(a_ptr, b_ptr, c_ptr, zeros_ptr, scales_ptr, M, N, K,
         b = (b - zeros) * scales
         b = b.to(tl.float16)
         accumulator = tl.dot(a, b, accumulator)
-
-        a_ptrs += BLOCK_SIZE_K * SPLIT_K * stride_ak
-        b_ptrs += BLOCK_SIZE_K * SPLIT_K * stride_bk
-
-        # Increment these ptrs when awq_group_size rows have been processed.
-        mod_group_size = ((k + 1) * SPLIT_K * BLOCK_SIZE_K) % awq_group_size
-        if mod_group_size == 0:
-            scales_ptrs += stride_sk
-            zeros_ptrs += stride_zk
 
     c = accumulator.to(c_ptr.type.element_ty)
     offs_cm = pid_m * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
