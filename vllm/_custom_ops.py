@@ -178,7 +178,7 @@ def awq_gemm(input: torch.Tensor, qweight: torch.Tensor, qzeros: torch.Tensor,
     # save = [input.cpu(), qweight.cpu(), qzeros.cpu(), scales.cpu(), split_k_iters]
     # torch.save(save, '/source/awq_gemm.pt')
     out = awq_gemm_triton(input, qweight, qzeros, scales, split_k_iters)
-    print("awq_gemm done!")
+    # print("awq_gemm done!")
     return out
 
 
