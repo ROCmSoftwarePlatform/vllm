@@ -19,17 +19,22 @@ from vllm import envs
 from vllm.engine.arg_utils import EngineArgs
 from vllm.entrypoints.openai.cli_args import make_arg_parser
 from vllm.entrypoints.openai.protocol import (
-    ChatCompletionContentPartParam, ChatCompletionMessageParam,
-    ChatCompletionRequest, ChatCompletionResponse,
-    ChatCompletionResponseChoice, ChatCompletionResponseStreamChoice,
-    ChatCompletionStreamResponse, ChatMessage, DeltaMessage, UsageInfo)
-from vllm.entrypoints.openai.serving_chat import (ChatMessageParseResult,
-                                                  ConversationMessage)
-from vllm.entrypoints.sync_openai.protocol import (
+    ChatCompletionContentPartParam,
+    ChatCompletionMessageParam,
+    ChatCompletionRequest,
+    ChatCompletionResponse,
+    ChatCompletionResponseChoice,
+    ChatCompletionResponseStreamChoice,
+    ChatCompletionStreamResponse,
+    ChatMessage,
+    DeltaMessage,
+    UsageInfo,
     CompletionRequest,
     CompletionResponse,
     CompletionResponseChoice,
 )
+from vllm.entrypoints.openai.serving_chat import (ChatMessageParseResult,
+                                                  ConversationMessage)
 from vllm.logger import init_logger
 from vllm.transformers_utils.tokenizer import get_tokenizer
 from vllm.utils import random_uuid
