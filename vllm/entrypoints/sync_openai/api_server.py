@@ -160,8 +160,9 @@ async def completion_generator(model, result_queue, choices, created_time,
                 res.usage = UsageInfo()
                 res.usage.completion_tokens = stats.get("tokens", 0)
                 res.usage.prompt_tokens = stats.get("prompt", 0)
-                res.usage.total_tokens = (res.usage.completion_tokens +
-                                          res.usage.prompt_tokens)
+                res.usage.total_tokens = (
+                    res.usage.completion_tokens +  # type: ignore
+                    res.usage.prompt_tokens)
                 res.choices[0].finish_reason = stats["finish_reason"]
                 res.choices[0].stop_reason = stats["stop_reason"]
                 completed += 1
@@ -293,8 +294,9 @@ async def chat_completion_generator(model, result_queue, created_time, id):
                 res.usage = UsageInfo()
                 res.usage.completion_tokens = stats.get("tokens", 0)
                 res.usage.prompt_tokens = stats.get("prompt", 0)
-                res.usage.total_tokens = (res.usage.completion_tokens +
-                                          res.usage.prompt_tokens)
+                res.usage.total_tokens = (
+                    res.usage.completion_tokens +  # type: ignore
+                    res.usage.prompt_tokens)
                 res.choices[0].finish_reason = stats["finish_reason"]
                 res.choices[0].stop_reason = stats["stop_reason"]
             response_json = res.model_dump_json(exclude_unset=True)
@@ -325,7 +327,7 @@ async def chat_completions(request: ChatCompletionRequest,
         parsed_msg = parse_chat_message_content(msg)
         conversation.extend(parsed_msg.messages)
 
-    prompt = runner.tokenizer.apply_chat_template(
+    prompt = runner.tokenizer.apply_chat_template(  # type: ignore
         conversation=conversation,
         tokenize=False,
         add_generation_prompt=request.add_generation_prompt,
