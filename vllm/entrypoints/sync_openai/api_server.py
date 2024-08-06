@@ -7,11 +7,11 @@ from contextlib import asynccontextmanager
 from typing import Dict, Iterable, List, cast
 
 import uvicorn
-from openai.types.chat import ChatCompletionContentPartTextParam
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.routing import Mount
+from openai.types.chat import ChatCompletionContentPartTextParam
 from prometheus_client import make_asgi_app
 
 from vllm import FastSyncLLM as LLM
@@ -19,20 +19,11 @@ from vllm import envs
 from vllm.engine.arg_utils import EngineArgs
 from vllm.entrypoints.openai.cli_args import make_arg_parser
 from vllm.entrypoints.openai.protocol import (
-    ChatCompletionContentPartParam,
-    ChatCompletionMessageParam,
-    ChatCompletionRequest,
-    ChatCompletionResponse,
-    ChatCompletionResponseChoice,
-    ChatCompletionResponseStreamChoice,
-    ChatCompletionStreamResponse,
-    ChatMessage,
-    DeltaMessage,
-    UsageInfo,
-    CompletionRequest,
-    CompletionResponse,
-    CompletionResponseChoice,
-)
+    ChatCompletionContentPartParam, ChatCompletionMessageParam,
+    ChatCompletionRequest, ChatCompletionResponse,
+    ChatCompletionResponseChoice, ChatCompletionResponseStreamChoice,
+    ChatCompletionStreamResponse, ChatMessage, CompletionRequest,
+    CompletionResponse, CompletionResponseChoice, DeltaMessage, UsageInfo)
 from vllm.entrypoints.openai.serving_chat import (ChatMessageParseResult,
                                                   ConversationMessage)
 from vllm.logger import init_logger
@@ -65,6 +56,10 @@ class BackgroundRunner:
         self.llm: LLM
         self.proc: multiprocessing.Process
         self.tokenizer = None
+        self.response_role: str
+
+    def set_response_role(self, role):
+        self.response_role = role
 
     def set_engine_args(self, engine_args):
         self.engine_args = engine_args
@@ -268,7 +263,7 @@ async def chat_completion_generator(model, result_queue, created_time, id):
             choices=[
                 ChatCompletionResponseStreamChoice(
                     index=0,
-                    delta=DeltaMessage(role="assistant"),
+                    delta=DeltaMessage(role=runner.response_role),
                     logprobs=None,
                     finish_reason=None,
                     stop_reason=None)
@@ -346,14 +341,14 @@ async def chat_completions(request: ChatCompletionRequest,
                                  media_type="text/event-stream")
 
     res.choices.append(
-        ChatCompletionResponseChoice(index=0,
-                                     message=ChatMessage(role="assistant",
-                                                         content=""),
-                                     finish_reason=None,
-                                     stop_reason=None))
+        ChatCompletionResponseChoice(
+            index=0,
+            message=ChatMessage(role=runner.response_role, content=""),
+            finish_reason=None,
+            stop_reason=None))
 
     while True:
-        request_id, token, stats = await result_queue.get()
+        _, token, stats = await result_queue.get()
         res.choices[0].message.content += str(token)
         if stats is not None:
             res.usage.completion_tokens += stats["tokens"]  # type: ignore
@@ -376,6 +371,7 @@ if __name__ == "__main__":
     args = parse_args()
     engine_args = EngineArgs.from_cli_args(args)
     runner.set_engine_args(engine_args)
+    runner.set_response_role(args.response_role)
 
     app.add_middleware(
         CORSMiddleware,
