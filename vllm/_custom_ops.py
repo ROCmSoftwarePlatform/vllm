@@ -3,6 +3,7 @@ from typing import Optional, Tuple, Type
 import torch
 
 from vllm.model_executor.layers.quantization.awq_triton import awq_dequantize_triton
+from vllm.model_executor.layers.quantization.awq_triton import awq_gemm_triton
 
 try:
     from vllm._C import cache_ops as vllm_cache_ops
@@ -148,6 +149,9 @@ def awq_dequantize(qweight: torch.Tensor, scales: torch.Tensor,
                                    thy)
 
 
+def sighandler(signum, frame):
+    print(f"signum = {signum}")
+
 def awq_gemm(input: torch.Tensor, qweight: torch.Tensor, qzeros: torch.Tensor,
              scales: torch.Tensor, split_k_iters: int) -> torch.Tensor:
     print(f"awq_gemm:input.size = {input.size()},"
@@ -160,10 +164,22 @@ def awq_gemm(input: torch.Tensor, qweight: torch.Tensor, qzeros: torch.Tensor,
           f"scales.dtype={scales.dtype},"
           f"split_k_iters = {split_k_iters}")
     # return torch.zeros(qweight.shape[0], qzeros.shape[1], device=qweight.device, dtype = torch.float16)
-    return torch.zeros((input.shape[0], qweight.shape[1] * 8), device=qweight.device, dtype = torch.float16)
+    # return torch.zeros((input.shape[0], qweight.shape[1] * 8), device=qweight.device, dtype = torch.float16)
     # return torch.zeros(input.shape[0], qweight.shape[1], device=qweight.device, dtype = torch.float16)
 
     # return vllm_ops.awq_gemm(input, qweight, qzeros, scales, split_k_iters)
+    # import signal
+    # for i in [x for x in dir(signal) if x.startswith("SIG")]:
+        # try:
+            # signum = getattr(signal,i)
+            # signal.signal(signum,sighandler)
+        # except (OSError, RuntimeError, ValueError) as m:
+            # print ("Skipping {}".format(i))
+    # save = [input.cpu(), qweight.cpu(), qzeros.cpu(), scales.cpu(), split_k_iters]
+    # torch.save(save, '/source/awq_gemm.pt')
+    out = awq_gemm_triton(input, qweight, scales, qzeros, split_k_iters)
+    print("awq_gemm done!")
+    return out
 
 
 # gptq

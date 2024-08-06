@@ -5,20 +5,22 @@ import triton.language as tl
 
 import argparse
 
+
 @triton.jit
-def awq_dequantize_kernel(qweight_ptr,   # quantized matrix
-                          scales_ptr,    # scales, per group
-                          zeros_ptr,     # zeros, per group
-                          split_k_iters, # Not used
-                          thx,           # Not used
-                          thy,           # Not used
-                          group_size,    # Should always be 128
-                          result_ptr,    # Output matrix
-                          num_cols,      # input num cols in qweight
-                          num_rows,      # input num rows in qweight
-                          reverse_awq_order_ptr,
-                          BLOCK_SIZE_X: tl.constexpr,
-                          BLOCK_SIZE_Y: tl.constexpr):
+def awq_dequantize_kernel(
+        qweight_ptr,  # quantized matrix
+        scales_ptr,  # scales, per group
+        zeros_ptr,  # zeros, per group
+        split_k_iters,  # Not used
+        thx,  # Not used
+        thy,  # Not used
+        group_size,  # Should always be 128
+        result_ptr,  # Output matrix
+        num_cols,  # input num cols in qweight
+        num_rows,  # input num rows in qweight
+        reverse_awq_order_ptr,
+        BLOCK_SIZE_X: tl.constexpr,
+        BLOCK_SIZE_Y: tl.constexpr):
     # Setup the pids.
     pid_x = tl.program_id(axis=0)
     pid_y = tl.program_id(axis=1)
@@ -26,18 +28,19 @@ def awq_dequantize_kernel(qweight_ptr,   # quantized matrix
     # Compute offsets and masks for qweight_ptr.
     offsets_y = pid_y * BLOCK_SIZE_Y + tl.arange(0, BLOCK_SIZE_Y)
     offsets_x = pid_x * BLOCK_SIZE_X + tl.arange(0, BLOCK_SIZE_X * 8) // 8
-    offsets = num_cols  * offsets_y[:, None] + offsets_x[None, :]
+    offsets = num_cols * offsets_y[:, None] + offsets_x[None, :]
 
     masks_y = offsets_y < num_rows
-    masks_x = offsets_x < num_cols 
+    masks_x = offsets_x < num_cols
 
     masks = masks_y[:, None] & masks_x[None, :]
 
     # Compute offsets and masks for result output ptr.
     result_offsets_y = pid_y * BLOCK_SIZE_Y + tl.arange(0, BLOCK_SIZE_Y)
-    result_offsets_x = pid_x * BLOCK_SIZE_X * 8 + tl.arange(0, BLOCK_SIZE_X * 8)
-    result_offsets = (8 * num_cols * result_offsets_y[:, None]
-                      + result_offsets_x[None, :])
+    result_offsets_x = pid_x * BLOCK_SIZE_X * 8 + tl.arange(
+        0, BLOCK_SIZE_X * 8)
+    result_offsets = (8 * num_cols * result_offsets_y[:, None] +
+                      result_offsets_x[None, :])
 
     result_masks_y = result_offsets_y < num_rows
     result_masks_x = result_offsets_x < num_cols * 8
@@ -48,8 +51,8 @@ def awq_dequantize_kernel(qweight_ptr,   # quantized matrix
 
     # Load the AWQ reverse order offsets.
     reverse_awq_order_offsets = tl.arange(0, 8)
-    reverse_awq_order_tensor =  tl.load(reverse_awq_order_ptr +
-            reverse_awq_order_offsets)
+    reverse_awq_order_tensor = tl.load(reverse_awq_order_ptr +
+                                       reverse_awq_order_offsets)
 
     # Use this to compute a set of shifts that can be used to unpack and
     # reorder the values in iweights and zeros.
@@ -61,8 +64,8 @@ def awq_dequantize_kernel(qweight_ptr,   # quantized matrix
     iweights = (iweights >> shifts) & 0xF
 
     # Compute zero offsets and masks.
-    zero_offsets_y = (pid_y * BLOCK_SIZE_Y // group_size
-                      + tl.arange(0, BLOCK_SIZE_Y) // group_size)
+    zero_offsets_y = (pid_y * BLOCK_SIZE_Y // group_size +
+                      tl.arange(0, BLOCK_SIZE_Y) // group_size)
     zero_offsets_x = pid_x * BLOCK_SIZE_X + tl.arange(0, BLOCK_SIZE_X * 8) // 8
     zero_offsets = num_cols * zero_offsets_y[:, None] + zero_offsets_x[None, :]
 
@@ -77,12 +80,16 @@ def awq_dequantize_kernel(qweight_ptr,   # quantized matrix
     zeros = (zeros >> shifts) & 0xF
 
     # Compute scale offsets and masks.
-    scale_offsets_y  = (pid_y * BLOCK_SIZE_Y // group_size
-                       + tl.arange(0, BLOCK_SIZE_Y) // group_size)
-    scale_offsets_x = (pid_x * BLOCK_SIZE_X * 8
-                        + tl.arange(0, BLOCK_SIZE_X * 8))
+    scale_offsets_y = (pid_y * BLOCK_SIZE_Y // group_size +
+                       tl.arange(0, BLOCK_SIZE_Y) // group_size)
+    scale_offsets_x = (pid_x * BLOCK_SIZE_X * 8 +
+                       tl.arange(0, BLOCK_SIZE_X * 8))
     scale_offsets = (num_cols * 8 * scale_offsets_y[:, None] +
-                    scale_offsets_x[None, :])
+                     scale_offsets_x[None, :])
+    # if pid_x == 0 and pid_y == 0:
+    # print(f"scale_offsets_x = {scale_offsets_x}")
+    # print(f"scale_offsets_y = {scale_offsets_y}")
+    # print(f"scale_offsets = {scale_offsets}")
     scale_masks_y = scale_offsets_y < num_rows // group_size
     scale_masks_x = scale_offsets_x < num_cols * 8
     scale_masks = scale_masks_y[:, None] & scale_masks_x[None, :]
@@ -98,105 +105,204 @@ def awq_dequantize_kernel(qweight_ptr,   # quantized matrix
     tl.store(result_ptr + result_offsets, iweights, result_masks)
 
 
-@triton.heuristics({
-    'EVEN_K': lambda args: args['K'] % (args['BLOCK_SIZE_K'] * args['SPLIT_K']) == 0,
-    })
+# NOTE: This doesn't work in TRITON_INTERPRET=1 mode
+# @triton.heuristics({
+    # 'EVEN_K':
+    # lambda args: args['K'] % (args['BLOCK_SIZE_K'] * args['SPLIT_K']) == 0,
+# })
 @triton.jit
-def awq_gemm_kernel(
-    a_ptr, b_ptr, c_ptr,
-    zeros_ptr, scales_ptr,
-    M, N, K,
-    awq_group_size, reverse_awq_order_ptr,
-    stride_am, stride_ak,
-    stride_bk, stride_bn,
-    stride_cm, stride_cn,
-    stride_zn, stride_zk,
-    stride_sn, stride_sk,
-    BLOCK_SIZE_M: tl.constexpr,
-    BLOCK_SIZE_N: tl.constexpr, BLOCK_SIZE_K: tl.constexpr,
-    SPLIT_K: tl.constexpr,  EVEN_K: tl.constexpr
-):
+def awq_gemm_kernel(a_ptr, b_ptr, c_ptr, zeros_ptr, scales_ptr, M, N, K,
+                    awq_group_size, reverse_awq_order_ptr, stride_am,
+                    stride_ak, stride_bk, stride_bn, stride_cm, stride_cn,
+                    stride_zk, stride_zn, stride_sk, stride_sn,
+                    BLOCK_SIZE_M: tl.constexpr, BLOCK_SIZE_N: tl.constexpr,
+                    BLOCK_SIZE_K: tl.constexpr, SPLIT_K: tl.constexpr,
+                    EVEN_K: tl.constexpr):
     pid = tl.program_id(axis=0)
     pid_z = tl.program_id(1)
+    # print(f"pid = {pid}, pid_z = {pid_z}")
+
+    # NOTE: This doesn't work in TRITON_INTERPRET=1 mode
     num_pid_m = tl.cdiv(M, BLOCK_SIZE_M)
     num_pid_n = tl.cdiv(N, BLOCK_SIZE_N)
+    # num_pid_m = (M + BLOCK_SIZE_M - 1) // BLOCK_SIZE_M
+    # num_pid_n = (N + BLOCK_SIZE_M - 1) // BLOCK_SIZE_N
+
     pid_m = pid // num_pid_n
     pid_n = pid % num_pid_n
+
+    # DEBUG
+    # c = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N),
+                # dtype=c_ptr.type.element_ty)
+
+    # offs_cm = pid_m * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
+    # offs_cn = pid_n * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
+    # c_ptrs = c_ptr + stride_cm * offs_cm[:,
+                                         # None] + stride_cn * offs_cn[None, :]
+    # c_mask = (offs_cm[:, None] < M) & (offs_cn[None, :] < N)
+
+    # if SPLIT_K == 1:
+        # tl.store(c_ptrs, c, mask=c_mask)
+    # else:
+        # tl.atomic_add(c_ptrs, c, mask=c_mask)
+
+    # return
+    #DEBUG END
+
     if SPLIT_K == 1:
         offs_k = tl.arange(0, BLOCK_SIZE_K)
     else:
         offs_k = pid_z * BLOCK_SIZE_K + tl.arange(0, BLOCK_SIZE_K)
     offs_am = (pid_m * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M))
-    offs_bn = (pid_n * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N))
-    offs_zn = (pid_n * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N))
+    offs_bn = (pid_n * BLOCK_SIZE_N // 8 + tl.arange(0, BLOCK_SIZE_N) // 8)
+    offs_zn = (pid_n * BLOCK_SIZE_N // 8 + tl.arange(0, BLOCK_SIZE_N) // 8)
+    # offs_zn = (pid_n * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N))
     offs_sn = (pid_n * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N))
     a_ptrs = a_ptr + offs_am[:, None] * stride_am + offs_k[None, :] * stride_ak
     b_ptrs = b_ptr + offs_k[:, None] * stride_bk + offs_bn[None, :] * stride_bn
-    zeros_ptrs = (zeros_ptr + (offs_k[:, None] // awq_group_size) * stride_zk 
-                 + offs_zn[None, :] * stride_zn)
-    scales_ptrs = (scales_ptr + (offs_k[:, None] // awq_group_size) * stride_sk 
-                  + offs_sn[None, :] * stride_sn)
-    acc_dtype = tl.float32 if a_ptr.type.element_ty != tl.int8 else tl.int32
-    accumulator = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N), dtype=acc_dtype)
+    offs_zk = (pid_z * BLOCK_SIZE_K // awq_group_size +
+               tl.arange(0, BLOCK_SIZE_K) // awq_group_size)
+    zeros_ptrs = (zeros_ptr + (offs_k[:, None] // awq_group_size) * stride_zk +
+                  offs_zn[None, :] * stride_zn)
+
+    offsets_zeros = offs_zk[:, None] * stride_zk + offs_zn[None, :] * stride_zn
+    zeros_ptrs = zeros_ptr + offsets_zeros
+    offs_sk = (pid_z * BLOCK_SIZE_K // awq_group_size +
+               tl.arange(0, BLOCK_SIZE_K) // awq_group_size)
+    offsets_scales = (offs_sk[:, None] * stride_sk +
+                      offs_sn[None, :] * stride_sn)
+    # if pid == 0 and pid_z == 0:
+    # print(f"stride_bk = {stride_bk}, stride_bn = {stride_bn}")
+    # print(f"stride_sk = {stride_sk}, stride_sn = {stride_sn}")
+    # print(f"stride_zk = {stride_zk}, stride_zn = {stride_zn}")
+    # print(f"offs_sn = {offs_sn}")
+    # print(f"offs_k = {offs_k}")
+    # print(f"offs_sk = {offs_sk}")
+    # print(f"offsets_scales = {offsets_scales}")
+    # print(f"offsets_zeros = {offsets_zeros}")
+    scales_ptrs = scales_ptr + offsets_scales
+    scales_ptrs = (scales_ptr +
+                   (offs_k[:, None] // awq_group_size) * stride_sk +
+                   offs_sn[None, :] * stride_sn)
+    # acc_dtype = tl.float32 if a_ptr.type.element_ty != tl.int8 else tl.int32
+
+    # NOTE: This doesn't work in TRITON_INTERPRET=1 mode
+    accumulator = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N),
+                           dtype=c_ptr.type.element_ty)
+    # accumulator = tl.arange(0, BLOCK_SIZE_N)
+    # accumulator = tl.broadcast_to(accumulator[None, :],
+    # (BLOCK_SIZE_M, BLOCK_SIZE_N))
+    # accumulator = 0.0
+
+    # print(f"BLOCK_SIZE_M = {BLOCK_SIZE_M}, BLOCK_SIZE_N = {BLOCK_SIZE_N}"
+    # f" accumulator.shape = {accumulator.shape}"
+    # f" b_ptrs.shape = {b_ptrs.shape}"
+    # f" zeros_ptrs.shape = {zeros_ptrs.shape}")
+    # accumulator = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N), dtype=acc_dtype)
+    # print(f"accumulator = {accumulator}")
+    # print(f"offs_bn = {offs_bn}")
 
     reverse_awq_order_offsets = tl.arange(0, 8)
-    reverse_awq_order_tensor =  tl.load(reverse_awq_order_ptr +
-            reverse_awq_order_offsets)
+    reverse_awq_order_tensor = tl.load(reverse_awq_order_ptr +
+                                       reverse_awq_order_offsets)
     shifts = reverse_awq_order_tensor * 4
+    shifts = shifts[None, :].broadcast_to(BLOCK_SIZE_K * (BLOCK_SIZE_N // 8),
+                                          8)
+    shifts = shifts.reshape(BLOCK_SIZE_K, BLOCK_SIZE_N)
+    # print(f"shifts.shape = {shifts.shape}")
+    # print(f"shifts = {shifts}")
 
+    # NOTE: Use this in TRITON_INTERPRET=1 mode instead of tl.cdiv
+    # block_offset = BLOCK_SIZE_K * SPLIT_K
+    # for k in range(0, (K + block_offset - 1) // (block_offset)):
     for k in range(0, tl.cdiv(K, BLOCK_SIZE_K * SPLIT_K)):
         if EVEN_K:
+            # print("EVEN_K")
             a = tl.load(a_ptrs)
             b = tl.load(b_ptrs)
             zeros = tl.load(zeros_ptrs)
             scales = tl.load(scales_ptrs)
         else:
+            # print("NOT EVEN_K")
+            mask_a = offs_k[None, :] < K - k * BLOCK_SIZE_K
+            # print(f"mask_a = {mask_a}")
             a = tl.load(a_ptrs,
                         mask=offs_k[None, :] < K - k * BLOCK_SIZE_K,
                         other=0.0)
             b = tl.load(b_ptrs,
                         mask=offs_k[:, None] < K - k * BLOCK_SIZE_K,
-                        other=0.0)
-            #TODO: Make zeros and scales loading work for the 
+                        other=0)
+            #TODO: Make zeros and scales loading work for the
             # AWQ group size
+            # print(f"mask_zeros={mask_zeros}")
             zeros = tl.load(zeros_ptrs,
-                        mask=offs_k[:, None] < K - k * BLOCK_SIZE_K,
-                        other=0.0)
+                            mask=(offs_k[:, None] // awq_group_size) <
+                            K - k * BLOCK_SIZE_K,
+                            other=0.0)
             scales = tl.load(scales_ptrs,
-                        mask=offs_k[:, None] < K - k * BLOCK_SIZE_K,
-                        other=0.0)
+                             mask=(offs_k[:, None] // awq_group_size) <
+                             K - k * BLOCK_SIZE_K,
+                             other=0)
 
+        # print("dequantize")
         # Dequantize the B matrix.
-        shifts = shifts[None, :].broadcast_to(b.shape[0] * b.shape[1], 8)
-        shifts = shifts_b.reshape(b.shape[0], b.shape[1] * 8)
-        b = b.reshape(b.shape[0] * b.shape[1], 1
-              ).broadcast_to(b.shape[0] * b.shape[1], 8
-              ).reshape(b.shape[0], b.shape[1] * 8)
-        zeros = zeros.reshape(zeros.shape[0] * zeros.shape[1], 1
-              ).zerosroadcast_to(zeros.shape[0] * zeros.shape[1], 8
-              ).reshape(zeros.shape[0], zeros.shape[1] * 8)
-        b = b >> shifts & 0xF
-        zeros = zeros >> shifts & 0xF
+        # print("==========>")
+        # b = b.reshape(b.shape[0] * b.shape[1],
+        # 1).broadcast_to(b.shape[0] * b.shape[1],
+        # 8).reshape(b.shape[0], b.shape[1] * 8)
+        # zeros = zeros.reshape(zeros.shape[0] * zeros.shape[1], 1).broadcast_to(
+        # zeros.shape[0] * zeros.shape[1],
+        # 8).reshape(zeros.shape[0], zeros.shape[1] * 8)
+        # print(f"b.shape = {b.shape}, zeros.shape = {zeros.shape}")
+        # if k == 0 and pid == 0 and pid_z == 0:
+        # print(f"BEFORE:zeros = {zeros}")
+        # print(f"pid = {pid}, pid_m = {pid_m}, pid_n = {pid_n}, pid_z = {pid_z}, k = {k}")
+        # print(f"BEFORE:b = {b}")
+        b = (b >> shifts) & 0xF
+        # print(f"SHIFTED:b = {b}")
+        # print(f"BEFORE:zeros = {zeros}")
+        zeros = (zeros >> shifts) & 0xF
+        # print(f"SHIFTED:zeros = {zeros}")
+        # if k == 0 and pid == 0 and pid_z == 0:
+        # print(f"AFTER:b = {b}")
+        # print(f"AFTER:zeros = {zeros}")
+        # print(f"scales.shape = {scales.shape}")
         b = (b - zeros) * scales
+        # if k == 0 and pid == 0 and pid_z == 0:
+        # print(f"shifts = {shifts}")
+        # print(f"scales = {scales}")
         b = b.to(tl.float16)
+        # print(f"**b = {b}")
+        # print(f"**scales = {scales}")
 
-        accumulator += tl.dot(a, b)
+        # print("accumulate")
+        # ptr_inc
+        mul = tl.dot(a, b).to(tl.float16)
+        accumulator += mul
         a_ptrs += BLOCK_SIZE_K * SPLIT_K * stride_ak
         b_ptrs += BLOCK_SIZE_K * SPLIT_K * stride_bk
+        mod_group_size = ((k + 1) * SPLIT_K * BLOCK_SIZE_K) % awq_group_size
+        if mod_group_size == 0:
+            scales_ptrs += stride_sk
+            zeros_ptrs += stride_zk
 
-
-
-    c = accumulator.to(c_ptr.type.element_ty)
+    # c = accumulator.to(c_ptr.type.element_ty)
+    # c = accumulator.to(tl.float16)
+    # c = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N),
+                # dtype=c_ptr.type.element_ty)
+    # c += accumulator
     offs_cm = pid_m * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
     offs_cn = pid_n * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
-    c_ptrs = c_ptr + stride_cm * offs_cm[:, None] + stride_cn * offs_cn[None, :]
+    c_ptrs = c_ptr + stride_cm * offs_cm[:,
+                                         None] + stride_cn * offs_cn[None, :]
     c_mask = (offs_cm[:, None] < M) & (offs_cn[None, :] < N)
     if SPLIT_K == 1:
         tl.store(c_ptrs, c, mask=c_mask)
     else:
         tl.atomic_add(c_ptrs, c, mask=c_mask)
 
-# Example input: 
+
+# Example input:
 #   qweight.size=torch.Size([3584, 576]),
 #   qweight.dtype = torch.int32,
 #   scales.size=torch.Size([28, 4608]),
@@ -206,36 +312,49 @@ def awq_gemm_kernel(
 #   split_k_iters=0
 #   thx=0
 #   thy=0
-def awq_dequantize_triton(qweight: torch.Tensor,
-                         scales: torch.Tensor,
-                         zeros: torch.Tensor,
-                         split_k_iters: int, # Not used
-                         thx: int, # Not used
-                         thy: int # Not used
-                         ) -> torch.Tensor:
+def awq_dequantize_triton(
+        qweight: torch.Tensor,
+        scales: torch.Tensor,
+        zeros: torch.Tensor,
+        split_k_iters: int,  # Not used
+        thx: int,  # Not used
+        thy: int  # Not used
+) -> torch.Tensor:
     # Result tensor:
     # number of rows = same as input tensor
     # number of cols = 8 x input tensor num cols
     result = torch.empty(qweight.shape[0],
                          qweight.shape[1] * 8,
-                         device = qweight.device,
-                         dtype = torch.float16)
+                         device=qweight.device,
+                         dtype=torch.float16)
 
     block_size_x = 32
     block_size_y = 32
 
     reverse_awq_order = torch.tensor([0, 4, 1, 5, 2, 6, 3, 7],
-            dtype = torch.uint8, device = qweight.device)
+                                     dtype=torch.uint8,
+                                     device=qweight.device)
 
-    Y = qweight.shape[0] # num rows
-    X = qweight.shape[1] # num cols
+    Y = qweight.shape[0]  # num rows
+    X = qweight.shape[1]  # num cols
     group_size = 128
     grid = lambda META: (
-        triton.cdiv(X, META['BLOCK_SIZE_X']), triton.cdiv(Y,
-                    META['BLOCK_SIZE_Y']), )
-    awq_dequantize_kernel[grid](qweight, scales, zeros, split_k_iters, 
-            thx, thy, group_size, result, X, Y, reverse_awq_order,
-            BLOCK_SIZE_X = block_size_x, BLOCK_SIZE_Y = block_size_y)
+        triton.cdiv(X, META['BLOCK_SIZE_X']),
+        triton.cdiv(Y, META['BLOCK_SIZE_Y']),
+    )
+    awq_dequantize_kernel[grid](qweight,
+                                scales,
+                                zeros,
+                                split_k_iters,
+                                thx,
+                                thy,
+                                group_size,
+                                result,
+                                X,
+                                Y,
+                                reverse_awq_order,
+                                BLOCK_SIZE_X=block_size_x,
+                                BLOCK_SIZE_Y=block_size_y)
 
     return result
 
@@ -253,63 +372,69 @@ def reverse_awq_order(t: torch.Tensor):
     reverse_order_tensor = reverse_order_tensor.view(-1)
 
     t = t[:, reverse_order_tensor] & 0xF
-    return t 
+    return t
 
 
 # qweights - [R     , C // 8], int32
 # scales   - [R // G, C     ], float16
 # zeros    - [R // G, C // 8], int32
-def awq_dequantize_torch(qweight: torch.Tensor,
-                         scales: torch.Tensor,
-                         qzeros: torch.Tensor,
-                         split_k_iters: int,
-                         thx: int,
+def awq_dequantize_torch(qweight: torch.Tensor, scales: torch.Tensor,
+                         qzeros: torch.Tensor, split_k_iters: int, thx: int,
                          thy: int) -> torch.Tensor:
-    print(f"awq_dequantize_torch:qweight.shape = {qweight.shape}"
-          f", qzeros.shape={qzeros.shape}")
+    # print(f"awq_dequantize_torch:qweight.shape = {qweight.shape}"
+    # f", qzeros.shape={qzeros.shape}")
     bits = 4
     group_size = 128
     shifts = torch.arange(0, 32, bits, device=qzeros.device)
-    
-    iweights = torch.bitwise_right_shift(
-        qweight[:, :, None],
-        shifts[None, None, :]).to(torch.int8)
+
+    iweights = torch.bitwise_right_shift(qweight[:, :, None],
+                                         shifts[None, None, :]).to(torch.int8)
 
     iweights = iweights.view(iweights.shape[0], -1)
 
     # iweights = reverse_awq_order(iweights)
     # return (iweights & 0xF).to(torch.float16)
+    # qqzeros = qzeros.repeat_interleave(group_size, dim=0)
+    # print(f"awq_dequantize_torch:qzeros_upper = {qqzeros[:128, :]}")
+    # print(f"awq_dequantize_torch:qzeros_lower = {qqzeros[128:, :]}")
 
-    zeros = torch.bitwise_right_shift(
-        qzeros[:, :, None], shifts[None, None, :]).to(torch.int8)
-
+    zeros = torch.bitwise_right_shift(qzeros[:, :, None],
+                                      shifts[None, None, :]).to(torch.int8)
     zeros = zeros.view(qzeros.shape[0], -1)
-
     zeros = reverse_awq_order(zeros)
+
     iweights = reverse_awq_order(iweights)
 
     iweights = torch.bitwise_and(iweights, (2**bits) - 1)
     zeros = torch.bitwise_and(zeros, (2**bits) - 1)
 
-
+    # print(f"====>scales.shape = {scales.shape}")
     scales = scales.repeat_interleave(group_size, dim=0)
     zeros = zeros.repeat_interleave(group_size, dim=0)
-    print(f"awq_dequantize_torch:iweights.shape = {iweights.shape},"
-          f"zeros.shape={zeros.shape}, "
-          f"scales.shape={scales.shape}")
+    # print(f"====>iweights.shape = {iweights.shape}, zeros.shape = {zeros.shape}, scales.shape = {scales.shape}")
+    # print(f"awq_dequantize_torch:iweights.shape = {iweights.shape},"
+    # f"zeros.shape={zeros.shape}, "
+    # f"scales.shape={scales.shape}")
+    # print(f"awq_dequantize_torch:zeros_upper = {zeros[:128, :]}")
+    # print(f"awq_dequantize_torch:zeros_lower = {zeros[128:, :]}")
+    # print(f"awq_dequantize_torch:iweights_upper = {iweights[:128, :]}")
+    # print(f"awq_dequantize_torch:iweights_lower = {iweights[128:, :]}")
+    # print(f"awq_dequantize_torch:scales_upper = {scales[:128, :]}")
+    # print(f"awq_dequantize_torch:scales_lower = {scales[128:, :]}")
 
     # return iweights.to(torch.float16)
-    return (iweights - zeros) * scales
+    return (iweights - zeros) * scales, zeros
+
 
 def test_dequantize():
     print("=" * 10 + " TESTING DEQUANTIZE" + "=" * 10)
-    use_triton = True 
+    use_triton = True
     use_torch = True
 
     qweight_rows = 3584
     qweight_cols = 576
     group_size = 128
-    small_test_size = True
+    small_test_size = False
     if small_test_size:
         qweight_rows = 256
         qweight_cols = 128
@@ -321,78 +446,105 @@ def test_dequantize():
     zeros_rows = scales_rows
     zeros_cols = qweight_cols
     zeros_dtype = torch.int32
-    split_k_iters=0
-    thx=0
-    thy=0
-    device='cuda'
+    split_k_iters = 0
+    thx = 0
+    thy = 0
+    device = 'cuda'
     torch.manual_seed(0)
 
-    qweight = torch.randint(0,10000000, (qweight_rows,
-                         qweight_cols),
-                         dtype=qweight_dtype,
-                         device=device)
+    qweight = torch.randint(0,
+                            10000000, (qweight_rows, qweight_cols),
+                            dtype=qweight_dtype,
+                            device=device)
     scales = torch.rand(scales_rows,
                         scales_cols,
                         dtype=scales_dtype,
                         device=device)
-    zeros = torch.randint(0, 10000000, (zeros_rows,
-                          zeros_cols),
+    zeros = torch.randint(0,
+                          10000000, (zeros_rows, zeros_cols),
                           dtype=zeros_dtype,
                           device=device)
     print(f"qweight = {qweight}")
     if use_triton:
-      iweights_triton = awq_dequantize_triton(
-        qweight, scales, zeros, split_k_iters, thx, thy)
-      print(f"Triton result:iweights_triton = {iweights_triton}")
-      print(f"Any infs in triton result? --> {not torch.all(False == torch.isinf(iweights_triton))}")
+        iweights_triton = awq_dequantize_triton(qweight, scales, zeros,
+                                                split_k_iters, thx, thy)
+        print(f"Triton result:iweights_triton = {iweights_triton}")
+        print(
+            f"Any infs in triton result? --> {not torch.all(False == torch.isinf(iweights_triton))}"
+        )
 
     if use_torch:
-      iweights_torch = awq_dequantize_torch(
-        qweight, scales, zeros, split_k_iters, thx, thy)
-      print(f"Torch result:iweights_torch = {iweights_torch}")
+        iweights_torch, _ = awq_dequantize_torch(qweight, scales, zeros,
+                                                 split_k_iters, thx, thy)
+        print(f"Torch result:iweights_torch = {iweights_torch}")
 
     if use_torch and use_triton:
         diff = iweights_torch - iweights_triton
         error = torch.sum(torch.sqrt(diff * diff))
         print(f"error = {error}")
 
+
 def awq_gemm_triton(input: torch.Tensor, qweight: torch.Tensor,
-                   qzeros: torch.Tensor, scales: torch.Tensor,
-                   split_k_iters: int) -> torch.Tensor:
-  weights = awq_dequantize_torch(qweight, scales, qzeros,
-                                       split_k_iters, 0, 0)
+                    qzeros: torch.Tensor, scales: torch.Tensor,
+                    split_k_iters: int) -> torch.Tensor:
+    grid = lambda META: (
+        triton.cdiv(M, META['BLOCK_SIZE_M']) * triton.cdiv(
+            N, META['BLOCK_SIZE_N']),
+        split_k_iters,
+    )
+    M, K = input.shape
+    N = qweight.shape[1] * 8
+    awq_group_size = 128
+    block_size_m = 32
+    block_size_n = 32
+    block_size_k = 32
+    reverse_awq_order = torch.tensor([0, 4, 1, 5, 2, 6, 3, 7],
+                                     dtype=torch.uint8,
+                                     device=qweight.device)
 
-  grid = lambda META: (triton.cdiv(M, META['BLOCK_SIZE_M']) 
-                       * triton.cdiv(N, META['BLOCK_SIZE_N']),
-                       split_k_iters,)
-  M, K = input.shape
-  N = qweight.shape[1] * 8
-  awq_group_size = 128
-  block_size_m = 32
-  block_size_n = 32
-  block_size_k = 32
-  reverse_awq_order = torch.tensor([0, 4, 1, 5, 2, 6, 3, 7],
-          dtype = torch.uint8, device = qweight.device)
+    result = torch.empty((M, N), dtype=torch.float16, device=input.device)
 
-  result = torch.empty((M, N), dtype = torch.float16, device = input.device)
+    # def awq_gemm_kernel(a_ptr, b_ptr, c_ptr, zeros_ptr, scales_ptr, M, N, K,
+    # awq_group_size, reverse_awq_order_ptr, stride_am,
+    # stride_ak, stride_bk, stride_bn, stride_cm, stride_cn,
+    # stride_zk, stride_zn, stride_sk, stride_sn,
+    # BLOCK_SIZE_M: tl.constexpr, BLOCK_SIZE_N: tl.constexpr,
+    # BLOCK_SIZE_K: tl.constexpr, SPLIT_K: tl.constexpr,
+    # EVEN_K: tl.constexpr):
+    # @triton.heuristics({
+    # 'EVEN_K':
+    # lambda args: args['K'] % (args['BLOCK_SIZE_K'] * args['SPLIT_K']) == 0,
+    # })
+    # A = input, B = qweight, C = result
+    # A = M x K, B = K x N, C = M x N
+    awq_gemm_kernel[grid](input,
+                          qweight,
+                          result,
+                          qzeros,
+                          scales,
+                          M,
+                          N,
+                          K,
+                          awq_group_size,
+                          reverse_awq_order,
+                          input.stride(0),
+                          input.stride(1),
+                          qweight.stride(0),
+                          qweight.stride(1),
+                          result.stride(0),
+                          result.stride(1),
+                          qzeros.stride(0),
+                          qzeros.stride(1),
+                          scales.stride(0),
+                          scales.stride(1),
+                          BLOCK_SIZE_M=block_size_m,
+                          BLOCK_SIZE_N=block_size_n,
+                          BLOCK_SIZE_K=block_size_k,
+                          SPLIT_K=split_k_iters,
+                          EVEN_K=K % (block_size_k * split_k_iters))
 
-  # A = input, B = qweight, C = result
-  # A = M x K, B = K x N, C = M x N
-  awq_gemm_kernel[grid](
-    input, qweight, result,
-    qzeros, scales,
-    M, N, K,
-    awq_group_size, reverse_awq_order,
-    input.stride(0), input.stride(1),
-    qweight.stride(0), qweight.stride(1),
-    result.stride(0), result.stride(1), 
-    qzeros.stride(0), qzeros.stride(1),
-    scales.stride(0), scales.stride(1),
-    BLOCK_SIZE_M = block_size_m, BLOCK_SIZE_N = block_size_n,
-    BLOCK_SIZE_K = block_size_k,
-    SPLIT_K = split_k_iters)
+    return result
 
-  return result
 
 # input   - [N, K]
 # qweight - [K, M // 8]
@@ -402,8 +554,22 @@ def awq_gemm_triton(input: torch.Tensor, qweight: torch.Tensor,
 def awq_gemm_torch(input: torch.Tensor, qweight: torch.Tensor,
                    qzeros: torch.Tensor, scales: torch.Tensor,
                    split_k_iters: int) -> torch.Tensor:
-    weights = awq_dequantize_torch(qweight, scales, qzeros, split_k_iters, 0, 0)
+    input_rows, input_cols = input.shape
+    qweight_rows, qweight_cols = qweight.shape
+    scales_rows, scales_cols = scales.shape
+    print(f"awq_gemm_torch:input_rows = {input_rows} input_cols = {input_cols}"
+          f" qweight_rows = {qweight_rows} qweight_cols = {qweight_cols}"
+          f" scales_rows = {scales_rows} scales_cols = {scales_cols}")
+    weights, zeros = awq_dequantize_torch(qweight, scales, qzeros,
+                                          split_k_iters, 0, 0)
+    # print(f"input = {input}")
+    # print(f"weights_upper = {weights[:128, :]}")
+    # print(f"weights_lower = {weights[128:, :]}")
+    # print(f"weights_upper = {weights[:128, :]}")
+    # print(f"weights_lower = {weights[128:, :]}")
+    # print(f"zeros = {zeros}")
     return torch.matmul(input, weights)
+
 
 def test_gemm():
     print("=" * 10 + " TESTING GEMM " + "=" * 10)
@@ -411,6 +577,8 @@ def test_gemm():
     split_k_iters = 1
     group_size = 128
     device = "cuda"
+
+    small_test_size = True
 
     # input.size = torch.Size([1, 3584]),
     # input.dtype = torch.float16
@@ -421,46 +589,89 @@ def test_gemm():
     # scales.size = torch.Size([28, 448]),
     # scales.dtype = torch.int32
     # split_k_iters = 8
-    input_rows = 1
-    input_cols = 3584
-    input_dtype = torch.float16
-    qweight_rows = input_cols
-    qweight_cols = 448
-    qweight_dtype = torch.int32
-    scales_rows = qweight_rows // group_size
-    scales_cols = qweight_cols * 8
-    scales_dtype = torch.float16
-    qzeros_rows = scales_rows
-    qzeros_cols = qweight_cols
-    qzeros_dtype = torch.int32
 
-    input = torch.rand((input_rows, input_cols),
-                       dtype = input_dtype)
-    qweight = torch.randint(0, torch.iinfo(torch.int32).max,
-                            (qweight_rows, qweight_cols))
-    qzeros = torch.randint(0, torch.iinfo(torch.int32).max,
-                            (qzeros_rows, qzeros_cols))
-    scales = torch.rand((scales_rows, scales_cols),
-                        dtype = scales_dtype)
+    use_save_file = False
+
+    if not use_save_file:
+        input_rows = 1
+        input_cols = 256 if small_test_size else 3584
+        input_dtype = torch.float16
+        qweight_rows = input_cols
+        qweight_cols = 32 if small_test_size else 448
+        qweight_dtype = torch.int32
+        scales_rows = qweight_rows // group_size
+        scales_cols = qweight_cols * 8
+        scales_dtype = torch.float16
+        qzeros_rows = scales_rows
+        qzeros_cols = qweight_cols
+        qzeros_dtype = torch.int32
+        print(f"input_rows = {input_rows} input_cols = {input_cols}"
+              f" qweight_rows = {qweight_rows} qweight_cols = {qweight_cols}"
+              f" scales_rows = {scales_rows} scales_cols = {scales_cols}")
+
+        torch.manual_seed(2)
+        input = torch.rand((input_rows, input_cols),
+                           dtype=input_dtype,
+                           device=device)
+        qweight = torch.randint(0,
+                                torch.iinfo(torch.int32).max,
+                                (qweight_rows, qweight_cols),
+                                device=device)
+        qzeros = torch.randint(0,
+                               torch.iinfo(torch.int32).max,
+                               (qzeros_rows, qzeros_cols),
+                               device=device)
+        scales = torch.rand((scales_rows, scales_cols),
+                            dtype=scales_dtype,
+                            device=device)
+    else:
+        save_file = "/source/awq_gemm.pt"
+        input, qweight, qzeros, scales, split_k_iters = torch.load(save_file)
+        input = input.to(device="cuda")
+        qweight = qweight.to(device="cuda")
+        qzeros = qzeros.to(device="cuda")
+        scales = scales.to(device="cuda")
+        input = input.to(device="cuda")
+        input_rows, input_cols = input.shape
+        qweight_rows, qweight_cols = qweight.shape
+        qzeros_rows, qzeros_cols = qzeros.shape
+        qzeros_rows, qzeros_cols = qzeros.shape
+        input_rows, input_cols = input.shape
 
     use_triton = True
     use_torch = True
 
-    torch.manual_seed(0)
+    # import numpy as np
+    # import sys
+    # torch.set_printoptions(precision = 3, threshold=10000000000000000000000000000, sci_mode = False)
+    # np.set_printoptions(threshold=sys.maxsize)
+
+    # print(f"qweight_upper = {qweight[:128, :]}")
+    # print(f"qweight_lower = {qweight[128:, :]}")
 
     if use_torch:
-        output_torch = awq_gemm_torch(input, qweight, qzeros, scales,
-                                      split_k_iters)
+        output_torch = awq_gemm_torch(input.cpu(), qweight.cpu(), qzeros.cpu(),
+                                      scales.cpu(), split_k_iters)
         print(f"output_torch = {output_torch}")
 
     if use_triton:
         output_triton = awq_gemm_triton(input, qweight, qzeros, scales,
                                         split_k_iters)
         print(f"output_triton = {output_triton}")
+        print(f"output_triton.shape = {output_triton.shape}")
+        print(f"Any infs in triton result? --> "
+              f"{torch.any(torch.isinf(output_triton))}")
+
+    if use_torch and use_triton:
+        diff = output_torch.cpu() - output_triton.cpu()
+        error = torch.sum(torch.sqrt(diff * diff) / torch.numel(diff))
+        print(f"error = {error}")
+
 
 def main():
-    parser = argparse.ArgumentParser(description="awq_triton test driver",
-                formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description="awq_triton test driver",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("--test")
     known_args, unknown_args = parser.parse_known_args()
     if known_args.test is not None:
