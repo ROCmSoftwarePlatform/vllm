@@ -155,12 +155,12 @@ def awq_gemm_kernel(a_ptr, b_ptr, c_ptr, zeros_ptr, scales_ptr, M, N, K,
     offsets_sn = pid_n * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
     masks_sn = offsets_sn < N
 
+    offsets_k = pid_z * BLOCK_SIZE_K + tl.arange(0, BLOCK_SIZE_K)
+
     # NOTE: Use this in TRITON_INTERPRET=1 mode instead of tl.cdiv
     # block_offset = BLOCK_SIZE_K * SPLIT_K
     # for k in range(0, (K + block_offset - 1) // (block_offset)):
     for k in range(0, tl.cdiv(K, BLOCK_SIZE_K * SPLIT_K)):
-        offsets_k = (BLOCK_SIZE_K * SPLIT_K * k + pid_z * BLOCK_SIZE_K +
-                     tl.arange(0, BLOCK_SIZE_K))
 
         offsets_a = K * offsets_am[:, None] + offsets_k[None, :]
         masks_k = offsets_k < K
@@ -190,6 +190,8 @@ def awq_gemm_kernel(a_ptr, b_ptr, c_ptr, zeros_ptr, scales_ptr, M, N, K,
         masks_s = masks_sk[:, None] & masks_sn[None, :]
         scales_ptrs = scales_ptr + offsets_s
         scales = tl.load(scales_ptrs, mask=masks_s)
+
+        offsets_k += BLOCK_SIZE_K * SPLIT_K
 
         b = (b >> shifts) & 0xF
         zeros = (zeros >> shifts) & 0xF
