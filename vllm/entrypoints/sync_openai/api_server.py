@@ -1,10 +1,10 @@
 import asyncio
-from http import HTTPStatus
 import multiprocessing
 import re
 import threading
 import time
 from contextlib import asynccontextmanager
+from http import HTTPStatus
 from typing import Dict, Iterable, List, Union, cast
 
 import uvicorn
@@ -15,9 +15,9 @@ from fastapi.routing import Mount
 from openai.types.chat import ChatCompletionContentPartTextParam
 from prometheus_client import make_asgi_app
 
+import vllm
 from vllm import FastSyncLLM as LLM
 from vllm import envs
-import vllm
 from vllm.engine.arg_utils import EngineArgs
 from vllm.entrypoints.openai.cli_args import make_arg_parser
 from vllm.entrypoints.openai.protocol import (
@@ -25,8 +25,8 @@ from vllm.entrypoints.openai.protocol import (
     ChatCompletionRequest, ChatCompletionResponse,
     ChatCompletionResponseChoice, ChatCompletionResponseStreamChoice,
     ChatCompletionStreamResponse, ChatMessage, CompletionRequest,
-    CompletionResponse, CompletionResponseChoice, DeltaMessage, ErrorResponse, ModelCard, ModelList, ModelPermission,
-    UsageInfo)
+    CompletionResponse, CompletionResponseChoice, DeltaMessage, ErrorResponse,
+    ModelCard, ModelList, ModelPermission, UsageInfo)
 from vllm.entrypoints.openai.serving_chat import (ChatMessageParseResult,
                                                   ConversationMessage)
 from vllm.logger import init_logger
@@ -141,14 +141,13 @@ app.routes.append(route)
 
 @app.get("/v1/models")
 async def show_available_models():
-    models = [ModelCard(
-        id=runner.engine_args.model,
-        root=runner.engine_args.model,
-        permission=[ModelPermission()]
-    )]
+    models = [
+        ModelCard(id=runner.engine_args.model,
+                  root=runner.engine_args.model,
+                  permission=[ModelPermission()])
+    ]
     model_list = ModelList(data=models)
     return JSONResponse(content=model_list.model_dump())
-
 
 
 @app.get("/version")
@@ -157,7 +156,8 @@ async def show_version():
     return JSONResponse(content=ver)
 
 
-async def _check_model(request: Union[CompletionRequest, ChatCompletionRequest]):
+async def _check_model(request: Union[CompletionRequest,
+                                      ChatCompletionRequest]):
     model = request.model
     if model != runner.engine_args.model:
         return ErrorResponse(message=f"The model {model} does not exist.",
