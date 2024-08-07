@@ -16,6 +16,7 @@ atol = 1
 
 CACHE_INVALIDATE_BUFFERS = int(os.getenv("CACHE_INVALIDATE_BUFFERS", "37"))
 
+
 class Gemm:
 
     def __init__(self, m, n, k, indtype, outdtype, rocblas_decode=False):
