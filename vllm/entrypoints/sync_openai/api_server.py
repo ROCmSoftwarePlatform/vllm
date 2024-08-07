@@ -1,21 +1,23 @@
 import asyncio
+from http import HTTPStatus
 import multiprocessing
 import re
 import threading
 import time
 from contextlib import asynccontextmanager
-from typing import Dict, Iterable, List, cast
+from typing import Dict, Iterable, List, Union, cast
 
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.routing import Mount
 from openai.types.chat import ChatCompletionContentPartTextParam
 from prometheus_client import make_asgi_app
 
 from vllm import FastSyncLLM as LLM
 from vllm import envs
+import vllm
 from vllm.engine.arg_utils import EngineArgs
 from vllm.entrypoints.openai.cli_args import make_arg_parser
 from vllm.entrypoints.openai.protocol import (
@@ -23,7 +25,8 @@ from vllm.entrypoints.openai.protocol import (
     ChatCompletionRequest, ChatCompletionResponse,
     ChatCompletionResponseChoice, ChatCompletionResponseStreamChoice,
     ChatCompletionStreamResponse, ChatMessage, CompletionRequest,
-    CompletionResponse, CompletionResponseChoice, DeltaMessage, UsageInfo)
+    CompletionResponse, CompletionResponseChoice, DeltaMessage, ErrorResponse, ModelCard, ModelList, ModelPermission,
+    UsageInfo)
 from vllm.entrypoints.openai.serving_chat import (ChatMessageParseResult,
                                                   ConversationMessage)
 from vllm.logger import init_logger
@@ -47,7 +50,7 @@ class BackgroundRunner:
 
     def __init__(self):
         self.value = 0
-        self.engine_args = None
+        self.engine_args: EngineArgs
         self.input_queue: multiprocessing.Queue = mp.Queue()
         self.result_queue: multiprocessing.Queue = mp.Queue()
         self.result_queues: Dict[str, asyncio.Queue] = {}
@@ -136,6 +139,33 @@ route.path_regex = re.compile('^/metrics(?P<path>.*)$')
 app.routes.append(route)
 
 
+@app.get("/v1/models")
+async def show_available_models():
+    models = [ModelCard(
+        id=runner.engine_args.model,
+        root=runner.engine_args.model,
+        permission=[ModelPermission()]
+    )]
+    model_list = ModelList(data=models)
+    return JSONResponse(content=model_list.model_dump())
+
+
+
+@app.get("/version")
+async def show_version():
+    ver = {"version": vllm.__version__}
+    return JSONResponse(content=ver)
+
+
+async def _check_model(request: Union[CompletionRequest, ChatCompletionRequest]):
+    model = request.model
+    if model != runner.engine_args.model:
+        return ErrorResponse(message=f"The model {model} does not exist.",
+                             type="NotFoundError",
+                             code=HTTPStatus.NOT_FOUND)
+    return None
+
+
 async def completion_generator(model, result_queue, choices, created_time,
                                ids):
     completed = 0
@@ -180,6 +210,10 @@ async def completion_generator(model, result_queue, choices, created_time,
 
 @app.post("/v1/completions")
 async def completions(request: CompletionRequest, raw_request: Request):
+    error_check_ret = await _check_model(request)
+    if error_check_ret is not None:
+        return JSONResponse(content=error_check_ret.model_dump(),
+                            status_code=error_check_ret.code)
     sampling_params = request.to_sampling_params()
     ids, result_queue = await runner.add_request(request.prompt,
                                                  sampling_params)
@@ -314,6 +348,10 @@ async def chat_completion_generator(model, result_queue, created_time, id):
 @app.post("/v1/chat/completions")
 async def chat_completions(request: ChatCompletionRequest,
                            raw_request: Request):
+    error_check_ret = await _check_model(request)
+    if error_check_ret is not None:
+        return JSONResponse(content=error_check_ret.model_dump(),
+                            status_code=error_check_ret.code)
     sampling_params = request.to_sampling_params()
     conversation: List[ConversationMessage] = []
 
