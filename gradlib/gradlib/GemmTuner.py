@@ -14,7 +14,7 @@ hipbsolidxgemm.hipb_create_extension()
 rtol = 1e-5
 atol = 1
 
-CACHE_INVALIDATE_BUFFERS = int(os.getenv("CACHE_INVALIDATE_BUFFERS", "37")),
+CACHE_INVALIDATE_BUFFERS = int(os.getenv("CACHE_INVALIDATE_BUFFERS", "37"))
 
 class Gemm:
 
