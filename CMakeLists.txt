@@ -270,7 +270,10 @@ define_gpu_extension_target(
 
 set(VLLM_MOE_EXT_SRC
   "csrc/moe/moe_ops.cpp"
-  "csrc/moe/topk_softmax_kernels.cu")
+  "csrc/moe/topk_softmax_kernels.cu"
+  "csrc/moe/quant_gemm_kernels.cu")
+
+set(CK_LIBS "device_gemm_operations" "utility")
 
 define_gpu_extension_target(
   _moe_C
@@ -279,6 +282,7 @@ define_gpu_extension_target(
   SOURCES ${VLLM_MOE_EXT_SRC}
   COMPILE_FLAGS ${VLLM_GPU_FLAGS}
   ARCHITECTURES ${VLLM_GPU_ARCHES}
+  LIBRARIES ${CK_LIBS}
   WITH_SOABI)
 
 #
@@ -328,7 +332,7 @@ if (VLLM_PUNICA_GPU_ARCHES)
     DESTINATION vllm
     LANGUAGE ${VLLM_GPU_LANG}
     SOURCES ${VLLM_PUNICA_EXT_SRC}
-    COMPILE_FLAGS ${VLLM_PUNICA_GPU_FLAGS}
+    COMPILE_FLAGS ${VLLM_PUNICA_GPU_eLAGS}
     ARCHITECTURES ${VLLM_PUNICA_GPU_ARCHES}
     WITH_SOABI)
 else()

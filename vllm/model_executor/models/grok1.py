@@ -56,7 +56,7 @@ from vllm.utils import is_hip, print_warning_once
 
 from vllm.logger import init_logger
 
-from torch.profiler import record_function
+#from torch.profiler import record_function
 
 logger = init_logger(__name__)
 
@@ -299,30 +299,33 @@ class Grok1MoE(nn.Module):
                                          requires_grad=False)
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
-        with record_function(f"[Grok1MoE] forward"):
-            num_tokens, hidden_size = hidden_states.shape
-            hidden_states = hidden_states.view(-1, self.hidden_size)
-            # router_logits: (num_tokens, n_experts)
-            router_logits, _ = self.gate(hidden_states)
-            use_fp8 = self.use_rocm_fp8 or self.use_fp8
-            final_hidden_states = fused_moe(hidden_states,
-                                            self.w13_weight,
-                                            self.w2_weight,
-                                            router_logits,
-                                            self.top_k,
-                                            renormalize=True,
-                                            inplace=True,
-                                            use_fp8=use_fp8,
-                                            w1_scale=self.w13_scale,
-                                            w2_scale=self.w2_scale,
-                                            a1_scale=self.a13_scale,
-                                            a2_scale=self.a2_scale)
+        num_tokens, hidden_size = hidden_states.shape
+        hidden_states = hidden_states.view(-1, self.hidden_size)
+        # router_logits: (num_tokens, n_experts)
+        router_logits, _ = self.gate(hidden_states)
+        use_fp8 = self.use_rocm_fp8 or self.use_fp8
+        rank = get_tensor_model_parallel_rank()
+        if rank == 0: 
+            print(f"num_tokens:{num_tokens}", flush=True)
 
-            if self.tp_size > 1:
-                final_hidden_states = tensor_model_parallel_all_reduce(
-                    final_hidden_states)
+        final_hidden_states = fused_moe(hidden_states,
+                                        self.w13_weight,
+                                        self.w2_weight,
+                                        router_logits,
+                                        self.top_k,
+                                        renormalize=True,
+                                        inplace=True,
+                                        use_fp8=use_fp8,
+                                        w1_scale=self.w13_scale,
+                                        w2_scale=self.w2_scale,
+                                        a1_scale=self.a13_scale,
+                                        a2_scale=self.a2_scale)
 
-            return final_hidden_states.view(num_tokens, hidden_size)
+        if self.tp_size > 1:
+            final_hidden_states = tensor_model_parallel_all_reduce(
+                final_hidden_states)
+
+        return final_hidden_states.view(num_tokens, hidden_size)
 
 
 class Grok1Attention(nn.Module):
@@ -395,13 +398,18 @@ class Grok1Attention(nn.Module):
         attn_metadata: AttentionMetadata,
     ) -> torch.Tensor:
 
-        with record_function(f"[Grok1Attention] forward"):
-            qkv, _ = self.qkv_proj(hidden_states)
-            q, k, v = qkv.split([self.q_size, self.kv_size, self.kv_size], dim=-1)
-            q, k = self.rotary_emb(positions, q, k)
-            attn_output = self.attn(q, k, v, kv_cache, attn_metadata)
-            output, _ = self.o_proj(attn_output)
-            return output
+        qkv, _ = self.qkv_proj(hidden_states)
+        q, k, v = qkv.split([self.q_size, self.kv_size, self.kv_size], dim=-1)
+        q, k = self.rotary_emb(positions, q, k)
+        rank = get_tensor_model_parallel_rank()
+        if rank == 0:
+            if kv_cache is None or attn_metadata.block_tables.numel() == 0:
+                print("prefill", flush=True)
+            else:
+                print("decode", flush=True)
+        attn_output = self.attn(q, k, v, kv_cache, attn_metadata)
+        output, _ = self.o_proj(attn_output)
+        return output
 
 
 class Grok1DecoderLayer(nn.Module):
@@ -443,27 +451,26 @@ class Grok1DecoderLayer(nn.Module):
         attn_metadata: AttentionMetadata,
         residual: Optional[torch.Tensor],
     ) -> torch.Tensor:
-        with record_function(f"[Grok1DecoderLayer] forward"):
-            # Self Attention
-            if residual is None:
-                residual = hidden_states
-                hidden_states = self.pre_attn_norm(hidden_states, self.attn.qkv_proj.activation_scaling_factor) if reduce_conversion_kernel else self.pre_attn_norm(hidden_states)
-            else:
-                hidden_states, residual = self.pre_attn_norm(hidden_states, self.attn.qkv_proj.activation_scaling_factor, residual) if reduce_conversion_kernel else self.pre_attn_norm(
-                    hidden_states, residual)
-            hidden_states = self.attn(
-                positions=positions,
-                hidden_states=hidden_states,
-                kv_cache=kv_cache,
-                attn_metadata=attn_metadata,
-            )
-
-            # Fully Connected
-            hidden_states, residual = self.post_attn_norm(
-                hidden_states, residual)
+        # Self Attention
+        if residual is None:
             residual = hidden_states
-            hidden_states = residual + self.post_moe_norm(self.moe_block(self.pre_moe_norm(hidden_states)))
-            return hidden_states, residual
+            hidden_states = self.pre_attn_norm(hidden_states, self.attn.qkv_proj.activation_scaling_factor) if reduce_conversion_kernel else self.pre_attn_norm(hidden_states)
+        else:
+            hidden_states, residual = self.pre_attn_norm(hidden_states, self.attn.qkv_proj.activation_scaling_factor, residual) if reduce_conversion_kernel else self.pre_attn_norm(
+                hidden_states, residual)
+        hidden_states = self.attn(
+            positions=positions,
+            hidden_states=hidden_states,
+            kv_cache=kv_cache,
+            attn_metadata=attn_metadata,
+        )
+
+        # Fully Connected
+        hidden_states, residual = self.post_attn_norm(
+            hidden_states, residual)
+        residual = hidden_states
+        hidden_states = residual + self.post_moe_norm(self.moe_block(self.pre_moe_norm(hidden_states)))
+        return hidden_states, residual
 
 
 class Grok1Model(nn.Module):
@@ -503,17 +510,16 @@ class Grok1Model(nn.Module):
         attn_metadata: AttentionMetadata,
     ) -> torch.Tensor:
 
-        with record_function(f"[Grok1Model] forward"):
-            hidden_states = self.embed_tokens(input_ids)
-            hidden_states *= embedding_multiplier_scale
-            residual = None
-            for i in range(len(self.layers)):
-                layer = self.layers[i]
-                hidden_states, residual = layer(positions, hidden_states,
-                                                kv_caches[i], attn_metadata,
-                                                residual)
-            hidden_states, _ = self.norm(hidden_states, residual)
-            return hidden_states
+        hidden_states = self.embed_tokens(input_ids)
+        hidden_states *= embedding_multiplier_scale
+        residual = None
+        for i in range(len(self.layers)):
+            layer = self.layers[i]
+            hidden_states, residual = layer(positions, hidden_states,
+                                            kv_caches[i], attn_metadata,
+                                            residual)
+        hidden_states, _ = self.norm(hidden_states, residual)
+        return hidden_states
 
 
 class Grok1ForCausalLM(nn.Module):
@@ -576,26 +582,23 @@ class Grok1ForCausalLM(nn.Module):
         kv_caches: List[torch.Tensor],
         attn_metadata: AttentionMetadata,
     ) -> torch.Tensor:
-        with record_function(f"[Grok1ForCausalLM] forward"):
-            hidden_states = self.model(input_ids, positions, kv_caches,
-                                       attn_metadata)
-            return hidden_states
+        hidden_states = self.model(input_ids, positions, kv_caches,
+                                   attn_metadata)
+        return hidden_states
 
     def compute_logits(self, hidden_states: torch.Tensor,
                        sampling_metadata: SamplingMetadata) -> torch.Tensor:
-        with record_function(f"[Grok1ForCausalLM] compute_logits"):
-            logits = self.logits_processor(self.lm_head.weight, hidden_states,
-                                           sampling_metadata)
-            return logits
+        logits = self.logits_processor(self.lm_head.weight, hidden_states,
+                                       sampling_metadata)
+        return logits
 
     def sample(
         self,
         logits: Optional[torch.Tensor],
         sampling_metadata: SamplingMetadata,
     ) -> Optional[SamplerOutput]:
-        with record_function(f"[Grok1ForCausalLM] sample"):
-            next_tokens = self.sampler(logits, sampling_metadata)
-            return next_tokens
+        next_tokens = self.sampler(logits, sampling_metadata)
+        return next_tokens
 
     def load_weights(self, weights: Iterable[Tuple[str, torch.Tensor]]):
         stacked_params_mapping = [

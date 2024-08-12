@@ -487,6 +487,7 @@ def fused_moe(
     w2_scale: Optional[torch.Tensor] = None,
     a1_scale: Optional[torch.Tensor] = None,
     a2_scale: Optional[torch.Tensor] = None,
+    impl_options: int = 1,
 ) -> torch.Tensor:
     """
     This function computes a Mixture of Experts (MoE) layer using two sets of
@@ -519,15 +520,85 @@ def fused_moe(
 
     topk_weights, topk_ids = fused_topk(hidden_states, gating_output, topk,
                                         renormalize)
-    return fused_experts(hidden_states,
-                         w1,
-                         w2,
-                         topk_weights,
-                         topk_ids,
-                         inplace=inplace,
-                         override_config=override_config,
-                         use_fp8=use_fp8,
-                         w1_scale=w1_scale,
-                         w2_scale=w2_scale,
-                         a1_scale=a1_scale,
-                         a2_scale=a2_scale)
+
+    if impl_options == 1:
+        return fused_experts(hidden_states,
+                             w1,
+                             w2,
+                             topk_weights,
+                             topk_ids,
+                             inplace=inplace,
+                             override_config=override_config,
+                             use_fp8=use_fp8,
+                             w1_scale=w1_scale,
+                             w2_scale=w2_scale,
+                             a1_scale=a1_scale,
+                             a2_scale=a2_scale)
+    else:
+        M, _ = hidden_states.shape
+        E, N, _ = w1.shape
+
+        E, N2, _ = w2.shape
+
+        w1 = torch.transpose(w1,1,2)
+        topk_ids = topk_ids.reshape(-1)
+        sorted_order = torch.argsort(topk_ids)
+        ori_order = torch.argsort(sorted_order)
+
+        topk_ids = topk_ids[sorted_order]
+        hidden_states = hidden_states[sorted_order]
+
+        intermediate_cache1 = torch.empty(
+            (M*topk, N),
+            device=hidden_states.device,
+            dtype=hidden_states.dtype,
+        )
+
+        w1_scale = torch.repeat_interleave(w1_scale,N)
+        w1_scale = w1_scale.view(E, 1, N) 
+
+        expert_ids = torch.bincount(topk_ids, minlength=E)
+
+        #moe_kernels.ck_quant_group_gemm(intermediate_cache1, hidden_states, w1, w1_scale, expert_ids, None, 2, 8, False, False, True, False)
+        moe_kernels.ck_quant_group_gemm(intermediate_cache1, hidden_states, w1, w1_scale, expert_ids)
+
+        intermediate_cache1 = intermediate_cache1[ori_order]
+
+        intermediate_cache2 = torch.empty(
+            (M*topk, N // 2),
+            device=hidden_states.device,
+            dtype=hidden_states.dtype,
+        )
+
+        ops.silu_and_mul(intermediate_cache2, intermediate_cache1)
+
+        intermediate_cache2 = intermediate_cache1[sorted_order]
+
+        intermediate_cache3 = torch.empty(
+            (M*topk, w2.shape[1]),
+            device=hidden_states.device,
+            dtype=hidden_states.dtype,
+        )
+
+        w2= torch.transpose(w2,1,2)
+        w2_scale = torch.repeat_interleave(w2_scale,N2)
+        w2_scale = w2_scale.view(E, 1, N2)
+
+        #moe_kernels.ck_quant_group_gemm(intermediate_cache3, intermediate_cache2, w2, w2_scale, expert_ids, None, 2, 8, False, False, True, False)
+        moe_kernels.ck_quant_group_gemm(intermediate_cache3, intermediate_cache2, w2, w2_scale, expert_ids)
+
+        intermediate_cache3 = intermediate_cache3[ori_order]
+
+        intermediate_cache3 = intermediate_cache3.reshape(M, topk, intermediate_cache3.shape[-1])
+
+        output = intermediate_cache3 * topk_weights[:,:,None] 
+
+        if inplace:
+            return torch.sum(
+                intermediate_cache3.view(*intermediate_cache3.shape),
+                dim=1,
+                out=hidden_states,
+            )
+        return torch.sum(intermediate_cache3.view(*intermediate_cache3.shape),
+                     dim=1)
+
