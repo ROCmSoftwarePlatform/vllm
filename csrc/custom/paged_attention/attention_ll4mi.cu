@@ -134,7 +134,7 @@ __device__ __forceinline__ floatx4 gcn_mfma_instr(const _B16x4& inpA, const _B16
     } else if constexpr (std::is_same<T, __hip_bfloat16>::value) {
         return __builtin_amdgcn_mfma_f32_4x4x4bf16_1k(inpA, inpB, inpC, absz, cbid, blgp);
     } else {
-        static_assert(0, "unsupported 16b dtype");
+        static_assert(false, "unsupported 16b dtype");
     }
 }
 
@@ -145,7 +145,7 @@ __device__ __forceinline__ float to_float(const T& inp) {
     } else if constexpr (std::is_same<T, __hip_bfloat16>::value) {
         return __bfloat162float(inp);
     } else {
-        static_assert(0, "unsupported 16b dtype");
+        static_assert(false, "unsupported 16b dtype");
     }
 }
 
@@ -156,7 +156,7 @@ __device__ __forceinline__ T from_float(const float& inp) {
     } else if constexpr (std::is_same<T, __hip_bfloat16>::value) {
         return __float2bfloat16(inp);
     } else {
-        static_assert(0, "unsupported 16b dtype");
+        static_assert(false, "unsupported 16b dtype");
     }
 }
 
@@ -183,7 +183,7 @@ __device__ __forceinline__ _B16x4 from_floatx4(const floatx4& inp) {
         }
         return ret;
     } else {
-        static_assert(0, "unsupported 16b dtype");
+        static_assert(false, "unsupported 16b dtype");
     }
 }
 
@@ -214,7 +214,7 @@ __device__ __forceinline__ _B16x4 addx4(const _B16x4& inp1, const _B16x4& inp2) 
         }
         return ret;
     } else {
-        static_assert(0, "unsupported 16b dtype");
+        static_assert(false, "unsupported 16b dtype");
     }
 }
 
@@ -540,12 +540,6 @@ __global__ __launch_bounds__(NUM_THREADS) void paged_attention_ll4mi_QKV_kernel(
   _B16x4 logits[QHLOOP];
   #pragma unroll
   for (int h = 0; h < QHLOOP; h++) {
-#if 0
-  #pragma unroll
-    for (int i = 0; i < 4; i++) {
-      logits[h][i] = (scalar_t)dout[h][i];
-    }
-#endif
     logits[h] = from_floatx4<scalar_t>(dout[h]);
   }
 
@@ -584,19 +578,6 @@ __global__ __launch_bounds__(NUM_THREADS) void paged_attention_ll4mi_QKV_kernel(
         acc = gcn_mfma_instr<scalar_t,4,13,0>(logits[qh], Vlocal[vh][6].xy[1], acc);
         acc = gcn_mfma_instr<scalar_t,4,14,0>(logits[qh], Vlocal[vh][7].xy[0], acc);
         acc = gcn_mfma_instr<scalar_t,4,15,0>(logits[qh], Vlocal[vh][7].xy[1], acc);
-#if 0
-        float16x4 tmp;
-  #pragma unroll
-        for (int i = 0; i < 4; i++) {
-          tmp[i] = (scalar_t)acc[i];
-        }
-        union tmp16x4 {
-            _B16x4 b;
-            float16x4 f;
-        } t16x4;
-        t16x4.f = tmp;
-        vout_shared[qh][vh][laneid][warpid] = t16x4.b;
-#endif
         vout_shared[qh][vh][laneid][warpid] = from_floatx4<scalar_t>(acc);
       }
     }
@@ -625,14 +606,6 @@ __global__ __launch_bounds__(NUM_THREADS) void paged_attention_ll4mi_QKV_kernel(
         vout[qh][vh] = {0};
   #pragma unroll
         for (int w = 0; w < NWARPS; w++) {
-#if 0
-            union tmp16x4 {
-                _B16x4 b;
-                float16x4 f;
-            } t16x4;
-          t16x4.b = vout_shared[qh][vh][laneid][w];
-          vout[qh][vh] += t16x4.f;
-#endif
           vout[qh][vh] = addx4<scalar_t>(vout[qh][vh],vout_shared[qh][vh][laneid][w]);
         }
         const int head_size_elem = vh * WARP_SIZE + laneid;
@@ -641,8 +614,6 @@ __global__ __launch_bounds__(NUM_THREADS) void paged_attention_ll4mi_QKV_kernel(
         for (int i = 0; i < 4; i++) {
           const int head_idx = 4 * qh + i;
           if (head_idx < GQA_RATIO) {
-            // out_ptr[(wg_start_head_idx + head_idx) * max_num_partitions *
-            // HEAD_SIZE + head_size_elem] = vout[qh][vh][i];
             out_ptr_b16[(wg_start_head_idx + head_idx) * out_num_partitions *
                         HEAD_SIZE +
                     head_size_elem] = vout[qh][vh][i];
@@ -833,7 +804,6 @@ __launch_bounds__(NUM_THREADS) void paged_attention_ll4mi_reduce_kernel(
   const float inv_global_exp_sum =
       __fdividef(1.0f, shared_global_exp_sum + 1e-6f);
   acc *= inv_global_exp_sum;
-  // from_float(out_ptr[threadIdx.x], acc);
   scalar_t* out_ptr =
       out + seq_idx * num_heads * HEAD_SIZE + head_idx * HEAD_SIZE;
   out_ptr[threadIdx.x] = from_float<scalar_t>(acc);
