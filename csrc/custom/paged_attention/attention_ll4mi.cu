@@ -722,9 +722,10 @@ __launch_bounds__(NUM_THREADS) void paged_attention_ll4mi_reduce_kernel(
       head_idx * max_num_partitions * HEAD_SIZE + threadIdx.x;
   constexpr int MAX_NPAR = 64;
   scalar_t tmps[MAX_NPAR];
+  const float dzero = 0.0f;
   #pragma unroll
   for (int j = 0; j < MAX_NPAR; j++) {
-    tmps[j] = 0.0f;
+    tmps[j] = from_float<scalar_t>(dzero);
   }
   const int last_partition_offset = (num_partitions - 1) * HEAD_SIZE;
   const int num_partition_offset = (num_partitions)*HEAD_SIZE;
