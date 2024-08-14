@@ -1,4 +1,3 @@
-import os
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
@@ -6,10 +5,11 @@ import torch
 
 from vllm import _custom_ops as ops
 from vllm.attention.ops.prefix_prefill import context_attention_fwd
+from vllm.envs import VLLM_USE_ROCM_CUSTOM_PAGED_ATTN
 from vllm.utils import is_hip
 
-custom_attn_available = is_hip() and \
-                    (os.getenv("VLLM_USE_ROCM_CUSTOM_PAGED_ATTN", "1") != "0")
+custom_attn_available = is_hip() and VLLM_USE_ROCM_CUSTOM_PAGED_ATTN and \
+    "gfx1" not in torch.cuda.get_device_properties('cuda').gcnArchName
 if custom_attn_available:
     from vllm._custom_C import paged_attention_custom
 
@@ -117,8 +117,11 @@ class PagedAttention:
         block_size = value_cache.shape[3]
         num_seqs, num_heads, head_size = query.shape
         gqa_ratio = num_heads // num_kv_heads
-        use_custom = (custom_attn_available and query.dtype == torch.half
-                      and head_size == 128 and block_size == 16
+        use_custom = (custom_attn_available
+                      and (query.dtype == torch.half
+                           or query.dtype == torch.bfloat16)
+                      and (head_size == 128 or head_size == 64)
+                      and (block_size == 16 or block_size == 32)
                       and kv_cache_dtype == "auto"
                       and (gqa_ratio >= 1 and gqa_ratio <= 16)
                       and max_seq_len <= 32768)

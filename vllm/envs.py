@@ -9,6 +9,8 @@ if TYPE_CHECKING:
     VLLM_NCCL_SO_PATH: Optional[str] = None
     LD_LIBRARY_PATH: Optional[str] = None
     VLLM_USE_TRITON_FLASH_ATTN: bool = True
+    VLLM_USE_ROCM_SKINNY_GEMM: bool = True
+    VLLM_USE_ROCM_CUSTOM_PAGED_ATTN: bool = True
     RANK: int = 0
     LOCAL_RANK: int = 0
     CUDA_VISIBLE_DEVICES: Optional[str] = None
@@ -38,6 +40,9 @@ if TYPE_CHECKING:
     VLLM_INSTALL_PUNICA_KERNELS: bool = False
     CMAKE_BUILD_TYPE: Optional[str] = None
     VERBOSE: bool = False
+    VLLM_SYNC_SERVER_ACCUM_REQUESTS: int = 1
+    VLLM_SYNC_SERVER_ENGINE_STEPS_BETWEEN_POLLS: int = 1
+    VLLM_MOE_PADDING: bool = True
 
 # The begin-* and end* here are used by the documentation generator
 # to extract the used env vars.
@@ -135,6 +140,16 @@ environment_variables: Dict[str, Callable[[], Any]] = {
     lambda: (os.environ.get("VLLM_USE_TRITON_FLASH_ATTN", "True").lower() in
              ("true", "1")),
 
+    # small gemms custom implementation for MI3* cards
+    "VLLM_USE_ROCM_SKINNY_GEMM":
+    lambda: (os.getenv("VLLM_USE_ROCM_SKINNY_GEMM", "True").lower() in
+             ("true", "1")),
+
+    # custom paged attention implemented for MI3* cards
+    "VLLM_USE_ROCM_CUSTOM_PAGED_ATTN":
+    lambda: (os.getenv("VLLM_USE_ROCM_CUSTOM_PAGED_ATTN", "True").lower() in
+             ("true", "1") != "0"),
+
     # rank of the process in the distributed setting, used to determine
     # the driver worker
     "RANK":
@@ -219,6 +234,18 @@ environment_variables: Dict[str, Callable[[], Any]] = {
     # Both spawn and fork work
     "VLLM_WORKER_MULTIPROC_METHOD":
     lambda: os.getenv("VLLM_WORKER_MULTIPROC_METHOD", "spawn"),
+
+    # Try to accumulate this many requests before proceeding
+    "VLLM_SYNC_SERVER_ACCUM_REQUESTS":
+    lambda: int(os.getenv("VLLM_SYNC_SERVER_ACCUM_REQUESTS", "1")),
+
+    # Poll for new requests every this many steps
+    "VLLM_SYNC_SERVER_ENGINE_STEPS_BETWEEN_POLLS":
+    lambda: int(os.getenv("VLLM_SYNC_SERVER_ENGINE_STEPS_BETWEEN_POLLS", "1")),
+
+    # Pad the weight for moe kernel or not
+    "VLLM_MOE_PADDING":
+    lambda: bool(int(os.getenv("VLLM_MOE_PADDING", "1"))),
 
     # If set, vllm will print verbose logs during installation
     "VLLM_USE_TRITON_AWQ":
