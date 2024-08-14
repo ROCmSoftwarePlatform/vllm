@@ -4,15 +4,15 @@
 #include <stdexcept>
 #include <algorithm>
 
-#if defined(__HIPCC__) && \
-    (defined(__gfx90a) || defined(__gfx940__) || defined(__gfx941__) || defined(__gfx942__))
+#if defined(__HIPCC__) && (defined(__gfx90a) || defined(__gfx940__) || \
+                           defined(__gfx941__) || defined(__gfx942__))
   #define __HIP__MI300_MI250__
 #endif
 
 #if defined(NDEBUG)
   #undef NDEBUG
-    #include <assert.h>
-    #define UNREACHABLE_CODE assert(false)
+  #include <assert.h>
+  #define UNREACHABLE_CODE assert(false)
   #define NDEBUG
 #else
   #define UNREACHABLE_CODE assert(false)
