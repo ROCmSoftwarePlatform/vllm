@@ -13,7 +13,7 @@
 
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
-#define DIVIDE_ROUND_UP(a, b) (((a) + (b) - 1) / (b))
+#define DIVIDE_ROUND_UP(a, b) (((a) + (b)-1) / (b))
 #define WARP_SIZE 64
 
 #if defined(__HIP__MI300__)  // TODO: Add NAVI support
@@ -127,95 +127,100 @@ __device__ __forceinline__ void store(T value, T* addr) {
 
   #endif
 
-template<typename T, int absz, int cbid, int blgp>
-__device__ __forceinline__ floatx4 gcn_mfma_instr(const _B16x4& inpA, const _B16x4& inpB, const floatx4& inpC) {
-    if constexpr (std::is_same<T, _Float16>::value) {
-        return __builtin_amdgcn_mfma_f32_4x4x4f16(inpA, inpB, inpC, absz, cbid, blgp);
-    } else if constexpr (std::is_same<T, __hip_bfloat16>::value) {
-        return __builtin_amdgcn_mfma_f32_4x4x4bf16_1k(inpA, inpB, inpC, absz, cbid, blgp);
-    } else {
-        static_assert(false, "unsupported 16b dtype");
-    }
+template <typename T, int absz, int cbid, int blgp>
+__device__ __forceinline__ floatx4 gcn_mfma_instr(const _B16x4& inpA,
+                                                  const _B16x4& inpB,
+                                                  const floatx4& inpC) {
+  if constexpr (std::is_same<T, _Float16>::value) {
+    return __builtin_amdgcn_mfma_f32_4x4x4f16(inpA, inpB, inpC, absz, cbid,
+                                              blgp);
+  } else if constexpr (std::is_same<T, __hip_bfloat16>::value) {
+    return __builtin_amdgcn_mfma_f32_4x4x4bf16_1k(inpA, inpB, inpC, absz, cbid,
+                                                  blgp);
+  } else {
+    static_assert(false, "unsupported 16b dtype");
+  }
 }
 
-template<typename T>
+template <typename T>
 __device__ __forceinline__ float to_float(const T& inp) {
-    if constexpr (std::is_same<T, _Float16>::value) {
-        return (float)inp;
-    } else if constexpr (std::is_same<T, __hip_bfloat16>::value) {
-        return __bfloat162float(inp);
-    } else {
-        static_assert(false, "unsupported 16b dtype");
-    }
+  if constexpr (std::is_same<T, _Float16>::value) {
+    return (float)inp;
+  } else if constexpr (std::is_same<T, __hip_bfloat16>::value) {
+    return __bfloat162float(inp);
+  } else {
+    static_assert(false, "unsupported 16b dtype");
+  }
 }
 
-template<typename T>
+template <typename T>
 __device__ __forceinline__ T from_float(const float& inp) {
-    if constexpr (std::is_same<T, _Float16>::value) {
-        return (_Float16)inp;
-    } else if constexpr (std::is_same<T, __hip_bfloat16>::value) {
-        return __float2bfloat16(inp);
-    } else {
-        static_assert(false, "unsupported 16b dtype");
-    }
+  if constexpr (std::is_same<T, _Float16>::value) {
+    return (_Float16)inp;
+  } else if constexpr (std::is_same<T, __hip_bfloat16>::value) {
+    return __float2bfloat16(inp);
+  } else {
+    static_assert(false, "unsupported 16b dtype");
+  }
 }
 
-template<typename T>
+template <typename T>
 __device__ __forceinline__ _B16x4 from_floatx4(const floatx4& inp) {
-    union tmpcvt {
-        uint16_t u;
-        _Float16 f;
-        __hip_bfloat16 b;
-    } t16;
-    _B16x4 ret;
-    if constexpr (std::is_same<T, _Float16>::value) {
-        #pragma unroll
-        for (int i = 0; i < 4; i++) {
-          t16.f = (_Float16)inp[i];
-          ret[i] = t16.u;
-        }
-        return ret;
-    } else if constexpr (std::is_same<T, __hip_bfloat16>::value) {
-        #pragma unroll
-        for (int i = 0; i < 4; i++) {
-          t16.b = __float2bfloat16(inp[i]);
-          ret[i] = t16.u;
-        }
-        return ret;
-    } else {
-        static_assert(false, "unsupported 16b dtype");
+  union tmpcvt {
+    uint16_t u;
+    _Float16 f;
+    __hip_bfloat16 b;
+  } t16;
+  _B16x4 ret;
+  if constexpr (std::is_same<T, _Float16>::value) {
+  #pragma unroll
+    for (int i = 0; i < 4; i++) {
+      t16.f = (_Float16)inp[i];
+      ret[i] = t16.u;
     }
+    return ret;
+  } else if constexpr (std::is_same<T, __hip_bfloat16>::value) {
+  #pragma unroll
+    for (int i = 0; i < 4; i++) {
+      t16.b = __float2bfloat16(inp[i]);
+      ret[i] = t16.u;
+    }
+    return ret;
+  } else {
+    static_assert(false, "unsupported 16b dtype");
+  }
 }
 
-template<typename T>
-__device__ __forceinline__ _B16x4 addx4(const _B16x4& inp1, const _B16x4& inp2) {
-    union tmpcvt {
-        uint16_t u;
-        _Float16 f;
-        __hip_bfloat16 b;
-    } t1,t2,res;
-    _B16x4 ret;
-    if constexpr (std::is_same<T, _Float16>::value) {
-        #pragma unroll
-        for (int i = 0; i < 4; i++) {
-          t1.u = inp1[i];
-          t2.u = inp2[i];
-          res.f = t1.f + t2.f;
-          ret[i] = res.u;
-        }
-        return ret;
-    } else if constexpr (std::is_same<T, __hip_bfloat16>::value) {
-        #pragma unroll
-        for (int i = 0; i < 4; i++) {
-          t1.u = inp1[i];
-          t2.u = inp2[i];
-          res.b = t1.b + t2.b;
-          ret[i] = res.u;
-        }
-        return ret;
-    } else {
-        static_assert(false, "unsupported 16b dtype");
+template <typename T>
+__device__ __forceinline__ _B16x4 addx4(const _B16x4& inp1,
+                                        const _B16x4& inp2) {
+  union tmpcvt {
+    uint16_t u;
+    _Float16 f;
+    __hip_bfloat16 b;
+  } t1, t2, res;
+  _B16x4 ret;
+  if constexpr (std::is_same<T, _Float16>::value) {
+  #pragma unroll
+    for (int i = 0; i < 4; i++) {
+      t1.u = inp1[i];
+      t2.u = inp2[i];
+      res.f = t1.f + t2.f;
+      ret[i] = res.u;
     }
+    return ret;
+  } else if constexpr (std::is_same<T, __hip_bfloat16>::value) {
+  #pragma unroll
+    for (int i = 0; i < 4; i++) {
+      t1.u = inp1[i];
+      t2.u = inp2[i];
+      res.b = t1.b + t2.b;
+      ret[i] = res.u;
+    }
+    return ret;
+  } else {
+    static_assert(false, "unsupported 16b dtype");
+  }
 }
 
 ///////////////////////////////////////
@@ -311,7 +316,7 @@ __global__ __launch_bounds__(NUM_THREADS) void paged_attention_ll4mi_QKV_kernel(
     const int block_idx = (global_token_idx < context_len)
                               ? global_token_idx / BLOCK_SIZE
                               : last_ctx_block;
-    //fetch block number for q and k
+    // fetch block number for q and k
     // int32 physical_block_number leads to overflow when multiplied with
     // kv_block_stride
     const int64_t physical_block_number =
@@ -322,7 +327,7 @@ __global__ __launch_bounds__(NUM_THREADS) void paged_attention_ll4mi_QKV_kernel(
     int vphysical_blocks[VBLOCKS];
 
     const int warp_start_block_idx = warp_start_token_idx / BLOCK_SIZE;
-#pragma unroll
+  #pragma unroll
     for (int b = 0; b < VBLOCKS; b++) {
       const int vblock_idx = warp_start_block_idx + b;
       const int vblock_idx_ctx =
@@ -355,7 +360,7 @@ __global__ __launch_bounds__(NUM_THREADS) void paged_attention_ll4mi_QKV_kernel(
         local_token_idx % BLOCK_SIZE;  // since x=half8, physical_block_offset
                                        // is already cast as _H8
 
-      const _B16x8* k_ptrh8 = reinterpret_cast<const _B16x8*>(k_ptr);
+    const _B16x8* k_ptrh8 = reinterpret_cast<const _B16x8*>(k_ptr);
   #pragma unroll
     for (int d = 0; d < KHELOOP; d++) {
       Klocal[d] = k_ptrh8[d * BLOCK_SIZE + physical_block_offset];
@@ -372,9 +377,8 @@ __global__ __launch_bounds__(NUM_THREADS) void paged_attention_ll4mi_QKV_kernel(
       }
     }
 
-
     const scalar_t* v_ptr = v_cache + wg_start_kv_head_idx * kv_head_stride;
-      const _B16x8* v_ptrh8 = reinterpret_cast<const _B16x8*>(v_ptr);
+    const _B16x8* v_ptrh8 = reinterpret_cast<const _B16x8*>(v_ptr);
   // iterate over each v block
   #pragma unroll
     for (int b = 0; b < VBLOCKS; b++) {
@@ -399,39 +403,71 @@ __global__ __launch_bounds__(NUM_THREADS) void paged_attention_ll4mi_QKV_kernel(
 
   #pragma unroll
     for (int h = 0; h < QHLOOP; h++) {
-      dout[h] = gcn_mfma_instr<scalar_t,4,0,0>(Qlocal[h].xy[0], Klocal[0].xy[0], dout[h]);
-      dout[h] = gcn_mfma_instr<scalar_t,4,0,0>(Qlocal[h].xy[1], Klocal[0].xy[1], dout[h]);
-      dout[h] = gcn_mfma_instr<scalar_t,4,1,0>(Qlocal[h].xy[0], Klocal[1].xy[0], dout[h]);
-      dout[h] = gcn_mfma_instr<scalar_t,4,1,0>(Qlocal[h].xy[1], Klocal[1].xy[1], dout[h]);
-      dout[h] = gcn_mfma_instr<scalar_t,4,2,0>(Qlocal[h].xy[0], Klocal[2].xy[0], dout[h]);
-      dout[h] = gcn_mfma_instr<scalar_t,4,2,0>(Qlocal[h].xy[1], Klocal[2].xy[1], dout[h]);
-      dout[h] = gcn_mfma_instr<scalar_t,4,3,0>(Qlocal[h].xy[0], Klocal[3].xy[0], dout[h]);
-      dout[h] = gcn_mfma_instr<scalar_t,4,3,0>(Qlocal[h].xy[1], Klocal[3].xy[1], dout[h]);
-      dout[h] = gcn_mfma_instr<scalar_t,4,4,0>(Qlocal[h].xy[0], Klocal[4].xy[0], dout[h]);
-      dout[h] = gcn_mfma_instr<scalar_t,4,4,0>(Qlocal[h].xy[1], Klocal[4].xy[1], dout[h]);
-      dout[h] = gcn_mfma_instr<scalar_t,4,5,0>(Qlocal[h].xy[0], Klocal[5].xy[0], dout[h]);
-      dout[h] = gcn_mfma_instr<scalar_t,4,5,0>(Qlocal[h].xy[1], Klocal[5].xy[1], dout[h]);
-      dout[h] = gcn_mfma_instr<scalar_t,4,6,0>(Qlocal[h].xy[0], Klocal[6].xy[0], dout[h]);
-      dout[h] = gcn_mfma_instr<scalar_t,4,6,0>(Qlocal[h].xy[1], Klocal[6].xy[1], dout[h]);
-      dout[h] = gcn_mfma_instr<scalar_t,4,7,0>(Qlocal[h].xy[0], Klocal[7].xy[0], dout[h]);
-      dout[h] = gcn_mfma_instr<scalar_t,4,7,0>(Qlocal[h].xy[1], Klocal[7].xy[1], dout[h]);
+      dout[h] = gcn_mfma_instr<scalar_t, 4, 0, 0>(Qlocal[h].xy[0],
+                                                  Klocal[0].xy[0], dout[h]);
+      dout[h] = gcn_mfma_instr<scalar_t, 4, 0, 0>(Qlocal[h].xy[1],
+                                                  Klocal[0].xy[1], dout[h]);
+      dout[h] = gcn_mfma_instr<scalar_t, 4, 1, 0>(Qlocal[h].xy[0],
+                                                  Klocal[1].xy[0], dout[h]);
+      dout[h] = gcn_mfma_instr<scalar_t, 4, 1, 0>(Qlocal[h].xy[1],
+                                                  Klocal[1].xy[1], dout[h]);
+      dout[h] = gcn_mfma_instr<scalar_t, 4, 2, 0>(Qlocal[h].xy[0],
+                                                  Klocal[2].xy[0], dout[h]);
+      dout[h] = gcn_mfma_instr<scalar_t, 4, 2, 0>(Qlocal[h].xy[1],
+                                                  Klocal[2].xy[1], dout[h]);
+      dout[h] = gcn_mfma_instr<scalar_t, 4, 3, 0>(Qlocal[h].xy[0],
+                                                  Klocal[3].xy[0], dout[h]);
+      dout[h] = gcn_mfma_instr<scalar_t, 4, 3, 0>(Qlocal[h].xy[1],
+                                                  Klocal[3].xy[1], dout[h]);
+      dout[h] = gcn_mfma_instr<scalar_t, 4, 4, 0>(Qlocal[h].xy[0],
+                                                  Klocal[4].xy[0], dout[h]);
+      dout[h] = gcn_mfma_instr<scalar_t, 4, 4, 0>(Qlocal[h].xy[1],
+                                                  Klocal[4].xy[1], dout[h]);
+      dout[h] = gcn_mfma_instr<scalar_t, 4, 5, 0>(Qlocal[h].xy[0],
+                                                  Klocal[5].xy[0], dout[h]);
+      dout[h] = gcn_mfma_instr<scalar_t, 4, 5, 0>(Qlocal[h].xy[1],
+                                                  Klocal[5].xy[1], dout[h]);
+      dout[h] = gcn_mfma_instr<scalar_t, 4, 6, 0>(Qlocal[h].xy[0],
+                                                  Klocal[6].xy[0], dout[h]);
+      dout[h] = gcn_mfma_instr<scalar_t, 4, 6, 0>(Qlocal[h].xy[1],
+                                                  Klocal[6].xy[1], dout[h]);
+      dout[h] = gcn_mfma_instr<scalar_t, 4, 7, 0>(Qlocal[h].xy[0],
+                                                  Klocal[7].xy[0], dout[h]);
+      dout[h] = gcn_mfma_instr<scalar_t, 4, 7, 0>(Qlocal[h].xy[1],
+                                                  Klocal[7].xy[1], dout[h]);
       if constexpr (KHELOOP > 8) {
-        dout[h] = gcn_mfma_instr<scalar_t,4,8,0>(Qlocal[h].xy[0], Klocal[8].xy[0], dout[h]);
-        dout[h] = gcn_mfma_instr<scalar_t,4,8,0>(Qlocal[h].xy[1], Klocal[8].xy[1], dout[h]);
-        dout[h] = gcn_mfma_instr<scalar_t,4,9,0>(Qlocal[h].xy[0], Klocal[9].xy[0], dout[h]);
-        dout[h] = gcn_mfma_instr<scalar_t,4,9,0>(Qlocal[h].xy[1], Klocal[9].xy[1], dout[h]);
-        dout[h] = gcn_mfma_instr<scalar_t,4,10,0>(Qlocal[h].xy[0], Klocal[10].xy[0], dout[h]);
-        dout[h] = gcn_mfma_instr<scalar_t,4,10,0>(Qlocal[h].xy[1], Klocal[10].xy[1], dout[h]);
-        dout[h] = gcn_mfma_instr<scalar_t,4,11,0>(Qlocal[h].xy[0], Klocal[11].xy[0], dout[h]);
-        dout[h] = gcn_mfma_instr<scalar_t,4,11,0>(Qlocal[h].xy[1], Klocal[11].xy[1], dout[h]);
-        dout[h] = gcn_mfma_instr<scalar_t,4,12,0>(Qlocal[h].xy[0], Klocal[12].xy[0], dout[h]);
-        dout[h] = gcn_mfma_instr<scalar_t,4,12,0>(Qlocal[h].xy[1], Klocal[12].xy[1], dout[h]);
-        dout[h] = gcn_mfma_instr<scalar_t,4,13,0>(Qlocal[h].xy[0], Klocal[13].xy[0], dout[h]);
-        dout[h] = gcn_mfma_instr<scalar_t,4,13,0>(Qlocal[h].xy[1], Klocal[13].xy[1], dout[h]);
-        dout[h] = gcn_mfma_instr<scalar_t,4,14,0>(Qlocal[h].xy[0], Klocal[14].xy[0], dout[h]);
-        dout[h] = gcn_mfma_instr<scalar_t,4,14,0>(Qlocal[h].xy[1], Klocal[14].xy[1], dout[h]);
-        dout[h] = gcn_mfma_instr<scalar_t,4,15,0>(Qlocal[h].xy[0], Klocal[15].xy[0], dout[h]);
-        dout[h] = gcn_mfma_instr<scalar_t,4,15,0>(Qlocal[h].xy[1], Klocal[15].xy[1], dout[h]);
+        dout[h] = gcn_mfma_instr<scalar_t, 4, 8, 0>(Qlocal[h].xy[0],
+                                                    Klocal[8].xy[0], dout[h]);
+        dout[h] = gcn_mfma_instr<scalar_t, 4, 8, 0>(Qlocal[h].xy[1],
+                                                    Klocal[8].xy[1], dout[h]);
+        dout[h] = gcn_mfma_instr<scalar_t, 4, 9, 0>(Qlocal[h].xy[0],
+                                                    Klocal[9].xy[0], dout[h]);
+        dout[h] = gcn_mfma_instr<scalar_t, 4, 9, 0>(Qlocal[h].xy[1],
+                                                    Klocal[9].xy[1], dout[h]);
+        dout[h] = gcn_mfma_instr<scalar_t, 4, 10, 0>(Qlocal[h].xy[0],
+                                                     Klocal[10].xy[0], dout[h]);
+        dout[h] = gcn_mfma_instr<scalar_t, 4, 10, 0>(Qlocal[h].xy[1],
+                                                     Klocal[10].xy[1], dout[h]);
+        dout[h] = gcn_mfma_instr<scalar_t, 4, 11, 0>(Qlocal[h].xy[0],
+                                                     Klocal[11].xy[0], dout[h]);
+        dout[h] = gcn_mfma_instr<scalar_t, 4, 11, 0>(Qlocal[h].xy[1],
+                                                     Klocal[11].xy[1], dout[h]);
+        dout[h] = gcn_mfma_instr<scalar_t, 4, 12, 0>(Qlocal[h].xy[0],
+                                                     Klocal[12].xy[0], dout[h]);
+        dout[h] = gcn_mfma_instr<scalar_t, 4, 12, 0>(Qlocal[h].xy[1],
+                                                     Klocal[12].xy[1], dout[h]);
+        dout[h] = gcn_mfma_instr<scalar_t, 4, 13, 0>(Qlocal[h].xy[0],
+                                                     Klocal[13].xy[0], dout[h]);
+        dout[h] = gcn_mfma_instr<scalar_t, 4, 13, 0>(Qlocal[h].xy[1],
+                                                     Klocal[13].xy[1], dout[h]);
+        dout[h] = gcn_mfma_instr<scalar_t, 4, 14, 0>(Qlocal[h].xy[0],
+                                                     Klocal[14].xy[0], dout[h]);
+        dout[h] = gcn_mfma_instr<scalar_t, 4, 14, 0>(Qlocal[h].xy[1],
+                                                     Klocal[14].xy[1], dout[h]);
+        dout[h] = gcn_mfma_instr<scalar_t, 4, 15, 0>(Qlocal[h].xy[0],
+                                                     Klocal[15].xy[0], dout[h]);
+        dout[h] = gcn_mfma_instr<scalar_t, 4, 15, 0>(Qlocal[h].xy[1],
+                                                     Klocal[15].xy[1], dout[h]);
       }  // KHELOOP>8
       dout[h] *= scale;
     }
@@ -562,22 +598,38 @@ __global__ __launch_bounds__(NUM_THREADS) void paged_attention_ll4mi_QKV_kernel(
       for (int vh = 0; vh < VHELOOP; vh++) {
         floatx4 acc = {0};
         // iterate over tokens
-        acc = gcn_mfma_instr<scalar_t,4,0,0>(logits[qh], Vlocal[vh][0].xy[0], acc);
-        acc = gcn_mfma_instr<scalar_t,4,1,0>(logits[qh], Vlocal[vh][0].xy[1], acc);
-        acc = gcn_mfma_instr<scalar_t,4,2,0>(logits[qh], Vlocal[vh][1].xy[0], acc);
-        acc = gcn_mfma_instr<scalar_t,4,3,0>(logits[qh], Vlocal[vh][1].xy[1], acc);
-        acc = gcn_mfma_instr<scalar_t,4,4,0>(logits[qh], Vlocal[vh][2].xy[0], acc);
-        acc = gcn_mfma_instr<scalar_t,4,5,0>(logits[qh], Vlocal[vh][2].xy[1], acc);
-        acc = gcn_mfma_instr<scalar_t,4,6,0>(logits[qh], Vlocal[vh][3].xy[0], acc);
-        acc = gcn_mfma_instr<scalar_t,4,7,0>(logits[qh], Vlocal[vh][3].xy[1], acc);
-        acc = gcn_mfma_instr<scalar_t,4,8,0>(logits[qh], Vlocal[vh][4].xy[0], acc);
-        acc = gcn_mfma_instr<scalar_t,4,9,0>(logits[qh], Vlocal[vh][4].xy[1], acc);
-        acc = gcn_mfma_instr<scalar_t,4,10,0>(logits[qh], Vlocal[vh][5].xy[0], acc);
-        acc = gcn_mfma_instr<scalar_t,4,11,0>(logits[qh], Vlocal[vh][5].xy[1], acc);
-        acc = gcn_mfma_instr<scalar_t,4,12,0>(logits[qh], Vlocal[vh][6].xy[0], acc);
-        acc = gcn_mfma_instr<scalar_t,4,13,0>(logits[qh], Vlocal[vh][6].xy[1], acc);
-        acc = gcn_mfma_instr<scalar_t,4,14,0>(logits[qh], Vlocal[vh][7].xy[0], acc);
-        acc = gcn_mfma_instr<scalar_t,4,15,0>(logits[qh], Vlocal[vh][7].xy[1], acc);
+        acc = gcn_mfma_instr<scalar_t, 4, 0, 0>(logits[qh], Vlocal[vh][0].xy[0],
+                                                acc);
+        acc = gcn_mfma_instr<scalar_t, 4, 1, 0>(logits[qh], Vlocal[vh][0].xy[1],
+                                                acc);
+        acc = gcn_mfma_instr<scalar_t, 4, 2, 0>(logits[qh], Vlocal[vh][1].xy[0],
+                                                acc);
+        acc = gcn_mfma_instr<scalar_t, 4, 3, 0>(logits[qh], Vlocal[vh][1].xy[1],
+                                                acc);
+        acc = gcn_mfma_instr<scalar_t, 4, 4, 0>(logits[qh], Vlocal[vh][2].xy[0],
+                                                acc);
+        acc = gcn_mfma_instr<scalar_t, 4, 5, 0>(logits[qh], Vlocal[vh][2].xy[1],
+                                                acc);
+        acc = gcn_mfma_instr<scalar_t, 4, 6, 0>(logits[qh], Vlocal[vh][3].xy[0],
+                                                acc);
+        acc = gcn_mfma_instr<scalar_t, 4, 7, 0>(logits[qh], Vlocal[vh][3].xy[1],
+                                                acc);
+        acc = gcn_mfma_instr<scalar_t, 4, 8, 0>(logits[qh], Vlocal[vh][4].xy[0],
+                                                acc);
+        acc = gcn_mfma_instr<scalar_t, 4, 9, 0>(logits[qh], Vlocal[vh][4].xy[1],
+                                                acc);
+        acc = gcn_mfma_instr<scalar_t, 4, 10, 0>(logits[qh],
+                                                 Vlocal[vh][5].xy[0], acc);
+        acc = gcn_mfma_instr<scalar_t, 4, 11, 0>(logits[qh],
+                                                 Vlocal[vh][5].xy[1], acc);
+        acc = gcn_mfma_instr<scalar_t, 4, 12, 0>(logits[qh],
+                                                 Vlocal[vh][6].xy[0], acc);
+        acc = gcn_mfma_instr<scalar_t, 4, 13, 0>(logits[qh],
+                                                 Vlocal[vh][6].xy[1], acc);
+        acc = gcn_mfma_instr<scalar_t, 4, 14, 0>(logits[qh],
+                                                 Vlocal[vh][7].xy[0], acc);
+        acc = gcn_mfma_instr<scalar_t, 4, 15, 0>(logits[qh],
+                                                 Vlocal[vh][7].xy[1], acc);
         vout_shared[qh][vh][laneid][warpid] = from_floatx4<scalar_t>(acc);
       }
     }
@@ -606,7 +658,8 @@ __global__ __launch_bounds__(NUM_THREADS) void paged_attention_ll4mi_QKV_kernel(
         vout[qh][vh] = {0};
   #pragma unroll
         for (int w = 0; w < NWARPS; w++) {
-          vout[qh][vh] = addx4<scalar_t>(vout[qh][vh],vout_shared[qh][vh][laneid][w]);
+          vout[qh][vh] =
+              addx4<scalar_t>(vout[qh][vh], vout_shared[qh][vh][laneid][w]);
         }
         const int head_size_elem = vh * WARP_SIZE + laneid;
         bit16_t* out_ptr_b16 = reinterpret_cast<bit16_t*>(out_ptr);
@@ -615,8 +668,8 @@ __global__ __launch_bounds__(NUM_THREADS) void paged_attention_ll4mi_QKV_kernel(
           const int head_idx = 4 * qh + i;
           if (head_idx < GQA_RATIO) {
             out_ptr_b16[(wg_start_head_idx + head_idx) * out_num_partitions *
-                        HEAD_SIZE +
-                    head_size_elem] = vout[qh][vh][i];
+                            HEAD_SIZE +
+                        head_size_elem] = vout[qh][vh][i];
           }
         }
       }
