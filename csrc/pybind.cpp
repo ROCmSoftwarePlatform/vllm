@@ -37,9 +37,6 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           "Apply GPT-NeoX or GPT-J style rotary embedding to query and key "
           "(supports multiple loras)");
 
-  // RANSMITH MODIFICATION
-  ops.def("awq_dequantize", &awq_dequantize, "Dequantization for AWQ");
-
 // Quantization ops
 #ifndef USE_ROCM
   ops.def("aqlm_gemm", &aqlm_gemm, "Quantized GEMM for AQLM");
@@ -53,6 +50,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           "gptq_marlin Optimized Quantized GEMM for GPTQ");
   ops.def("gptq_marlin_repack", &gptq_marlin_repack,
           "gptq_marlin repack from GPTQ");
+  ops.def("awq_dequantize", &awq_dequantize, "Dequantization for AWQ");
   ops.def("cutlass_scaled_mm_dq", &cutlass_scaled_mm_dq,
           "CUTLASS w8a8 GEMM, supporting symmetric per-tensor or "
           "per-row/column quantization.");
@@ -72,9 +70,8 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           "Convert the key and value cache to fp8 data type");
 
 #ifdef USE_ROCM
-  ops.def("fp8_mm", &fp8_mm, "fp8 GEMM with fp8 fp16 bf16 output type");
-  ops.def("create_workspace", &create_workspace,
-          "Create workspace for fp8 GEMM");
+  ops.def("fp8_gemm", &fp8_gemm, "fp8 GEMM with fp8 output");
+  ops.def("fp8_gemm_16", &fp8_gemm_16, "fp8 GEMM with fp16 output");
 #endif
 
   ops.def("static_scaled_int8_quant", &static_scaled_int8_quant,

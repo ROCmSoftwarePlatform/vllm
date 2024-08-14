@@ -1,7 +1,5 @@
 from typing import Any, Dict, List, Optional
 
-import traceback
-
 import torch
 from torch.nn.parameter import Parameter
 
@@ -163,7 +161,6 @@ class AWQLinearMethod(LinearMethodBase):
         out_shape = (x.shape[:-1] + (qweight.shape[-1] * pack_factor, ))
         reshaped_x = x.reshape(-1, x.shape[-1])
 
-        # print(f"reshaped_x.size = {reshaped_x.size()}")
         # num_tokens >= threshold
         FP16_MATMUL_HEURISTIC_CONDITION = x.shape[:-1].numel() >= 256
 
@@ -173,10 +170,6 @@ class AWQLinearMethod(LinearMethodBase):
         else:
             out = ops.awq_gemm(reshaped_x, qweight, scales, qzeros,
                                pack_factor)
-        # if bias is not None and out is not None:
-            # print(f"bias.size={bias.size()}, out.size={out.size()}")
         if bias is not None:
             out.add_(bias)
-        # print("Done with apply!")
-        # traceback.print_stack()
         return out.reshape(out_shape)

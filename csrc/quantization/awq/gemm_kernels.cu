@@ -153,7 +153,6 @@ __global__ void __launch_bounds__(64)
       // - zero and * scale
       // TODO (Haotian): can save 4 assembly instructions if sormulate as deq =
       // q * scale - zero * scale.
-#ifndef USE_ROCM
       asm volatile("sub.f16x2 %0, %1, %2;\n"
                    : "=r"(B_loaded_fp16.x)
                    : "r"(B_loaded_fp16.x), "r"(B_loaded_zero.x));
@@ -178,7 +177,6 @@ __global__ void __launch_bounds__(64)
       asm volatile("fma.rn.f16x2 %0, %1, %2, %3;\n"
                    : "=r"(B_loaded_fp16.w)
                    : "r"(B_loaded_fp16.w), "r"(B_loaded_scale.w), "r"(ZERO));
-#endif
       /*
       if (ax0_ax1_fused_0 == 0 && blockIdx_z == 0 && blockIdx_y == 0 && k_0_0 ==
       0 && threadIdx.x == 17 && threadIdx.y == 0){ printf("[x] %X %X %X %X\n",
@@ -195,7 +193,6 @@ __global__ void __launch_bounds__(64)
     for (int k_0_1 = 0; k_0_1 < 2; ++k_0_1) {
       {
         unsigned int addr;
-#ifndef USE_ROCM
         __asm__ __volatile__(
             "{ .reg .u64 addr; cvta.to.shared.u64 addr, %1; cvt.u32.u64 %0, "
             "addr; }\n"
@@ -212,13 +209,11 @@ __global__ void __launch_bounds__(64)
               "=r"(((unsigned*)(A_shared_warp + 0))[2]),
               "=r"(((unsigned*)(A_shared_warp + 0))[3])
             : "r"(addr));
-#endif
       }
 
       for (int ax1_0 = 0; ax1_0 < N / 32; ++ax1_0) {
         {
           unsigned int addr;
-#ifndef USE_ROCM
           __asm__ __volatile__(
               "{ .reg .u64 addr; cvta.to.shared.u64 addr, %1; cvt.u32.u64 %0, "
               "addr; }\n"
@@ -236,13 +231,11 @@ __global__ void __launch_bounds__(64)
                 "=r"(((unsigned*)(B_shared_warp + (ax1_0 * 8)))[2]),
                 "=r"(((unsigned*)(B_shared_warp + (ax1_0 * 8)))[3])
               : "r"(addr));
-#endif
         }
       }
       for (int j_0_4 = 0; j_0_4 < N / 32; ++j_0_4) {
   #if defined(__CUDA_ARCH__) && __CUDA_ARCH__ == 750
         {
-#ifndef USE_ROCM
           __asm__ __volatile__(
               "mma.sync.aligned.m16n8k8.row.col.f32.f16.f16.f32"
               "{%0, %1, %2, %3}, {%4, %5}, {%6}, {%7, %8, %9, %10};\n"
@@ -257,11 +250,9 @@ __global__ void __launch_bounds__(64)
                 "f"(((float*)(C_warp + (j_0_4 * 8)))[1]),
                 "f"(((float*)(C_warp + (j_0_4 * 8)))[2]),
                 "f"(((float*)(C_warp + (j_0_4 * 8)))[3]));
-#endif
         }
 
         {
-#ifndef USE_ROCM
           __asm__ __volatile__(
               "mma.sync.aligned.m16n8k8.row.col.f32.f16.f16.f32"
               "{%0, %1, %2, %3}, {%4, %5}, {%6}, {%7, %8, %9, %10};\n"
@@ -276,11 +267,9 @@ __global__ void __launch_bounds__(64)
                 "f"(((float*)(C_warp + ((j_0_4 * 8) + 4)))[1]),
                 "f"(((float*)(C_warp + ((j_0_4 * 8) + 4)))[2]),
                 "f"(((float*)(C_warp + ((j_0_4 * 8) + 4)))[3]));
-#endif
         }
 
         {
-#ifndef USE_ROCM
           __asm__ __volatile__(
               "mma.sync.aligned.m16n8k8.row.col.f32.f16.f16.f32"
               "{%0, %1, %2, %3}, {%4, %5}, {%6}, {%7, %8, %9, %10};\n"
@@ -295,11 +284,9 @@ __global__ void __launch_bounds__(64)
                 "f"(((float*)(C_warp + (j_0_4 * 8)))[1]),
                 "f"(((float*)(C_warp + (j_0_4 * 8)))[2]),
                 "f"(((float*)(C_warp + (j_0_4 * 8)))[3]));
-#endif
         }
 
         {
-#ifndef USE_ROCM
           __asm__ __volatile__(
               "mma.sync.aligned.m16n8k8.row.col.f32.f16.f16.f32"
               "{%0, %1, %2, %3}, {%4, %5}, {%6}, {%7, %8, %9, %10};\n"
@@ -314,11 +301,9 @@ __global__ void __launch_bounds__(64)
                 "f"(((float*)(C_warp + ((j_0_4 * 8) + 4)))[1]),
                 "f"(((float*)(C_warp + ((j_0_4 * 8) + 4)))[2]),
                 "f"(((float*)(C_warp + ((j_0_4 * 8) + 4)))[3]));
-#endif
         }
   #else
         {
-#ifndef USE_ROCM
           __asm__ __volatile__(
               "mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32"
               "{%0, %1, %2, %3}, {%4, %5, %6, %7}, {%8, %9}, {%10, %11, %12, "
@@ -337,11 +322,9 @@ __global__ void __launch_bounds__(64)
                 "f"(((float*)(C_warp + (j_0_4 * 8)))[1]),
                 "f"(((float*)(C_warp + (j_0_4 * 8)))[2]),
                 "f"(((float*)(C_warp + (j_0_4 * 8)))[3]));
-#endif
         }
 
         {
-#ifndef USE_ROCM
           __asm__ __volatile__(
               "mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32"
               "{%0, %1, %2, %3}, {%4, %5, %6, %7}, {%8, %9}, {%10, %11, %12, "
@@ -360,7 +343,6 @@ __global__ void __launch_bounds__(64)
                 "f"(((float*)(C_warp + ((j_0_4 * 8) + 4)))[1]),
                 "f"(((float*)(C_warp + ((j_0_4 * 8) + 4)))[2]),
                 "f"(((float*)(C_warp + ((j_0_4 * 8) + 4)))[3]));
-#endif
         }
 
   #endif
@@ -405,7 +387,6 @@ __global__ void __launch_bounds__(64)
   int index2 = col + row * N;
   int* B_ptr2 = B + index2;
 
-  // row / (qweight.size[0] / scales.size[0])
   int index3 = col + (int)(row / G) * N;
   int* zeros_ptr2 = zeros + index3;
   int index4 = 8 * col + (int)(row / G) * N * 8;
@@ -417,7 +398,6 @@ __global__ void __launch_bounds__(64)
 
   uint32_t B_loaded = *(uint32_t*)B_ptr2;
   uint4 B_loaded_fp16 = dequantize_s4_to_fp16x2(B_loaded);
-#ifndef USE_ROCM
   asm volatile("sub.f16x2 %0, %1, %2;\n"
                : "=r"(B_loaded_fp16.x)
                : "r"(B_loaded_fp16.x), "r"(B_loaded_zero.x));
@@ -442,7 +422,6 @@ __global__ void __launch_bounds__(64)
   asm volatile("fma.rn.f16x2 %0, %1, %2, %3;\n"
                : "=r"(B_loaded_fp16.w)
                : "r"(B_loaded_fp16.w), "r"(B_loaded_scale.w), "r"(ZERO));
-#endif
 
   *(uint4*)B_shared_ptr2 = B_loaded_fp16;
 

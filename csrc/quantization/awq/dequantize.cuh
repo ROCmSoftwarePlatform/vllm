@@ -39,7 +39,6 @@ __device__ uint4 dequantize_s4_to_fp16x2(uint32_t const& source) {
   // Shift right by 8 to now consider elt_45 and elt_67. Issue first to hide RAW
   // dependency if we issue immediately before required.
   const uint32_t top_i4s = i4s >> 8;
-#ifndef USE_ROCM
   // Extract elt_01 - (i4s & 0x000f000f) | 0x64006400
   asm volatile("lop3.b32 %0, %1, %2, %3, %4;\n"
                : "=r"(h[0])
@@ -60,7 +59,6 @@ __device__ uint4 dequantize_s4_to_fp16x2(uint32_t const& source) {
                : "=r"(h[3])
                : "r"(top_i4s), "n"(TOP_MASK), "n"(I4s_TO_F16s_MAGIC_NUM),
                  "n"(immLut));
-#endif
 
   // I use inline PTX below because I am not sure if the compiler will emit
   // float2half instructions if I use the half2 ctor. In this case, I chose
@@ -77,7 +75,6 @@ __device__ uint4 dequantize_s4_to_fp16x2(uint32_t const& source) {
   // Haotian: Let's use {-64, -64}.
   static constexpr uint32_t NEG_64 = 0xd400d400;
 
-#ifndef USE_ROCM
   // Finally, we construct the output numbers.
   // Convert elt_01
   asm volatile("sub.f16x2 %0, %1, %2;\n"
@@ -95,7 +92,6 @@ __device__ uint4 dequantize_s4_to_fp16x2(uint32_t const& source) {
   asm volatile("fma.rn.f16x2 %0, %1, %2, %3;\n"
                : "=r"(h[3])
                : "r"(h[3]), "r"(ONE_SIXTEENTH), "r"(NEG_64));
-#endif
 
   return result;
 #endif
