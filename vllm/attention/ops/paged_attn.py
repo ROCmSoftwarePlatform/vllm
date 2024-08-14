@@ -118,9 +118,10 @@ class PagedAttention:
         num_seqs, num_heads, head_size = query.shape
         gqa_ratio = num_heads // num_kv_heads
         use_custom = (custom_attn_available
-                      and (query.dtype == torch.half or query.dtype == torch.bfloat16)
+                      and (query.dtype == torch.half
+                           or query.dtype == torch.bfloat16)
                       and (head_size == 128 or head_size == 64)
-                      and (block_size == 16 or block_size==32)
+                      and (block_size == 16 or block_size == 32)
                       and kv_cache_dtype == "auto"
                       and (gqa_ratio >= 1 and gqa_ratio <= 16)
                       and max_seq_len <= 32768)
