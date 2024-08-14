@@ -60,7 +60,6 @@ from vllm.logger import init_logger
 
 logger = init_logger(__name__)
 
-embedding_multiplier_scale = 78.38367176906169
 attn_output_multiplier = 0.08838834764831845
 output_multiplier_scale = 0.5773502691896257
 max_attn_val = 30.0
@@ -304,10 +303,9 @@ class Grok1MoE(nn.Module):
         # router_logits: (num_tokens, n_experts)
         router_logits, _ = self.gate(hidden_states)
         use_fp8 = self.use_rocm_fp8 or self.use_fp8
-        rank = get_tensor_model_parallel_rank()
-        if rank == 0: 
-            print(f"num_tokens:{num_tokens}", flush=True)
-
+        #rank = get_tensor_model_parallel_rank()
+        #if rank == 0: 
+        #    print(f"num_tokens:{num_tokens}", flush=True)
         final_hidden_states = fused_moe(hidden_states,
                                         self.w13_weight,
                                         self.w2_weight,
@@ -401,12 +399,12 @@ class Grok1Attention(nn.Module):
         qkv, _ = self.qkv_proj(hidden_states)
         q, k, v = qkv.split([self.q_size, self.kv_size, self.kv_size], dim=-1)
         q, k = self.rotary_emb(positions, q, k)
-        rank = get_tensor_model_parallel_rank()
-        if rank == 0:
-            if kv_cache is None or attn_metadata.block_tables.numel() == 0:
-                print("prefill", flush=True)
-            else:
-                print("decode", flush=True)
+        #rank = get_tensor_model_parallel_rank()
+        #if rank == 0:
+        #    if kv_cache is None or attn_metadata.block_tables.numel() == 0:
+        #        print("prefill", flush=True)
+        #    else:
+        #        print("decode", flush=True)
         attn_output = self.attn(q, k, v, kv_cache, attn_metadata)
         output, _ = self.o_proj(attn_output)
         return output
@@ -425,7 +423,7 @@ class Grok1DecoderLayer(nn.Module):
         # Requires transformers > 4.32.0
         rope_theta = getattr(config, "rope_theta", 10000)
         self.attn = Grok1Attention(
-            hidden_size=self.hidden_size,
+            hidden_size=config.hidden_size,
             num_heads=config.num_attention_heads,
             max_position=config.max_position_embeddings,
             num_kv_heads=config.num_key_value_heads,
@@ -466,10 +464,14 @@ class Grok1DecoderLayer(nn.Module):
         )
 
         # Fully Connected
-        hidden_states, residual = self.post_attn_norm(
-            hidden_states, residual)
-        residual = hidden_states
-        hidden_states = residual + self.post_moe_norm(self.moe_block(self.pre_moe_norm(hidden_states)))
+        hidden_states = self.post_attn_norm(hidden_states)
+
+        ### fused_moe performance bad
+        hidden_states, residual = self.pre_moe_norm(hidden_states, residual)
+
+        hidden_states = self.moe_block(hidden_states)
+
+        hidden_states = self.post_moe_norm(hidden_states)
         return hidden_states, residual
 
 
@@ -488,6 +490,7 @@ class Grok1Model(nn.Module):
                       (lora_config.max_loras or 1)) if lora_config else 0
         self.vocab_size = config.vocab_size + lora_vocab
         self.org_vocab_size = config.vocab_size
+        self.embedding_multiplier_scale = config.embedding_multiplier_scale
 
         self.embed_tokens = VocabParallelEmbedding(
             self.vocab_size,
@@ -511,7 +514,7 @@ class Grok1Model(nn.Module):
     ) -> torch.Tensor:
 
         hidden_states = self.embed_tokens(input_ids)
-        hidden_states *= embedding_multiplier_scale
+        hidden_states = hidden_states * self.embedding_multiplier_scale
         residual = None
         for i in range(len(self.layers)):
             layer = self.layers[i]
