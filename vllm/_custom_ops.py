@@ -2,8 +2,9 @@ from typing import Optional, Tuple, Type
 
 import torch
 
-from vllm.model_executor.layers.quantization.awq_triton import awq_dequantize_triton
 from vllm.model_executor.layers.quantization.awq_triton import awq_gemm_triton
+
+import vllm.envs as envs
 
 try:
     from vllm._C import cache_ops as vllm_cache_ops
@@ -131,46 +132,21 @@ def fused_add_rms_norm(input: torch.Tensor, residual: torch.Tensor,
 def awq_dequantize(qweight: torch.Tensor, scales: torch.Tensor,
                 zeros: torch.Tensor, split_k_iters: int, thx: int,
                    thy: int) -> torch.Tensor:
-    # print(f"awq_dequantize:qweight.size={qweight.size()},"
-          # f"qweight.dtype = {qweight.dtype},"
-          # f"scales.size={scales.size()},"
-          # f"scales.dtype={scales.dtype},"
-          # f"zeros.size={zeros.size()},"
-          # f"zeros.dtype={zeros.dtype}",
-          # f"split_k_iters={split_k_iters},"
-          # f"thx={thx},",
-          # f"thy={thy}")
-    # return torch.zeros(qweight.shape[0], scales.shape[1], device=qweight.device, dtype = torch.float16)
-    # return torch.zeros(qweight.shape[0], 8 * qweight.shape[1], device=qweight.device, dtype = torch.float16)
-    #return torch.empty_like(qweight, dtype=torch.float16)
-    # return vllm_ops.awq_dequantize(qweight, scales, zeros, split_k_iters, thx,
-                                   # thy)
-    return awq_dequantize_triton(qweight, scales, zeros, split_k_iters, thx,
+    if envs.VLLM_USE_TRITON_AWQ:
+        from vllm.model_executor.layers.quantization.awq_triton import (
+            awq_dequantize_triton)
+        return awq_dequantize_triton(qweight, scales, zeros, split_k_iters, thx,
                                    thy)
-
+    return torch.zeros(qweight.shape[0], 8 * qweight.shape[1], device=qweight.device, dtype = torch.float16)
 
 
 def awq_gemm(input: torch.Tensor, qweight: torch.Tensor, qzeros: torch.Tensor,
              scales: torch.Tensor, split_k_iters: int) -> torch.Tensor:
-    # print(f"awq_gemm:input.size = {input.size()},"
-          # f"input.dtype = {input.dtype},"
-          # f"qweight.size = {qweight.size()},"
-          # f"qweight.dtype = {qweight.dtype},"
-          # f"qzeros.size = {qzeros.size()},"
-          # f"qzeros.dtype = {qzeros.dtype},"
-          # f"scales.size = {scales.size()},"
-          # f"scales.dtype={scales.dtype},"
-          # f"split_k_iters = {split_k_iters}")
-    # return torch.zeros(qweight.shape[0], qzeros.shape[1], device=qweight.device, dtype = torch.float16)
-    # return torch.zeros((input.shape[0], qweight.shape[1] * 8), device=qweight.device, dtype = torch.float16)
-    # return torch.zeros(input.shape[0], qweight.shape[1], device=qweight.device, dtype = torch.float16)
-
-    # return vllm_ops.awq_gemm(input, qweight, qzeros, scales, split_k_iters)
-    # save = [input.cpu(), qweight.cpu(), qzeros.cpu(), scales.cpu(), split_k_iters]
-    # torch.save(save, '/source/awq_gemm.pt')
-    out = awq_gemm_triton(input, qweight, qzeros, scales, split_k_iters)
-    # print("awq_gemm done!")
-    return out
+    if envs.VLLM_USE_TRITON_AWQ:
+      from vllm.model_executor.layers.quantization.awq_triton import (
+        awq_gemm_triton)
+      return awq_gemm_triton(input, qweight, qzeros, scales, split_k_iters)
+    return torch.zeros((input.shape[0], qweight.shape[1] * 8), device=qweight.device, dtype = torch.float16)
 
 
 # gptq
