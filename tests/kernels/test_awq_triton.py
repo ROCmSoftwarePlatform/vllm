@@ -2,7 +2,6 @@
 
 Run `pytest tests/kernels/test_awq_triton.py`.
 """
-import pytest
 import torch
 
 from vllm.model_executor.layers.quantization.awq_triton import (
