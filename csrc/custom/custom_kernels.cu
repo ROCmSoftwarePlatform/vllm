@@ -12,10 +12,10 @@
 #if defined(NDEBUG)
   #undef NDEBUG
   #include <assert.h>
-  #define UNREACHABLE_CODE assert(false)
+  #define UNREACHABLE_CODE assert(false);
   #define NDEBUG
 #else
-  #define UNREACHABLE_CODE assert(false)
+  #define UNREACHABLE_CODE assert(false);
 #endif
 
 constexpr int WARP_SIZE = 64;
@@ -477,7 +477,7 @@ __global__ void wvSpltK_hf_m1_sml_(const int K, const int N, const DTYPE* B,
 __global__ void wvSpltK_hf_m1_sml_(const int K, const int N, const DTYPE* B,
                                    const DTYPE* __restrict__ A, DTYPE* C,
                                    const int CuCount) {
-  UNREACHABLE_CODE;
+  UNREACHABLE_CODE
 }
 
 #endif  // defined(__HIP__MI300_MI250__) TODO: Add NAVI support
@@ -834,7 +834,7 @@ __global__ void wvSpltK_hf_m1_(const int K, const int N, const DTYPE* B,
 __global__ void wvSpltK_hf_m1_(const int K, const int N, const DTYPE* B,
                                const DTYPE* __restrict__ A, DTYPE* C,
                                const int CuCount) {
-  UNREACHABLE_CODE;
+  UNREACHABLE_CODE
 }
 
 #endif  // defined(__HIP__MI300_MI250__) TODO: Add NAVI support
@@ -1199,7 +1199,7 @@ __global__ void wvSpltK_hf_m2_(const int K, const int N, const DTYPE* B,
 __global__ void wvSpltK_hf_m2_(const int K, const int N, const DTYPE* B,
                                const DTYPE* __restrict__ A, DTYPE* C,
                                const int CuCount) {
-  UNREACHABLE_CODE;
+  UNREACHABLE_CODE
 }
 
 #endif  // defined(__HIP__MI300_MI250__) TODO: Add NAVI support
@@ -1564,7 +1564,7 @@ __global__ void wvSpltK_hf_m3_(const int K, const int N, const DTYPE* B,
 __global__ void wvSpltK_hf_m3_(const int K, const int N, const DTYPE* B,
                                const DTYPE* __restrict__ A, DTYPE* C,
                                const int CuCount) {
-  UNREACHABLE_CODE;
+  UNREACHABLE_CODE
 }
 
 #endif  // defined(__HIP__MI300_MI250__) TODO: Add NAVI support
@@ -1929,7 +1929,7 @@ __global__ void wvSpltK_hf_m4_(const int K, const int N, const DTYPE* B,
 __global__ void wvSpltK_hf_m4_(const int K, const int N, const DTYPE* B,
                                const DTYPE* __restrict__ A, DTYPE* C,
                                const int CuCount) {
-  UNREACHABLE_CODE;
+  UNREACHABLE_CODE
 }
 
 #endif  // defined(__HIP__MI300_MI250__) TODO: Add NAVI support

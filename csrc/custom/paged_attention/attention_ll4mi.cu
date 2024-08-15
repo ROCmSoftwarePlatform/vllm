@@ -14,10 +14,10 @@
 #if defined(NDEBUG)
   #undef NDEBUG
   #include <assert.h>
-  #define UNREACHABLE_CODE assert(false)
+  #define UNREACHABLE_CODE assert(false);
   #define NDEBUG
 #else
-  #define UNREACHABLE_CODE assert(false)
+  #define UNREACHABLE_CODE assert(false);
 #endif
 
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
@@ -898,7 +898,7 @@ __global__ __launch_bounds__(NUM_THREADS) void paged_attention_ll4mi_QKV_kernel(
   scalar_t* __restrict__ qk_out,             // [num_heads, num_seqs, max_ctx_blocks,block_size]
   #endif
     int max_ctx_blocks) {
-  UNREACHABLE_CODE;
+  UNREACHABLE_CODE
 }
 
 // Grid: (num_heads, num_seqs).
@@ -915,7 +915,7 @@ __launch_bounds__(NUM_THREADS) void paged_attention_ll4mi_reduce_kernel(
                                            // max_num_partitions, head_size]
     const int* __restrict__ context_lens,  // [num_seqs]
     const int max_num_partitions) {
-  UNREACHABLE_CODE;
+  UNREACHABLE_CODE
 }
 
 #endif  // defined(__HIP__MI300_MI250__) TODO: Add NAVI support
