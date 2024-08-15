@@ -155,7 +155,7 @@ DINLINE void start_sync(const RankSignals& sg, Signal* self_sg, int rank) {
     __atomic_thread_fence(__ATOMIC_ACQ_REL);
     // wait until we got true from all ranks
     while (!__atomic_load_n(&self_sg->start[blockIdx.x][threadIdx.x],
-                                   __ATOMIC_RELAXED);
+                                   __ATOMIC_RELAXED));
   }
   __syncthreads();
 }
