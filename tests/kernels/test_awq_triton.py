@@ -2,6 +2,8 @@
 
 Run `pytest tests/kernels/test_awq_triton.py`.
 """
+import argparse
+
 import torch
 
 from vllm.model_executor.layers.quantization.awq_triton import (
@@ -206,3 +208,25 @@ def test_gemm():
     print(f"error = {error}")
 
     assert error < threshold
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="awq_triton test driver",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument("--test")
+    known_args, unknown_args = parser.parse_known_args()
+    if known_args.test is not None:
+        if known_args.test == "dequantize":
+            test_dequantize()
+        elif known_args.test == "gemm":
+            test_gemm()
+        else:
+            print(f"Unknown test {known_args.test}")
+    else:
+        print("No test provided.")
+        parser.print_help()
+
+
+if __name__ == '__main__':
+    main()
