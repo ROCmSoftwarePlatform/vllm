@@ -9,7 +9,7 @@ try:
     from vllm._C import cache_ops as vllm_cache_ops
     from vllm._C import ops as vllm_ops
 except ImportError as e:
-     print(f"Failed to import from vllm._C with {e}")
+    print(f"Failed to import from vllm._C with {e}")
 
 
 # activation ops
@@ -129,15 +129,18 @@ def fused_add_rms_norm(input: torch.Tensor, residual: torch.Tensor,
 # quantization ops
 # awq
 def awq_dequantize(qweight: torch.Tensor, scales: torch.Tensor,
-                zeros: torch.Tensor, split_k_iters: int, thx: int,
+                   zeros: torch.Tensor, split_k_iters: int, thx: int,
                    thy: int) -> torch.Tensor:
     if is_hip() and envs.VLLM_USE_TRITON_AWQ:
         from vllm.model_executor.layers.quantization.awq_triton import (
             awq_dequantize_triton)
-        return awq_dequantize_triton(qweight, scales, zeros, split_k_iters, thx,
-                                   thy)
+        return awq_dequantize_triton(qweight, scales, zeros, split_k_iters,
+                                     thx, thy)
     if is_hip():
-      return torch.zeros(qweight.shape[0], 8 * qweight.shape[1], device=qweight.device, dtype = torch.float16)
+        return torch.zeros(qweight.shape[0],
+                           8 * qweight.shape[1],
+                           device=qweight.device,
+                           dtype=torch.float16)
     return vllm_ops.awq_dequantize(qweight, scales, zeros, split_k_iters, thx,
                                    thy)
 
@@ -145,13 +148,14 @@ def awq_dequantize(qweight: torch.Tensor, scales: torch.Tensor,
 def awq_gemm(input: torch.Tensor, qweight: torch.Tensor, qzeros: torch.Tensor,
              scales: torch.Tensor, split_k_iters: int) -> torch.Tensor:
     if is_hip() and envs.VLLM_USE_TRITON_AWQ:
-      from vllm.model_executor.layers.quantization.awq_triton import (
-        awq_gemm_triton)
-      return awq_gemm_triton(input, qweight, qzeros, scales, split_k_iters)
+        from vllm.model_executor.layers.quantization.awq_triton import (
+            awq_gemm_triton)
+        return awq_gemm_triton(input, qweight, qzeros, scales, split_k_iters)
     if is_hip():
-      return torch.zeros((input.shape[0], qweight.shape[1] * 8), device=qweight.device, dtype = torch.float16)
+        return torch.zeros((input.shape[0], qweight.shape[1] * 8),
+                           device=qweight.device,
+                           dtype=torch.float16)
     return vllm_ops.awq_gemm(input, qweight, qzeros, scales, split_k_iters)
-
 
 
 # gptq
