@@ -897,7 +897,9 @@ __global__ __launch_bounds__(NUM_THREADS) void paged_attention_ll4mi_QKV_kernel(
   #if 0
   scalar_t* __restrict__ qk_out,             // [num_heads, num_seqs, max_ctx_blocks,block_size]
   #endif
-    int max_ctx_blocks){UNREACHABLE_CODE}
+    int max_ctx_blocks) {
+  UNREACHABLE_CODE
+}
 
 // Grid: (num_heads, num_seqs).
 template <typename scalar_t, int HEAD_SIZE, int NUM_THREADS,
@@ -912,7 +914,9 @@ __launch_bounds__(NUM_THREADS) void paged_attention_ll4mi_reduce_kernel(
     const scalar_t* __restrict__ tmp_out,  // [num_seqs, num_heads,
                                            // max_num_partitions, head_size]
     const int* __restrict__ context_lens,  // [num_seqs]
-    const int max_num_partitions){UNREACHABLE_CODE}
+    const int max_num_partitions) {
+  UNREACHABLE_CODE
+}
 
 #endif  // defined(__HIP__MI300_MI250__) TODO: Add NAVI support
 
