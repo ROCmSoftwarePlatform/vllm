@@ -101,9 +101,7 @@ def awq_dequantize_kernel(
 
 @triton.jit
 def awq_gemm_kernel(a_ptr, b_ptr, c_ptr, zeros_ptr, scales_ptr, M, N, K,
-                    awq_group_size, stride_am, stride_ak, stride_bk, stride_bn,
-                    stride_cm, stride_cn, stride_zk, stride_zn, stride_sk,
-                    stride_sn, BLOCK_SIZE_M: tl.constexpr,
+                    awq_group_size, BLOCK_SIZE_M: tl.constexpr,
                     BLOCK_SIZE_N: tl.constexpr, BLOCK_SIZE_K: tl.constexpr,
                     SPLIT_K: tl.constexpr):
     pid = tl.program_id(axis=0)
@@ -202,8 +200,7 @@ def awq_gemm_kernel(a_ptr, b_ptr, c_ptr, zeros_ptr, scales_ptr, M, N, K,
     c = accumulator.to(c_ptr.type.element_ty)
     offs_cm = pid_m * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
     offs_cn = pid_n * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
-    c_ptrs = c_ptr + stride_cm * offs_cm[:,
-                                         None] + stride_cn * offs_cn[None, :]
+    c_ptrs = c_ptr + N * offs_cm[:, None] + offs_cn[None, :]
     c_mask = (offs_cm[:, None] < M) & (offs_cn[None, :] < N)
     if SPLIT_K == 1:
         tl.store(c_ptrs, c, mask=c_mask)
@@ -291,16 +288,6 @@ def awq_gemm_triton(input: torch.Tensor, qweight: torch.Tensor,
                           N,
                           K,
                           awq_group_size,
-                          input.stride(0),
-                          input.stride(1),
-                          qweight.stride(0),
-                          qweight.stride(1),
-                          result.stride(0),
-                          result.stride(1),
-                          qzeros.stride(0),
-                          qzeros.stride(1),
-                          scales.stride(0),
-                          scales.stride(1),
                           BLOCK_SIZE_M=block_size_m,
                           BLOCK_SIZE_N=block_size_n,
                           BLOCK_SIZE_K=block_size_k,
