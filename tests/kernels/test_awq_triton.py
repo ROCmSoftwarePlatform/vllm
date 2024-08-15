@@ -1,4 +1,4 @@
-"""Tests for the marlin kernel.
+"""Tests for the AWQ Triton kernel.
 
 Run `pytest tests/kernels/test_awq_triton.py`.
 """
