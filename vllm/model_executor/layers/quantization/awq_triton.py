@@ -2,9 +2,6 @@ import torch
 import triton
 import triton.language as tl
 
-device = "cuda"
-
-
 @triton.jit
 def awq_dequantize_kernel(
         qweight_ptr,  # quantized matrix
