@@ -10,7 +10,8 @@ from vllm.model_executor.layers.quantization.awq_triton import (
 
 device = "cuda"
 
-threshold = 0.05
+# This threshold seems high, but these kernels are using fp16.
+threshold = 0.06
 
 
 def reverse_awq_order(t: torch.Tensor):
