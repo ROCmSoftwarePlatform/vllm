@@ -91,7 +91,7 @@ def awq_dequantize_kernel(
 
     # Dequantize.
     iweights = (iweights - zeros) * scales
-    iweights = iweights.to(tl.float16)
+    iweights = iweights.to(result_ptr.type.element_ty)
 
     # Finally, store.
     tl.store(result_ptr + result_offsets, iweights, result_masks)
@@ -112,7 +112,7 @@ def awq_gemm_kernel(a_ptr, b_ptr, c_ptr, zeros_ptr, scales_ptr, M, N, K,
     pid_m = pid // num_pid_n
     pid_n = pid % num_pid_n
 
-    accumulator_dtype = tl.float16
+    accumulator_dtype = c_ptr.type.element_ty
 
     # NOTE: This doesn't work in TRITON_INTERPRET=1 mode.  Use below instead.
     # accumulator = tl.arange(0, BLOCK_SIZE_N)
@@ -186,7 +186,7 @@ def awq_gemm_kernel(a_ptr, b_ptr, c_ptr, zeros_ptr, scales_ptr, M, N, K,
         b = (b >> shifts) & 0xF
         zeros = (zeros >> shifts) & 0xF
         b = (b - zeros) * scales
-        b = b.to(tl.float16)
+        b = b.to(c_ptr.type.element_ty)
 
         # Accumulate results.
         accumulator = tl.dot(a, b, accumulator, out_dtype=accumulator_dtype)
@@ -230,7 +230,7 @@ def awq_dequantize_triton(
     result = torch.empty(qweight.shape[0],
                          qweight.shape[1] * 8,
                          device=qweight.device,
-                         dtype=torch.float16)
+                         dtype=scales.dtype)
 
     block_size_x = 32
     block_size_y = 32
@@ -273,7 +273,7 @@ def awq_gemm_triton(input: torch.Tensor, qweight: torch.Tensor,
     block_size_n = 32
     block_size_k = 32
 
-    result = torch.zeros((M, N), dtype=torch.float16, device=input.device)
+    result = torch.zeros((M, N), dtype=scales.dtype, device=input.device)
 
     # A = input, B = qweight, C = result
     # A = M x K, B = K x N, C = M x N
