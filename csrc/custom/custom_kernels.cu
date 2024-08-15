@@ -476,9 +476,7 @@ __global__ void wvSpltK_hf_m1_sml_(const int K, const int N, const DTYPE* B,
 
 __global__ void wvSpltK_hf_m1_sml_(const int K, const int N, const DTYPE* B,
                                    const DTYPE* __restrict__ A, DTYPE* C,
-                                   const int CuCount) {
-  UNREACHABLE_CODE
-}
+                                   const int CuCount){UNREACHABLE_CODE}
 
 #endif  // defined(__HIP__MI300_MI250__) TODO: Add NAVI support
 
@@ -833,9 +831,7 @@ __global__ void wvSpltK_hf_m1_(const int K, const int N, const DTYPE* B,
 
 __global__ void wvSpltK_hf_m1_(const int K, const int N, const DTYPE* B,
                                const DTYPE* __restrict__ A, DTYPE* C,
-                               const int CuCount) {
-  UNREACHABLE_CODE
-}
+                               const int CuCount){UNREACHABLE_CODE}
 
 #endif  // defined(__HIP__MI300_MI250__) TODO: Add NAVI support
 
@@ -1198,9 +1194,7 @@ __global__ void wvSpltK_hf_m2_(const int K, const int N, const DTYPE* B,
 
 __global__ void wvSpltK_hf_m2_(const int K, const int N, const DTYPE* B,
                                const DTYPE* __restrict__ A, DTYPE* C,
-                               const int CuCount) {
-  UNREACHABLE_CODE
-}
+                               const int CuCount){UNREACHABLE_CODE}
 
 #endif  // defined(__HIP__MI300_MI250__) TODO: Add NAVI support
 
@@ -1563,9 +1557,7 @@ __global__ void wvSpltK_hf_m3_(const int K, const int N, const DTYPE* B,
 
 __global__ void wvSpltK_hf_m3_(const int K, const int N, const DTYPE* B,
                                const DTYPE* __restrict__ A, DTYPE* C,
-                               const int CuCount) {
-  UNREACHABLE_CODE
-}
+                               const int CuCount){UNREACHABLE_CODE}
 
 #endif  // defined(__HIP__MI300_MI250__) TODO: Add NAVI support
 
