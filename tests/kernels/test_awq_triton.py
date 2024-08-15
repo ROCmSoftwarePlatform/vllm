@@ -6,7 +6,7 @@ import pytest
 import torch
 
 from vllm.model_executor.layers.quantization.awq_triton import (
-    awq_dequantize_triton, awq_gemg_triton)
+    awq_dequantize_triton, awq_gemm_triton)
 
 device = "cuda"
 
