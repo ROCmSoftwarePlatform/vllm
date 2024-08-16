@@ -25,10 +25,12 @@ import os
 from typing import Iterable, List, Optional, Tuple
 
 import torch
+import torch.nn.functional as F
 from torch import nn
 from vllm.transformers_utils.configs import Grok1Config
 
 from vllm import _custom_ops as ops
+from vllm import envs
 from vllm.attention import Attention, AttentionMetadata
 from vllm.config import CacheConfig, LoRAConfig
 from vllm.distributed import (get_tensor_model_parallel_rank,
@@ -257,6 +259,21 @@ class Grok1MoE(nn.Module):
             param_data[expert_id] = loaded_weight
 
     def process_weights_after_loading(self):
+
+        #print("[kkkkk] process_weights_after_loading", flush=True)
+
+        if self.use_rocm_fp8:
+            w13_ = permute_weight(self.w13_weight.data)
+            w2_ = permute_weight(self.w2_weight.data)
+        if envs.VLLM_MOE_PADDING:
+            w13_ = F.pad(w13_, (0, 256), "constant", 0)
+            torch.cuda.empty_cache()
+            w2_ = F.pad(w2_, (0, 256), "constant", 0)
+            torch.cuda.empty_cache()
+            self.w13_weight = nn.Parameter(w13_, requires_grad=False)
+            torch.cuda.empty_cache()
+            self.w2_weight = nn.Parameter(w2_, requires_grad=False)
+            torch.cuda.empty_cache()
         # Fp8 is the only case where we need to process after loading.
         if not self.use_fp8:
             return
@@ -847,3 +864,17 @@ class Grok1ForCausalLM(nn.Module):
 def all_close_1d(x: torch.Tensor) -> bool:
     assert len(x.shape) == 1
     return all(torch.allclose(x[0], x[i]) for i in range(x.shape[0]))
+
+def permute_weight(x: torch.Tensor) -> torch.Tensor:
+    ## Hardcode BLOCK_K and BLOCK_N
+    BK = 256
+    BN = 128
+    x_ = x
+    if envs.VLLM_MOE_SHUFFLE:
+        x_ = x_.view(x.shape[0],
+                     x.shape[1]//BN, BN//16, 16,
+                     x.shape[2]//BK, BK//64, 4, 16)
+        x_ = x_.permute(0,1,5,2,6,4,3,7)
+        x_ = x_.contiguous()
+        x_ = x_.view(x.shape[0], x.shape[1], x.shape[2]);
+    return x_
