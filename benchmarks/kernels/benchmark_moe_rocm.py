@@ -32,7 +32,7 @@ def permute_weight(x: torch.Tensor) -> torch.Tensor:
 def main(model, tp_size, gpu, dtype: str):
     os.environ['HIP_VISIBLE_DEVICES'] = str(gpu)
     method = fused_moe
-    for bs in [8
+    for bs in [8, 8192
            # 1, 2, 4, 8, 16, 24, 32, 48, 64, 96, 128, 256, 512, 1024, 1536,
            # 2048, 3072, 4096
     ]:
@@ -62,24 +62,34 @@ def run_grid(bs, model, method, gpu, tp_size, dtype: str):
     num_total_experts = 8
     top_k = 2
     # tp_size = 2
-    num_calls = 100
+    num_warmup_calls = 10
+    num_calls = 30
 
     num_warmup_trials = 1
     num_trials = 1
 
     configs = []
 
-    waves_per_eu_range = [0]
+    block_m_range = [16, 32, 64, 128, 256]
+    block_n_range = [16, 32, 64, 128, 256]
+    block_k_range = [32, 64, 128, 256]  # MUST >= 32
+    num_warps_range = [1, 2, 4, 8]
+    group_m_range = [1, 4, 8, 16, 32]
+    # For now we see better perf with num_stages=0 for all gemm configs we care
+    # But keep this explicit so that we do not forget we may need to set it to
+    # other values in the future
+    num_stage_range = [0]
+    waves_per_eu_range = [0, 1, 2, 4, 8]
     # Remove 32 because of triton compiling error
     matrix_instr_nonkdim_range = [16]
     kpack_range = [1, 2]
 
-    for block_size_n in [32, 64, 128, 256]:
-        for block_size_m in [16, 32, 64, 128, 256]:
-            for block_size_k in [64, 128, 256]:
-                for group_size_m in [1, 16, 32, 64]:
-                    for num_warps in [4, 8]:
-                        for num_stages in [2, 3, 4, 5]:
+    for block_size_m in block_m_range:
+        for block_size_n in block_n_range:
+            for block_size_k in block_k_range:
+                for group_size_m in group_m_range:
+                    for num_warps in num_warps_range:
+                        for num_stages in num_stage_range:
                             for waves_per_eu in waves_per_eu_range:
                                 for (matrix_instr_nonkdim
                                      ) in matrix_instr_nonkdim_range:
@@ -108,7 +118,7 @@ def run_grid(bs, model, method, gpu, tp_size, dtype: str):
             print(config)
             for _ in range(num_warmup_trials):
                 run_timing(
-                    num_calls=num_calls,
+                    num_calls=num_warmup_calls,
                     bs=bs,
                     d_model=d_model,
                     num_total_experts=num_total_experts,
