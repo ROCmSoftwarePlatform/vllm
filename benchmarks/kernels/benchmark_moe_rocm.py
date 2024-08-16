@@ -32,7 +32,7 @@ def permute_weight(x: torch.Tensor) -> torch.Tensor:
 def main(model, tp_size, gpu, dtype: str):
     os.environ['HIP_VISIBLE_DEVICES'] = str(gpu)
     method = fused_moe
-    for bs in [8, 8192
+    for bs in [8, 8192, 1, 2, 4
            # 1, 2, 4, 8, 16, 24, 32, 48, 64, 96, 128, 256, 512, 1024, 1536,
            # 2048, 3072, 4096
     ]:
@@ -71,10 +71,10 @@ def run_grid(bs, model, method, gpu, tp_size, dtype: str):
     configs = []
 
     block_m_range = [16, 32, 64, 128, 256]
-    block_n_range = [16, 32, 64, 128, 256]
-    block_k_range = [32, 64, 128, 256]  # MUST >= 32
-    num_warps_range = [1, 2, 4, 8]
-    group_m_range = [1, 4, 8, 16, 32]
+    block_n_range = [128]
+    block_k_range = [256]  # MUST >= 32
+    num_warps_range = [8]
+    group_m_range = [1, 2, 4, 8, 16, 32, 64, 128]
     # For now we see better perf with num_stages=0 for all gemm configs we care
     # But keep this explicit so that we do not forget we may need to set it to
     # other values in the future
@@ -82,7 +82,7 @@ def run_grid(bs, model, method, gpu, tp_size, dtype: str):
     waves_per_eu_range = [0, 1, 2, 4, 8]
     # Remove 32 because of triton compiling error
     matrix_instr_nonkdim_range = [16]
-    kpack_range = [1, 2]
+    kpack_range = [2]
 
     for block_size_m in block_m_range:
         for block_size_n in block_n_range:
