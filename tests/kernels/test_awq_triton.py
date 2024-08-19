@@ -75,7 +75,7 @@ def awq_gemm_torch(input: torch.Tensor, qweight: torch.Tensor,
           f" qweight_rows = {qweight_rows} qweight_cols = {qweight_cols}"
           f" scales_rows = {scales_rows} scales_cols = {scales_cols}")
     weights, zeros = awq_dequantize_torch(qweight, scales, qzeros)
-                                          
+
     return torch.matmul(input, weights)
 
 
@@ -120,7 +120,7 @@ def test_dequantize():
           f"{torch.any(torch.isinf(iweights_triton))}")
 
     iweights_torch, _ = awq_dequantize_torch(qweight, scales, zeros)
-                                             
+
     print(f"Torch result:iweights_torch = {iweights_torch}")
 
     diff = iweights_torch - iweights_triton
