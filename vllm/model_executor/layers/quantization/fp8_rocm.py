@@ -3,17 +3,18 @@ from typing import List, Optional, Tuple, Union
 
 import pandas as pd
 import torch
+import torch.nn.functional as F
 from torch.nn import Module
 from torch.nn.parameter import Parameter
 
 import vllm._C
 from vllm import _custom_ops as ops
+from vllm import envs
 from vllm.logger import init_logger
 from vllm.model_executor.layers.linear import LinearBase, LinearMethodBase
 from vllm.model_executor.layers.quantization.base_config import (
     QuantizationConfig)
 from vllm.model_executor.utils import set_weight_attrs
-from vllm import envs
 
 logger = init_logger(__name__)
 
@@ -191,7 +192,7 @@ class Fp8RocmLinearMethod(LinearMethodBase):
 
         weight = layer.weight
         if envs.VLLM_FP8_PADDING:
-            weight = torch.nn.functional.pad(weight, (0, 256), "constant", 0)
+            weight = F.pad(weight, (0, 256), "constant", 0)
             torch.cuda.empty_cache()
         layer.weight = Parameter(weight, requires_grad=False)
 

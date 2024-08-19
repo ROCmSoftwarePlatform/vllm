@@ -59,7 +59,7 @@ static size_t get_hipblaslt_workspace_size() {
   return workspace_size * 1024;
 }
 
-static size_t get_padding_size(const char * env_name) {
+static size_t get_padding_size(const char* env_name) {
   const char* env = getenv(env_name);
   size_t _padding_size = 0;
   if (env) {
@@ -89,7 +89,8 @@ void fp8_mm(torch::Tensor& a, torch::Tensor& b, torch::Tensor& result,
                   b.dtype() == torch::kFloat8_e4m3fnuz,
               "The input tensors type should be float8_e4m3fnuz.");
   TORCH_CHECK(a.dim() == 2 && b.dim() == 2, "Input tensors must be 2-D.");
-  TORCH_CHECK(a_sizes[1] == b_sizes[0] - padding_size, "a dim 1 must match b dim 0.");
+  TORCH_CHECK(a_sizes[1] == b_sizes[0] - padding_size,
+              "a dim 1 must match b dim 0.");
 
   auto out_dtype = result.dtype();
   TORCH_CHECK(out_dtype == torch::kFloat8_e4m3fnuz ||
