@@ -134,8 +134,8 @@ def awq_dequantize(qweight: torch.Tensor, scales: torch.Tensor,
     if is_hip() and envs.VLLM_USE_TRITON_AWQ:
         from vllm.model_executor.layers.quantization.awq_triton import (
             awq_dequantize_triton)
-        return awq_dequantize_triton(qweight, scales, zeros, split_k_iters,
-                                     thx, thy)
+        return awq_dequantize_triton(qweight, scales, zeros)
+
     if is_hip():
         return torch.zeros(qweight.shape[0],
                            8 * qweight.shape[1],
