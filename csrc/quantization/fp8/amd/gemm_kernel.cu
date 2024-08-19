@@ -35,7 +35,7 @@
 #endif
 
 static void* workspace = nullptr;
-static size_t workspace_size;
+static size_t workspace_size, padding_size;
 
 // Copied from
 // https://github.com/pytorch/pytorch/blob/main/aten/src/ATen/cuda/tunable/GemmHipblaslt.h
@@ -59,8 +59,19 @@ static size_t get_hipblaslt_workspace_size() {
   return workspace_size * 1024;
 }
 
+static size_t get_padding_size(const char * env_name) {
+  const char* env = getenv(env_name);
+  size_t _padding_size = 0;
+  if (env) {
+    std::string s(env);
+    if (s == "1") _padding_size = 256;
+  }
+  return _padding_size;
+}
+
 void create_workspace() {
   workspace_size = get_hipblaslt_workspace_size();
+  padding_size = get_padding_size("VLLM_FP8_PADDING");
   if (workspace_size > 0)
     CHECK_HIP_ERROR(hipMalloc(&workspace, workspace_size));
 }
@@ -78,7 +89,7 @@ void fp8_mm(torch::Tensor& a, torch::Tensor& b, torch::Tensor& result,
                   b.dtype() == torch::kFloat8_e4m3fnuz,
               "The input tensors type should be float8_e4m3fnuz.");
   TORCH_CHECK(a.dim() == 2 && b.dim() == 2, "Input tensors must be 2-D.");
-  TORCH_CHECK(a_sizes[1] == b_sizes[0], "a dim 1 must match b dim 0.");
+  TORCH_CHECK(a_sizes[1] == b_sizes[0] - padding_size, "a dim 1 must match b dim 0.");
 
   auto out_dtype = result.dtype();
   TORCH_CHECK(out_dtype == torch::kFloat8_e4m3fnuz ||
@@ -131,7 +142,7 @@ void fp8_mm(torch::Tensor& a, torch::Tensor& b, torch::Tensor& result,
   float alpha = 1.0f;
   float beta = 0.0f;
   int64_t m = a_sizes[transpose_result ? 1 : 0];
-  int64_t k = a_sizes[transpose_result ? 0 : 1];
+  int64_t k = a_sizes[transpose_result ? 0 : 1] - padding_size;
   int64_t n = b_sizes[transpose_result ? 0 : 1];
 
   void* d_a = static_cast<void*>((transpose_result ? b : a).data_ptr());
@@ -170,10 +181,10 @@ void fp8_mm(torch::Tensor& a, torch::Tensor& b, torch::Tensor& result,
   inputs.scaleD = d_scale_d;
 
   auto&& problem = gemm.getProblemTypes();
-  auto lda = problem.op_a == HIPBLAS_OP_N ? m : k;
+  auto lda = problem.op_a == HIPBLAS_OP_N ? m : (k + padding_size);
   auto ldb = problem.op_b == HIPBLAS_OP_N ? k : n;
   auto ldc = m;
-  auto strideA = m * k;
+  auto strideA = m * (k + padding_size);
   auto strideB = n * k;
   auto strideC = m * n;
 

@@ -13,6 +13,7 @@ from vllm.model_executor.layers.linear import LinearBase, LinearMethodBase
 from vllm.model_executor.layers.quantization.base_config import (
     QuantizationConfig)
 from vllm.model_executor.utils import set_weight_attrs
+from vllm import envs
 
 logger = init_logger(__name__)
 
@@ -188,9 +189,10 @@ class Fp8RocmLinearMethod(LinearMethodBase):
         layer.weights_scaling_factor = Parameter(max_w_scale,
                                                  requires_grad=False)
 
-        # WEIGHT
-        #   Transpose weight for passing to torch._scaled_mm
         weight = layer.weight
+        if envs.VLLM_FP8_PADDING:
+            weight = torch.nn.functional.pad(weight, (0, 256), "constant", 0)
+            torch.cuda.empty_cache()
         layer.weight = Parameter(weight, requires_grad=False)
 
         if layer.weight.dtype == torch.float8_e4m3fnuz:

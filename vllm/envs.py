@@ -43,6 +43,7 @@ if TYPE_CHECKING:
     VLLM_SYNC_SERVER_ACCUM_REQUESTS: int = 1
     VLLM_SYNC_SERVER_ENGINE_STEPS_BETWEEN_POLLS: int = 1
     VLLM_MOE_PADDING: bool = True
+    VLLM_FP8_PADDING: bool = False
 
 # The begin-* and end* here are used by the documentation generator
 # to extract the used env vars.
@@ -246,6 +247,10 @@ environment_variables: Dict[str, Callable[[], Any]] = {
     # Pad the weight for moe kernel or not
     "VLLM_MOE_PADDING":
     lambda: bool(int(os.getenv("VLLM_MOE_PADDING", "1"))),
+
+    # Pad the weight for fp8 linear kernel or not
+    "VLLM_FP8_PADDING":
+    lambda: bool(int(os.getenv("VLLM_FP8_PADDING", "0"))),
 }
 
 # end-env-vars-definition
