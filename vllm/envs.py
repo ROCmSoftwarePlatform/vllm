@@ -248,6 +248,10 @@ environment_variables: Dict[str, Callable[[], Any]] = {
     "VLLM_MOE_PADDING":
     lambda: bool(int(os.getenv("VLLM_MOE_PADDING", "1"))),
 
+    # If set, vllm will print verbose logs during installation
+    "VLLM_USE_TRITON_AWQ":
+    lambda: bool(int(os.getenv("VLLM_USE_TRITON_AWQ", '1'))),
+
     # Pad the weight for fp8 linear kernel or not
     "VLLM_FP8_PADDING":
     lambda: bool(int(os.getenv("VLLM_FP8_PADDING", "0"))),
