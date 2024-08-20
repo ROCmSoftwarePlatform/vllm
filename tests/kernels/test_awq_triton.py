@@ -4,6 +4,7 @@ Run `pytest tests/kernels/test_awq_triton.py`.
 """
 import argparse
 
+import pytest
 import torch
 
 from vllm.model_executor.layers.quantization.awq_triton import (
@@ -11,8 +12,9 @@ from vllm.model_executor.layers.quantization.awq_triton import (
 
 device = "cuda"
 
-# This threshold seems high, but these kernels are using fp16.
-threshold = 0.06
+dequantize_threshold = 0.5
+# This seems large, but this is using float16 with splitK and large sizes.
+gemm_threshold = 6
 
 
 def reverse_awq_order(t: torch.Tensor):
@@ -75,20 +77,21 @@ def awq_gemm_torch(input: torch.Tensor, qweight: torch.Tensor,
           f" qweight_rows = {qweight_rows} qweight_cols = {qweight_cols}"
           f" scales_rows = {scales_rows} scales_cols = {scales_cols}")
     weights, zeros = awq_dequantize_torch(qweight, scales, qzeros)
-
     return torch.matmul(input, weights)
 
 
-def test_dequantize():
+# qweights - [R     , C // 8], int32
+# scales   - [R // G, C     ], float16
+# zeros    - [R // G, C // 8], int32
+
+
+@pytest.mark.parametrize("qweight_rows", [3584, 18944, 128, 256, 512, 1024])
+@pytest.mark.parametrize("qweight_cols", [448, 576, 4736, 16, 32, 64, 128])
+def test_dequantize(qweight_rows, qweight_cols):
     print("=" * 10 + " TESTING DEQUANTIZE" + "=" * 10)
 
-    qweight_rows = 3584
-    qweight_cols = 576
     group_size = 128
-    small_test_size = False
-    if small_test_size:
-        qweight_rows = 256
-        qweight_cols = 128
+
     print(f"qweight_rows = {qweight_rows}, qweight_cols = {qweight_cols}")
     qweight_dtype = torch.int32
     scales_rows = qweight_rows // group_size
@@ -115,46 +118,42 @@ def test_dequantize():
     print(f"qweight = {qweight}")
 
     iweights_triton = awq_dequantize_triton(qweight, scales, zeros)
+
     print(f"Triton result:iweights_triton = {iweights_triton}")
     print("Any infs in triton result? -->"
           f"{torch.any(torch.isinf(iweights_triton))}")
 
     iweights_torch, _ = awq_dequantize_torch(qweight, scales, zeros)
-
     print(f"Torch result:iweights_torch = {iweights_torch}")
 
     diff = iweights_torch - iweights_triton
     error = torch.sum(torch.sqrt(diff * diff))
     print(f"error = {error}")
 
-    assert error < threshold
+    assert error < dequantize_threshold
 
 
-def test_gemm():
+# input   - [N, K]
+# qweight - [K, M // 8]
+# qzeros  - [K // G, M // 8]
+# scales  - [K // G, M]
+@pytest.mark.parametrize("N", [1, 2, 4, 8, 14, 16, 32, 64, 128])
+@pytest.mark.parametrize("K", [3584, 18944, 128, 256, 512, 1024])
+@pytest.mark.parametrize("M", [448, 576, 4736, 16, 32, 64, 128])
+@pytest.mark.parametrize("splitK", [1, 8, 16])
+def test_gemm(N, K, M, splitK):
     print("=" * 10 + " TESTING GEMM " + "=" * 10)
 
-    split_k_iters = 1
+    split_k_iters = splitK
     group_size = 128
 
-    small_test_size = True
-
-    # input.size = torch.Size([1, 3584]),
-    # input.dtype = torch.float16
-    # qweight.size = torch.Size([3584, 448]),
-    # qweight.dtype = torch.int32
-    # qzeros.size = torch.Size([28, 3584]),
-    # qzeros.dtype = torch.float16
-    # scales.size = torch.Size([28, 448]),
-    # scales.dtype = torch.int32
-    # split_k_iters = 8
-
-    input_rows = 1
-    input_cols = 256 if small_test_size else 3584
+    input_rows = N
+    input_cols = K
     input_dtype = torch.float16
     qweight_rows = input_cols
-    qweight_cols = 32 if small_test_size else 448
+    qweight_cols = M // 8
     scales_rows = qweight_rows // group_size
-    scales_cols = qweight_cols * 8
+    scales_cols = M
     scales_dtype = torch.float16
     qzeros_rows = scales_rows
     qzeros_cols = qweight_cols
@@ -202,7 +201,7 @@ def test_gemm():
     error = torch.sum(torch.sqrt(diff * diff) / torch.numel(diff))
     print(f"error = {error}")
 
-    assert error < threshold
+    assert error < gemm_threshold
 
 
 def main():
@@ -213,9 +212,21 @@ def main():
     known_args, unknown_args = parser.parse_known_args()
     if known_args.test is not None:
         if known_args.test == "dequantize":
-            test_dequantize()
+            qweight_rows = 3584
+            qweight_cols = 576
+            group_size = 128
+            small_test_size = False
+            if small_test_size:
+                qweight_rows = 256
+                qweight_cols = 128
+            test_dequantize(qweight_rows, qweight_cols)
         elif known_args.test == "gemm":
-            test_gemm()
+            small_test_size = True
+            N = 1
+            K = 256 if small_test_size else 3584
+            M = 32 if small_test_size else 448
+            splitK = 1
+            test_gemm(N, K, M, 1)
         else:
             print(f"Unknown test {known_args.test}")
     else:
