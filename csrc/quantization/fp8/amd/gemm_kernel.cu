@@ -35,7 +35,7 @@
 #endif
 
 static void* workspace = nullptr;
-static size_t workspace_size, padding_size;
+static size_t workspace_size;
 
 // Copied from
 // https://github.com/pytorch/pytorch/blob/main/aten/src/ATen/cuda/tunable/GemmHipblaslt.h
@@ -59,27 +59,16 @@ static size_t get_hipblaslt_workspace_size() {
   return workspace_size * 1024;
 }
 
-static size_t get_padding_size(const char* env_name) {
-  const char* env = getenv(env_name);
-  size_t _padding_size = 0;
-  if (env) {
-    std::string s(env);
-    if (s == "1") _padding_size = 256;
-  }
-  return _padding_size;
-}
-
 void create_workspace() {
   workspace_size = get_hipblaslt_workspace_size();
-  padding_size = get_padding_size("VLLM_FP8_PADDING");
   if (workspace_size > 0)
     CHECK_HIP_ERROR(hipMalloc(&workspace, workspace_size));
 }
 
 void fp8_mm(torch::Tensor& a, torch::Tensor& b, torch::Tensor& result,
             torch::Tensor& scale_a, torch::Tensor& scale_b,
-            const c10::optional<torch::Tensor>& scale_result,
-            int64_t algo_idx) {
+            const c10::optional<torch::Tensor>& scale_result, int64_t algo_idx,
+            int64_t padding_size) {
   auto a_strides{a.strides()};
   auto b_strides{b.strides()};
   auto a_sizes{a.sizes()};

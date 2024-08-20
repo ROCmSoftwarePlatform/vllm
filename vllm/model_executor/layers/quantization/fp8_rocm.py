@@ -26,6 +26,8 @@ class Fp8RocmConfig(QuantizationConfig):
         gemm_type = os.getenv("FP8_GEMM", "fp8_16")
         vllm._C.ops.create_workspace()
 
+        self.padding_size = 256 if envs.VLLM_FP8_PADDING else 0
+
         self.shapes = []
         if os.getenv("TUNE_FP8") == "1" and os.path.isfile(
                 "/tmp/fp8_shapes.csv"):
@@ -192,7 +194,8 @@ class Fp8RocmLinearMethod(LinearMethodBase):
 
         weight = layer.weight
         if envs.VLLM_FP8_PADDING:
-            weight = F.pad(weight, (0, 256), "constant", 0)
+            weight = F.pad(weight, (0, self._config.padding_size), "constant",
+                           0)
             torch.cuda.empty_cache()
         layer.weight = Parameter(weight, requires_grad=False)
 
@@ -248,7 +251,7 @@ class Fp8RocmLinearMethod(LinearMethodBase):
         if solidx == 0:
             self._config.save_shape(m, n, k)
         res = ops.fp8_mm(x_quant, weight.t(), out_dtype, asf, wsf, osf,
-                         int(solidx))
+                         int(solidx), self._config.padding_size)
 
         if osf is not None:
             res_upscaled = torch.empty_like(res, dtype=x.dtype)
