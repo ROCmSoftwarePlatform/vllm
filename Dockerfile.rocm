@@ -93,7 +93,7 @@ RUN git clone  https://github.com/ROCm/cupy.git \
     && git submodule update --init --recursive \
     && pip install mpi4py-mpich scipy==1.9.3 cython==0.29.* \
     && CC=$MPI_HOME/bin/mpicc python -m pip install mpi4py \
-    && CUPY_INSTALL_USE_HIP=1 ROCM_HOME=/opt/rocm HCC_AMDGPU_TARGET=${PYTORCH_ROCM_ARCH} \
+    && CUPY_INSTALL_USE_HIP=1 ROCM_HOME=/opt/rocm HCC_AMDGPU_TARGET="gfx90a,gfx942,gfx1100" \
        python3 setup.py bdist_wheel --dist-dir=dist
 FROM build_cupy AS export_cupy_1
 ARG COMMON_WORKDIR
