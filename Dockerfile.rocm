@@ -87,13 +87,14 @@ FROM export_flash_attn_${BUILD_FA} AS export_flash_attn
 # CuPy build stages
 FROM base AS build_cupy
 ARG CUPY_BRANCH="hipgraph_enablement"
+ARG CUPY_ROCM_ARCH="gfx90a,gfx942,gfx1100"
 RUN git clone  https://github.com/ROCm/cupy.git \
     && cd cupy \
     && git checkout $CUPY_BRANCH \
     && git submodule update --init --recursive \
     && pip install mpi4py-mpich scipy==1.9.3 cython==0.29.* \
     && CC=$MPI_HOME/bin/mpicc python -m pip install mpi4py \
-    && CUPY_INSTALL_USE_HIP=1 ROCM_HOME=/opt/rocm HCC_AMDGPU_TARGET="gfx90a,gfx942,gfx1100" \
+    && CUPY_INSTALL_USE_HIP=1 ROCM_HOME=/opt/rocm HCC_AMDGPU_TARGET=${CUPY_ROCM_ARCH} \
        python3 setup.py bdist_wheel --dist-dir=dist
 FROM build_cupy AS export_cupy_1
 ARG COMMON_WORKDIR
