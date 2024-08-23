@@ -14,6 +14,8 @@ from vllm import _custom_ops as ops
 from vllm import envs
 from vllm.logger import init_logger
 
+from vllm.distributed import get_tensor_model_parallel_rank
+
 logger = init_logger(__name__)
 padding_size = 256 if envs.VLLM_MOE_PADDING else 0
 
@@ -758,6 +760,14 @@ def fused_moe(
 
     topk_weights, topk_ids = fused_topk(hidden_states, gating_output, topk,
                                         renormalize)
+
+    #rank = get_tensor_model_parallel_rank()
+    #if rank == 0:
+    #    topk_weights_nan = torch.isnan(topk_weights).any()
+    #    topk_ids_nan = torch.isnan(topk_ids).any()
+    #    hidden_states_nan = torch.isnan(hidden_states).any()
+    #    print(f"topk_weights_nan:{topk_weights_nan}, topk_ids_nan:{topk_ids_nan}, hidden_states_nan:{hidden_states_nan}", flush=True)
+
     return fused_experts(hidden_states,
                          w1,
                          w2,

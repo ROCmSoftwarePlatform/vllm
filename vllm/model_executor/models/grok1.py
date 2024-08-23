@@ -865,10 +865,10 @@ def all_close_1d(x: torch.Tensor) -> bool:
     assert len(x.shape) == 1
     return all(torch.allclose(x[0], x[i]) for i in range(x.shape[0]))
 
-def permute_weight(x: torch.Tensor) -> torch.Tensor:
+def permute_weight(x: torch.Tensor, tp_size) -> torch.Tensor:
     ## Hardcode BLOCK_K and BLOCK_N
     BK = 256
-    BN = 128
+    BN = 128 if tp_size != 2 else 64
     x_ = x
     if envs.VLLM_MOE_SHUFFLE:
         x_ = x_.view(x.shape[0],
