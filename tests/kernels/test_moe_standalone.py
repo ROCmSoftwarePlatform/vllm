@@ -4,6 +4,10 @@ from vllm.model_executor.layers.activation import SiluAndMul
 from vllm.model_executor.layers.fused_moe import fused_moe
 #from vllm.model_executor.models.mixtral import MixtralMoE
 
+from vllm import envs
+
+padding_size = 128 if envs.VLLM_MOE_PADDING else 0
+
 
 def torch_moe(a, w1, w2, score, topk):
     B, D = a.shape
@@ -21,6 +25,20 @@ def torch_moe(a, w1, w2, score, topk):
     return (out.view(B, -1, w2.shape[1]) *
             topk_weight.view(B, -1, 1).to(out.dtype)).sum(dim=1)
 
+def permute_weight(x: torch.Tensor) -> torch.Tensor:
+    ## Hardcode BLOCK_K and BLOCK_N
+
+    BK = 128
+    BN = 128
+    x_ = x.clone()
+    x_ = x_.view(x.shape[0],
+                 x.shape[1]//BN, BN//16, 16,
+                     x.shape[2]//BK, BK//32, 4, 8)
+    x_ = x_.permute(0,1,5,2,6,4,3,7)
+    x_ = x_.contiguous()
+    x_ = x_.view(x.shape[0], x.shape[1], x.shape[2]);
+    return x_
+
 
 #@pytest.mark.parametrize("m", [512, 222, 33, 1])
 #@pytest.mark.parametrize("n", [2048, 256, 1024])
@@ -37,14 +55,23 @@ def test_fused_moe(
     dtype: torch.dtype,
 ):
     a = torch.randn((m, k), device='cuda', dtype=dtype) / 10
-    w1 = torch.randn((e, 2 * n, k), device='cuda', dtype=dtype) / 10
-    w2 = torch.randn((e, k, n), device='cuda', dtype=dtype) / 10
+    w1 = torch.randn((e, 2 * n, k+padding_size), device='cuda', dtype=dtype) / 10
+    w2 = torch.randn((e, k, n+padding_size), device='cuda', dtype=dtype) / 10
+
+    
 
     score = torch.randn((m, e), device='cuda', dtype=dtype)
     torch_output = torch_moe(a, w1, w2, score, topk)
     print(f"torch_output: {torch_output}")
 
-    triton_output = fused_moe(a, w1, w2, score, topk, renormalize=False)
+    if envs.VLLM_MOE_SHUFFLE:
+        w1_shuffled = permute_weight(w1.data)
+        w2_shuffled = permute_weight(w2.data)
+    else:
+        w1_shuffled = w1
+        w2_shuffled = w2
+    
+    triton_output = fused_moe(a, w1_shuffled, w2_shuffled, score, topk, renormalize=False)
     print(f"triton_output: {triton_output}")
     #triton_col_output = fused_moe_col_major(a, w1, w2, score, topk, renormalize=False)
     #print(f"triton_col_output: {triton_col_output}")
@@ -56,4 +83,4 @@ if __name__ == '__main__':
 
     print( "test" )
 
-    test_fused_moe(512, 2048, 128, 8, 2, torch.float16)
+    test_fused_moe(8, 4096, 8192, 8, 2, torch.float16)

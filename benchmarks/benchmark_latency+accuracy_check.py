@@ -58,10 +58,13 @@ def main(args: argparse.Namespace):
     #dummy_inputs: List[PromptStrictInputs] = [{
     #    "prompt_token_ids": batch
     #} for batch in dummy_prompt_token_ids.tolist()]
-    from transformers import AutoTokenizer
-    tokenizer = AutoTokenizer.from_pretrained("hpcai-tech/grok-1", trust_remote_code=True)
-    input_tokens = get_input_sentences(args.batch_size, args.input_len, "wikitext", 'wikitext-2-raw-v1', tokenizer)
-    prompts = [tokenizer.decode(sample) for sample in input_tokens]
+    #from transformers import AutoTokenizer
+    #tokenizer = AutoTokenizer.from_pretrained("hpcai-tech/grok-1", trust_remote_code=True)
+    #input_tokens = get_input_sentences(args.batch_size, args.input_len, "wikitext", 'wikitext-2-raw-v1', tokenizer)
+    #prompts = [tokenizer.decode(sample) for sample in input_tokens]
+
+    prompts = ["Chronicles III . Development work took approximately one year . After the release of Valkyria Chronicles II"]
+    #prompts = ["Replace this with your text."]
 
     #dummy_inputs: List[PromptStrictInputs] = [{
     #    "prompt_token_ids": batch
@@ -89,7 +92,8 @@ def main(args: argparse.Namespace):
             for output in outputs:
                 prompt = output.prompt
                 generated_text = output.outputs[0].text
-                print(f"Prompt: {prompt!r}, Generated text: {generated_text!r}")
+                print(f"Prompt: {prompt!r}")
+                print(f"Generated text: {generated_text!r}")
             latency = end_time - start_time
             return latency
 

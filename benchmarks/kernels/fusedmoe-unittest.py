@@ -46,10 +46,10 @@ def run_grid(bs, model, method, gpu, tp_size, dtype: str):
     num_total_experts = 8
     top_k = 2
     # tp_size = 2
-    num_calls = 1
+    num_calls = 10
 
-    num_warmup_trials = 1
-    num_trials = 1
+    num_warmup_trials = 100
+    num_trials = 100
 
     configs = [{'BLOCK_SIZE_M': 16, 'BLOCK_SIZE_N': 16, 'BLOCK_SIZE_K': 256, 'GROUP_SIZE_M': 32, 'num_warps': 2, 'num_stages': 1, 'waves_per_eu': 4, 'matrix_instr_nonkdim': 16, 'kpack': 2}]
 
@@ -233,7 +233,7 @@ def run_timing(num_calls: int, bs: int, d_model: int, num_total_experts: int,
             inplace=True,
             override_config=config,
             use_fp8=dtype == "float8",
-            impl_options=0,
+            impl_options=1,
         )
     end_event.record()
     end_event.synchronize()

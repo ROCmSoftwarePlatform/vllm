@@ -5,7 +5,7 @@ import subprocess
 #  CUDA-native profiler: https://nvidia.github.io/cuda-python/module/cudart.html#profiler-control
 
 class HipTx:
-    def __init__(self, platform=None, profname='rpd'):
+    def __init__(self, rank, platform=None, profname='rpd'):
         self.platform = (platform.upper() if platform else self.detect_platform())
         self.profname = profname  # can switch to 'nsight' for CUDA native method
         self.profbase = None
@@ -13,7 +13,8 @@ class HipTx:
         if self.profname == 'rpd':
             # This is for cross-platform profiling
             from rpdTracerControl import rpdTracerControl
-            rpdTracerControl.setFilename(name="trace.rpd", append=False)
+            fileName="trace_" + str(rank) + ".rpd"
+            rpdTracerControl.setFilename(name=fileName, append=False)
             self.profbase = rpdTracerControl()
         elif self.profname == 'nsight':
             # This is for CUDA-only profiling

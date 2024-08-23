@@ -30,7 +30,7 @@ else
     # latency test
     #i_tokens_list=(512 1024 2048 3072 4096 6144 8192)
     #o_tokens_list=(1 32 128 256)
-    i_tokens_list=(4096)
+    i_tokens_list=(1024)
     o_tokens_list=(4096)
     num_prompts=${num_prompts:-1}
 fi
@@ -119,7 +119,6 @@ for i_token in "${i_tokens_list[@]}"; do
             if [[ ${enable_prof} -eq 1 ]]; then
                 if [[ "${ROCM}" -gt 0 ]]; then
                     PROF="rocprofv3 --hip-runtime-trace --kernel-trace --memory-copy-trace --stats --output-format CSV -d $PROF_DIR/$TAG -- "
-                    #PROF="rocprof --stats -o $PROF_DIR/$TAG.csv "
                 else
                     PROF="nsys nvprof -o ${PROF_DIR}/nsys_${TAG} "
                 fi
@@ -136,26 +135,19 @@ for i_token in "${i_tokens_list[@]}"; do
             else
                 cmd="CUDA_VISIBLE_DEVICES=${DEV_LIST} ${PROF}"
             fi
-            #cmd="${cmd} torchrun --standalone --nproc_per_node=${dev_cnt_per_grp}"
-            #cmd="${cmd} benchmark_${benchmark_item}.py --model bigcode/starcoder2-15b --dtype float16"
 
-            #cmd="${cmd} python benchmark_${benchmark_item}-v2.py --model bigcode/starcoder2-15b --dtype float16"
-            #cmd="${cmd} python benchmark_${benchmark_item}-v2.py --model bigcode/starcoder2-15b --dtype float16 --max-num-batched-tokens 65536"
-            #cmd="${cmd} python benchmark_${benchmark_item}-v2.py --model bigcode/starcoder2-15b --dtype float16 --max-model-len 512"
-            #cmd="${cmd} python benchmark_${benchmark_item}-v2.py --model bigcode/starcoder2-15b --dtype float16 --max-model-len 512 --max-num-batched-tokens 65536"
-            #cmd="${cmd} python benchmark_${benchmark_item}.py --model \"/dockerx/data/huggingface/hub/models--hpcai-tech--grok-1/snapshots/babfc31aa6cffb15aa89202aaa01ac47bd1925a2/\" --dtype float16 --trust-remote-code"
-            #cmd="${cmd} python benchmark_${benchmark_item}.py --model hpcai-tech/grok-1 --dtype float16 --trust-remote-code"
+
 	    if [[ ${enable_fp8} -eq 0 ]]; then
                 cmd="${cmd} python benchmark_${benchmark_item}.py --model \"/dockerx/data/huggingface/hub/models--hpcai-tech--grok-1/snapshots/babfc31aa6cffb15aa89202aaa01ac47bd1925a2/\" --dtype float16 --trust-remote-code"
 	    else
-                cmd="${cmd} python benchmark_${benchmark_item}.py --model \"/dockerx/data/huggingface/hub/models--hpcai-tech--grok-1/snapshots/babfc31aa6cffb15aa89202aaa01ac47bd1925a2/\" --dtype float16 --trust-remote-code --quantization=\"fp8\" --quantized-weights-path=\"quantized/quark/w_fp8_a_fp8_o_fp8/num_calib_128/moe.safetensors\""
-                #cmd="${cmd} python benchmark_${benchmark_item}.py --model \"/dockerx/data/huggingface/hub/models--hpcai-tech--grok-1/snapshots/babfc31aa6cffb15aa89202aaa01ac47bd1925a2/\" --dtype float16 --trust-remote-code --quantization=\"fp8\" --quantized-weights-path=\"quantized/quark/w_fp8_a_fp8_o_fp8/num_calib_128/moe.safetensors\" --kv-cache-dtype fp8 --quantization-param-path /dockerx/data/huggingface/hub/models--hpcai-tech--grok-1/snapshots/babfc31aa6cffb15aa89202aaa01ac47bd1925a2/quantized/quark/w_fp8_a_fp8_o_fp8/num_calib_128/kvcache/kv_cache_scales.json"
-	    fi
+                cmd="${cmd} python benchmark_${benchmark_item}.py --model \"/docker/data/huggingface/hub/models--hpcai-tech--grok-1/snapshots/babfc31aa6cffb15aa89202aaa01ac47bd1925a2/\" --dtype float16 --trust-remote-code --quantization=\"fp8\" --quantized-weights-path=\"quantized/quark/w_fp8_a_fp8_o_fp8/num_calib_128/moe.safetensors\""
+                #cmd="${cmd} python benchmark_${benchmark_item}.py --model \"/docker/data/huggingface/hub/models--hpcai-tech--grok-1/snapshots/babfc31aa6cffb15aa89202aaa01ac47bd1925a2/\" --dtype float16 --trust-remote-code --quantization=\"fp8\" --quantized-weights-path=\"quantized/quark/w_fp8_a_fp8_o_fp8/num_calib_128/moe.safetensors\" --kv-cache-dtype fp8 --quantization-param-path /docker/data/huggingface/hub/models--hpcai-tech--grok-1/snapshots/babfc31aa6cffb15aa89202aaa01ac47bd1925a2/quantized/quark/w_fp8_a_fp8_o_fp8/num_calib_128/kvcache/kv_cache_scales.json"
 
-	    # For llama
-            #cmd="${cmd} python benchmark_${benchmark_item}.py --model \"/dockerx/data/llama2/llama-2-70b-chat-hf/\" --dtype float16"
-            #cmd="${cmd} python benchmark_${benchmark_item}.py --model \"/dockerx/data/llama2/llama-2-70b-chat-hf/\" --dtype float16 --quantization=\"fp8\" --quantized-weights-path=\"quantized/llama.safetensors\""
-            #cmd="${cmd} torchrun --standalone --nnodes=1 --nproc-per-node=${dev_cnt_per_grp} benchmark_${benchmark_item}.py --model \"/dockerx/data/mlperf/model/Llama-2-70b-chat-hf/\" --dtype float16 --quantization=\"fp8\" --quantized-weights-path=\"quantized/quark_share/modelzoo/llama2_70b_wfp8_afp8_ofp8_nomerge/json-safetensors/llama.safetensors\""
+		# for torchrun
+                #cmd="${cmd} torchrun --standalone --nproc_per_node=${dev_cnt_per_grp}"
+                #cmd="${cmd} benchmark_${benchmark_item}.py --model \"/docker/data/huggingface/hub/models--hpcai-tech--grok-1/snapshots/babfc31aa6cffb15aa89202aaa01ac47bd1925a2/\" --dtype float16 --trust-remote-code --quantization=\"fp8\" --quantized-weights-path=\"quantized/quark/w_fp8_a_fp8_o_fp8/num_calib_128/moe.safetensors\""
+                #cmd="${cmd} benchmark_${benchmark_item}.py --model \"/dockerx/data/huggingface/hub/models--hpcai-tech--grok-1/snapshots/babfc31aa6cffb15aa89202aaa01ac47bd1925a2/\" --dtype float16 --trust-remote-code --quantization=\"fp8\" --quantized-weights-path=\"quantized/quark/w_fp8_a_fp8_o_fp8/num_calib_128/moe.safetensors\" --kv-cache-dtype fp8 --quantization-param-path /dockerx/data/huggingface/hub/models--hpcai-tech--grok-1/snapshots/babfc31aa6cffb15aa89202aaa01ac47bd1925a2/quantized/quark/w_fp8_a_fp8_o_fp8/num_calib_128/kvcache/kv_cache_scales.json"
+	    fi
 
             if [[ ${enable_rpd} -eq 1 ]]; then
                 cmd="${cmd} --enable-prof"
@@ -165,11 +157,17 @@ for i_token in "${i_tokens_list[@]}"; do
                 cmd="${cmd} --num-prompts ${num_prompts} --input-len ${i_token} --output-len ${o_token} -tp ${dev_cnt_per_grp} --worker-use-ray"
             else
                 cmd="${cmd} --batch-size ${num_prompts} --input-len ${i_token} --output-len ${o_token} -tp ${dev_cnt_per_grp} --worker-use-ray"
+
+		# do torch profile
+                #cmd="${cmd} --profile-result-dir /dockerx/data/kk/ --profile --batch-size ${num_prompts} --input-len ${i_token} --output-len ${o_token} -tp ${dev_cnt_per_grp} --worker-use-ray"
+
+		# torch run
+                #cmd="${cmd} --batch-size ${num_prompts} --input-len ${i_token} --output-len ${o_token} -tp ${dev_cnt_per_grp}"
             fi
 
             echo "${cmd}" | tee "${LOG_DIR}/r_${TAG}.log"
             if [[ ${debug_blas} -eq 1 || ${debug_nccl} -eq 1 ]]; then
-                eval "${cmd}" >> ${LOG_DIR}/r_${TAG}.log 2>&1
+                eval "${cmd}" > ${LOG_DIR}/r_${TAG}.log 2>&1
             else
                 eval "${cmd}" 2>&1 | tee -a "${LOG_DIR}/r_${TAG}.log"
             fi
@@ -177,7 +175,7 @@ for i_token in "${i_tokens_list[@]}"; do
         act_python3=`ps -aux| grep "vllm-benchmark-" | sed 's/.*grep.*//g' | grep -e "\S" | wc -l`
         while [[ ${act_python3} -gt 0 ]]; do act_python3=`ps -aux| grep "vllm-benchmark-" | sed 's/.*grep.*//g' | grep -e "\S" | wc -l`; continue;done
         if [[ ${enable_rpd} -eq 1 ]]; then
-            mv trace.rpd ${PROF_DIR}/r_${TAG}.rpd
+            mv trace_0.rpd ${PROF_DIR}/r_${TAG}.rpd
         fi
     done
 done
