@@ -21,14 +21,29 @@
 #include "cuda_compat.h"
 
 namespace vllm {
+//template <typename T, int numLanes = WARP_SIZE>
+//__inline__ __device__ T warpReduceSum(T val) {
+//  static_assert(numLanes > 0 && (numLanes & (numLanes - 1)) == 0,
+//                "numLanes is not a positive power of 2!");
+//  static_assert(numLanes <= WARP_SIZE);
+//#pragma unroll
+//  for (int mask = numLanes >> 1; mask > 0; mask >>= 1)
+//    val += VLLM_SHFL_XOR_SYNC(val, mask);
+//  return val;
+//}
+
 template <typename T, int numLanes = WARP_SIZE>
 __inline__ __device__ T warpReduceSum(T val) {
   static_assert(numLanes > 0 && (numLanes & (numLanes - 1)) == 0,
                 "numLanes is not a positive power of 2!");
   static_assert(numLanes <= WARP_SIZE);
-#pragma unroll
-  for (int mask = numLanes >> 1; mask > 0; mask >>= 1)
-    val += VLLM_SHFL_XOR_SYNC(val, mask);
+  
+  val += VLLM_SHFL_XOR_SYNC(val, 32);
+  val += VLLM_SHFL_XOR_SYNC(val, 16);
+  val += VLLM_SHFL_XOR_SYNC(val, 8);
+  val += VLLM_SHFL_XOR_SYNC(val, 4);
+  val += VLLM_SHFL_XOR_SYNC(val, 2);
+  val += VLLM_SHFL_SYNC(val, 1);
   return val;
 }
 

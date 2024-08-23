@@ -18,12 +18,106 @@ using __nv_bfloat162 = __hip_bfloat162;
 namespace vllm {
 
 // TODO(woosuk): Further optimize this kernel.
+//template <typename scalar_t>
+//__global__ void rms_norm_kernel(
+//    scalar_t* __restrict__ out,           // [..., hidden_size]
+//    const scalar_t* __restrict__ input,   // [..., hidden_size]
+//    const scalar_t* __restrict__ weight,  // [hidden_size]
+//    const float epsilon, const int num_tokens, const int hidden_size) {
+//  __shared__ float s_variance;
+//  float variance = 0.0f;
+//
+//  for (int idx = threadIdx.x; idx < hidden_size; idx += blockDim.x) {
+//    const float x = (float)input[blockIdx.x * hidden_size + idx];
+//    variance += x * x;
+//  }
+//  variance = blockReduceSum<float>(variance);
+//  if (threadIdx.x == 0) {
+//    s_variance = rsqrtf(variance / hidden_size + epsilon);
+//  }
+//  __syncthreads();
+//
+//  for (int idx = threadIdx.x; idx < hidden_size; idx += blockDim.x) {
+//    float x = (float)input[blockIdx.x * hidden_size + idx];
+//    out[blockIdx.x * hidden_size + idx] =
+//        ((scalar_t)(x * s_variance)) * weight[idx];
+//  }
+//}
+
+template <typename scalar_t>
+struct __align__(8) vec4_t {
+  scalar_t x;
+  scalar_t y;
+  scalar_t z;
+  scalar_t w;
+
+	__device__ vec4_t() : x(0), y(0), z(0), w(0) {}
+	__device__ vec4_t(scalar_t x, scalar_t y, scalar_t z, scalar_t w) : x(x), y(y), z(z), w(w) {}
+
+	__device__ vec4_t operator*(const vec4_t& other) const {
+	    return vec4_t(x * other.x, y * other.y, z * other.z, w * other.w);
+	}
+
+	__device__ vec4_t operator*(const float& s) const {
+	    return vec4_t(x * s, y * s, z * s, w * s);
+	}
+
+	__device__ vec4_t operator+(const vec4_t& other) const {
+	    return vec4_t(x + other.x, y + other.y, z + other.z, w + other.w);
+	}
+
+	__device__ void operator+=(const vec4_t& other){
+	    x += other.x;
+	    y += other.y;
+	    z += other.z;
+	    w += other.w;
+	}
+};
+
+// TODO(woosuk): Further optimize this kernel.
 template <typename scalar_t>
 __global__ void rms_norm_kernel(
     scalar_t* __restrict__ out,           // [..., hidden_size]
     const scalar_t* __restrict__ input,   // [..., hidden_size]
     const scalar_t* __restrict__ weight,  // [hidden_size]
     const float epsilon, const int num_tokens, const int hidden_size) {
+  __shared__ float s_variance;
+
+  vec4_t<scalar_t> v4_variance = {0, 0, 0, 0};
+
+  vec4_t<scalar_t>* vectorized_out = reinterpret_cast<vec4_t<scalar_t>*>(out);
+  vec4_t<scalar_t> const* vectorized_in = reinterpret_cast<vec4_t<scalar_t> const*>(input);
+  vec4_t<scalar_t> const* vectorized_weight = reinterpret_cast<vec4_t<scalar_t> const*>(weight);
+  const int vec_hidden_size = hidden_size >> 2;
+
+  // Compute variance. Be carefull, hidden_size should multiple of 4.
+  for (int idx = threadIdx.x; idx < vec_hidden_size; idx += blockDim.x) {
+      vec4_t<scalar_t> x = vectorized_in[blockIdx.x * vec_hidden_size + idx];
+      v4_variance += x * x;
+  }
+  float v4_variance_sum = v4_variance.x + v4_variance.y + v4_variance.z + v4_variance.w;
+
+  float variance = blockReduceSum<float>(v4_variance_sum);
+  if (threadIdx.x == 0) {
+    s_variance = rsqrtf(variance / hidden_size + epsilon);
+  }
+  __syncthreads();
+
+  for (int idx = threadIdx.x; idx < vec_hidden_size; idx += blockDim.x) {
+    vec4_t<scalar_t> f4_in = vectorized_in[blockIdx.x * vec_hidden_size + idx];
+    vec4_t<scalar_t> f4_w = vectorized_weight[idx];
+    vectorized_out[blockIdx.x * vec_hidden_size + idx] = f4_in * s_variance * f4_w;
+  }
+}
+
+template <typename scalar_t>
+__global__ void scaled_rms_norm_kernel(
+    hip_fp8* __restrict__ out,           // [..., hidden_size]
+    const scalar_t* __restrict__ input,   // [..., hidden_size]
+    const scalar_t* __restrict__ weight,  // [hidden_size]
+    const float* scale,
+    const float epsilon, const int num_tokens, const int hidden_size,
+    const int hidden_size_padded) {
   __shared__ float s_variance;
   float variance = 0.0f;
 
@@ -39,8 +133,9 @@ __global__ void rms_norm_kernel(
 
   for (int idx = threadIdx.x; idx < hidden_size; idx += blockDim.x) {
     float x = (float)input[blockIdx.x * hidden_size + idx];
-    out[blockIdx.x * hidden_size + idx] =
-        ((scalar_t)(x * s_variance)) * weight[idx];
+    x = (x * s_variance) * (float)weight[idx] / (*scale);
+
+    out[blockIdx.x * hidden_size_padded + idx] = hip_fp8(x);
   }
 }
 
@@ -299,6 +394,7 @@ void rms_norm(torch::Tensor& out,     // [..., hidden_size]
   dim3 block(std::min(hidden_size, 1024));
   const at::cuda::OptionalCUDAGuard device_guard(device_of(input));
   const cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+
   VLLM_DISPATCH_FLOATING_TYPES(input.scalar_type(), "rms_norm_kernel", [&] {
     vllm::rms_norm_kernel<scalar_t><<<grid, block, 0, stream>>>(
         out.data_ptr<scalar_t>(), input.data_ptr<scalar_t>(),
