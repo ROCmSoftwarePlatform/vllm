@@ -45,33 +45,41 @@ namespace vllm {
 //}
 
 template <typename scalar_t>
-struct __align__(8) vec4_t {
-  scalar_t x;
-  scalar_t y;
-  scalar_t z;
-  scalar_t w;
+struct __align__(16) vec8_t {
+  scalar_t x, y, z, w, u, v, s, t;
 
-	__device__ vec4_t() : x(0), y(0), z(0), w(0) {}
-	__device__ vec4_t(scalar_t x, scalar_t y, scalar_t z, scalar_t w) : x(x), y(y), z(z), w(w) {}
+    __device__ vec8_t() : x(0), y(0), z(0), w(0), u(0), v(0), s(0), t(0) {}
+    __device__ vec8_t(scalar_t x, scalar_t y, scalar_t z, scalar_t w, scalar_t u, scalar_t v, scalar_t s, scalar_t t) : x(x), y(y), z(z), w(w), u(u), v(v), s(s), t(t){}
 
-	__device__ vec4_t operator*(const vec4_t& other) const {
-	    return vec4_t(x * other.x, y * other.y, z * other.z, w * other.w);
-	}
+    __device__ vec8_t operator*(const vec8_t& other) const {
+        return vec8_t(x * other.x, y * other.y, z * other.z, w * other.w,
+                      u * other.u, v * other.v, s * other.s, t * other.t);
+    }
 
-	__device__ vec4_t operator*(const float& s) const {
-	    return vec4_t(x * s, y * s, z * s, w * s);
-	}
+    __device__ vec8_t operator*(const float& scale) const {
+        return vec8_t(x * scale, y * scale, z * scale, w * scale,
+                      u * scale, v * scale, s * scale, t * scale);
+    }
 
-	__device__ vec4_t operator+(const vec4_t& other) const {
-	    return vec4_t(x + other.x, y + other.y, z + other.z, w + other.w);
-	}
+    __device__ vec8_t operator+(const vec8_t& other) const {
+        return vec8_t(x + other.x, y + other.y, z + other.z, w + other.w,
+                      u + other.u, v + other.v, s + other.s, t + other.t);
+    }
 
-	__device__ void operator+=(const vec4_t& other){
-	    x += other.x;
-	    y += other.y;
-	    z += other.z;
-	    w += other.w;
-	}
+    __device__ void operator+=(const vec8_t& other) {
+        x += other.x;
+        y += other.y;
+        z += other.z;
+        w += other.w;
+        u += other.u;
+        v += other.v;
+        s += other.s;
+        t += other.t;
+    }
+
+    __device__ scalar_t sum() const {
+        return x + y + z + w + u + v + s + t;
+    }
 };
 
 // TODO(woosuk): Further optimize this kernel.
@@ -83,30 +91,30 @@ __global__ void rms_norm_kernel(
     const float epsilon, const int num_tokens, const int hidden_size) {
   __shared__ float s_variance;
 
-  vec4_t<scalar_t> v4_variance = {0, 0, 0, 0};
-
-  vec4_t<scalar_t>* vectorized_out = reinterpret_cast<vec4_t<scalar_t>*>(out);
-  vec4_t<scalar_t> const* vectorized_in = reinterpret_cast<vec4_t<scalar_t> const*>(input);
-  vec4_t<scalar_t> const* vectorized_weight = reinterpret_cast<vec4_t<scalar_t> const*>(weight);
-  const int vec_hidden_size = hidden_size >> 2;
-
+  vec8_t<scalar_t> v8_variance;
+    
+  vec8_t<scalar_t>* vectorized_out = reinterpret_cast<vec8_t<scalar_t>*>(out);
+  vec8_t<scalar_t> const* vectorized_in = reinterpret_cast<vec8_t<scalar_t> const*>(input);
+  vec8_t<scalar_t> const* vectorized_weight = reinterpret_cast<vec8_t<scalar_t> const*>(weight);
+  const int vec_hidden_size = hidden_size >> 3;
+  
   // Compute variance. Be carefull, hidden_size should multiple of 4.
   for (int idx = threadIdx.x; idx < vec_hidden_size; idx += blockDim.x) {
-      vec4_t<scalar_t> x = vectorized_in[blockIdx.x * vec_hidden_size + idx];
-      v4_variance += x * x;
+  	vec8_t<scalar_t> x = vectorized_in[blockIdx.x * vec_hidden_size + idx];
+  	v8_variance += x * x;
   }
-  float v4_variance_sum = v4_variance.x + v4_variance.y + v4_variance.z + v4_variance.w;
-
-  float variance = blockReduceSum<float>(v4_variance_sum);
+  float v8_variance_sum = v8_variance.sum();
+  
+  float variance = blockReduceSum<float>(v8_variance_sum);
   if (threadIdx.x == 0) {
-    s_variance = rsqrtf(variance / hidden_size + epsilon);
+  	s_variance = rsqrtf(variance / hidden_size + epsilon);
   }
   __syncthreads();
-
+  
   for (int idx = threadIdx.x; idx < vec_hidden_size; idx += blockDim.x) {
-    vec4_t<scalar_t> f4_in = vectorized_in[blockIdx.x * vec_hidden_size + idx];
-    vec4_t<scalar_t> f4_w = vectorized_weight[idx];
-    vectorized_out[blockIdx.x * vec_hidden_size + idx] = f4_in * s_variance * f4_w;
+  	vec8_t<scalar_t> v8_in = vectorized_in[blockIdx.x * vec_hidden_size + idx];
+  	vec8_t<scalar_t> v8_w = vectorized_weight[idx];
+  	vectorized_out[blockIdx.x * vec_hidden_size + idx] = v8_in * s_variance * v8_w;
   }
 }
 

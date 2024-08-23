@@ -263,8 +263,8 @@ class Grok1MoE(nn.Module):
         #print("[kkkkk] process_weights_after_loading", flush=True)
 
         if self.use_rocm_fp8:
-            w13_ = permute_weight(self.w13_weight.data)
-            w2_ = permute_weight(self.w2_weight.data)
+            w13_ = permute_weight(self.w13_weight.data, self.tp_size)
+            w2_ = permute_weight(self.w2_weight.data, self.tp_size)
         if envs.VLLM_MOE_PADDING:
             w13_ = F.pad(w13_, (0, 256), "constant", 0)
             torch.cuda.empty_cache()
