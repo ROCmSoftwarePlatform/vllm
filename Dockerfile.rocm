@@ -40,7 +40,7 @@ WORKDIR ${COMMON_WORKDIR}
 # -----------------------
 # hipBLASLt build stages
 FROM base AS build_hipblaslt
-ARG HIPBLASLT_BRANCH="6f65c6e"
+ARG HIPBLASLT_BRANCH="8b71e7a8d26ba95774fdc372883ee0be57af3d28"
 RUN git clone https://github.com/ROCm/hipBLASLt \
     && cd hipBLASLt \
     && git checkout ${HIPBLASLT_BRANCH} \
@@ -70,7 +70,7 @@ FROM export_rccl_${BUILD_RCCL} AS export_rccl
 # -----------------------
 # flash attn build stages
 FROM base AS build_flash_attn
-ARG FA_BRANCH="ae7928c"
+ARG FA_BRANCH="23a2b1c2f21de2289db83de7d42e125586368e66"
 ARG FA_REPO="https://github.com/ROCm/flash-attention.git"
 ARG PYTORCH_ROCM_ARCH="gfx90a;gfx942"
 RUN git clone ${FA_REPO} \
