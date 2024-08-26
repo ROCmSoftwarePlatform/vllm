@@ -681,11 +681,12 @@ class LLMEngine:
         """
 
         now = time.time()
-
         # Organize outputs by [sequence group][step] instead of
         # [step][sequence group].
         output_by_sequence_group = create_output_by_sequence_group(
             output, num_seq_groups=len(scheduled_seq_groups))
+
+        seq_groups = [scheduled_seq_group.seq_group for scheduled_seq_group in scheduled_seq_groups]
 
         # Update the scheduled sequence groups with the model outputs.
         for scheduled_seq_group, outputs, seq_group_meta in zip(
@@ -708,14 +709,17 @@ class LLMEngine:
         # Create the outputs.
         request_outputs: List[Union[RequestOutput,
                                     EmbeddingRequestOutput]] = []
-        for scheduled_seq_group in scheduled_seq_groups:
-            seq_group = scheduled_seq_group.seq_group
-            seq_group.maybe_set_first_token_time(now)
-            request_output = RequestOutputFactory.create(seq_group)
-            request_outputs.append(request_output)
-        for seq_group in ignored_seq_groups:
-            request_output = RequestOutputFactory.create(seq_group)
-            request_outputs.append(request_output)
+        [seq_group.maybe_set_first_token_time(now) for seq_group in seq_groups]
+        request_outputs = [RequestOutputFactory.create(seq_group) for seq_group in seq_groups]
+        #for scheduled_seq_group in scheduled_seq_groups:
+        #    seq_group = scheduled_seq_group.seq_group
+        #    seq_group.maybe_set_first_token_time(now)
+        #    request_output = RequestOutputFactory.create(seq_group)
+        #    request_outputs.append(request_output)
+        request_outputs.extend([RequestOutputFactory.create(seq_group) for seq_group in ignored_seq_groups])
+        #for seq_group in ignored_seq_groups:
+        #    request_output = RequestOutputFactory.create(seq_group)
+        #    request_outputs.append(request_output)
         return request_outputs
 
     def step(self) -> List[Union[RequestOutput, EmbeddingRequestOutput]]:

@@ -33,7 +33,7 @@ class StopChecker:
         new_char_count: int,
         sampling_params: SamplingParams,
         lora_req: Optional[LoRARequest] = None,
-    ) -> None:
+    ) -> bool:
         """Stop the finished sequences.
 
        new_char_count is the number of chars added to the
@@ -42,23 +42,24 @@ class StopChecker:
 
         # Check if the minimum number of tokens has been generated yet;
         # skip the stop string/token checks if not
-        if seq.get_output_len() < sampling_params.min_tokens:
-            return
+        outlen = seq.get_output_len()
+        if outlen < sampling_params.min_tokens:
+            return False
 
+        last_token_id = seq.get_last_token_id()
         # Check if the sequence has generated the EOS token.
         if ((not sampling_params.ignore_eos)
-                and seq.get_last_token_id() == seq.eos_token_id):
+                and last_token_id == seq.eos_token_id):
             # Remove the last EOS token unless explicitly specified
             # This prevents unintended exposure of the EOS token
             if new_char_count and (
                     not sampling_params.include_stop_str_in_output):
                 seq.output_text = seq.output_text[:-new_char_count]
             seq.status = SequenceStatus.FINISHED_STOPPED
-            return
+            return True
 
         # Check if a stop token was encountered.
         # This assumes a single token produced per step.
-        last_token_id = seq.get_last_token_id()
         if last_token_id in sampling_params.stop_token_ids:
             if new_char_count and (
                     not sampling_params.include_stop_str_in_output):
@@ -66,7 +67,7 @@ class StopChecker:
                 seq.output_text = seq.output_text[:-new_char_count]
             seq.status = SequenceStatus.FINISHED_STOPPED
             seq.stop_reason = last_token_id
-            return
+            return True
 
         # Check if any stop strings are matched.
         stop_str = self._check_stop_strings(seq, new_char_count,
@@ -74,17 +75,18 @@ class StopChecker:
         if stop_str is not None:
             seq.status = SequenceStatus.FINISHED_STOPPED
             seq.stop_reason = stop_str
-            return
+            return True
 
         # Check if the sequence has reached max_model_len.
         if seq.get_len() > self._get_max_model_len(lora_req):
             seq.status = SequenceStatus.FINISHED_LENGTH_CAPPED
-            return
+            return True
 
         # Check if the sequence has reached max_tokens.
-        if seq.get_output_len() == sampling_params.max_tokens:
+        if outlen == sampling_params.max_tokens:
             seq.status = SequenceStatus.FINISHED_LENGTH_CAPPED
-            return
+            return True
+        return False
 
     @staticmethod
     def _check_stop_strings(seq: Sequence, new_char_count: int,

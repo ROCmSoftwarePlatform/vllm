@@ -24,6 +24,7 @@ infiles += [
         "vllm/model_executor/layers/sampler.py",
         "vllm/sampling_params.py",
         "vllm/utils.py",
+        "vllm/block.py",
         ]
 
 

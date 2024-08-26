@@ -612,12 +612,14 @@ class BlockSpaceManagerV1(BlockSpaceManager):
                 self.cpu_allocator.free(block)
 
     def free(self, seq: Sequence) -> None:
-        if seq.seq_id not in self.block_tables:
-            # Already freed or haven't been scheduled yet.
-            return
-        block_table = self.block_tables[seq.seq_id]
+        seq_id = seq.seq_id
+        block_table = self.block_tables.pop(seq_id,[])
+        #if seq.seq_id not in self.block_tables:
+        #    # Already freed or haven't been scheduled yet.
+        #    return
+        #block_table = self.block_tables[seq.seq_id]
         self._free_block_table(block_table)
-        del self.block_tables[seq.seq_id]
+        #del self.block_tables[seq.seq_id]
 
     def free_cross(self, seq_group: SequenceGroup) -> None:
         if seq_group.request_id not in self.cross_block_tables:

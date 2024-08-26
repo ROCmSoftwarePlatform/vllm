@@ -74,6 +74,30 @@ class SingleStepOutputProcessor(SequenceGroupOutputProcessor):
                                         outputs: SequenceGroupOutput) -> None:
         # Process samples
         samples = outputs.samples
+        if len(samples)==1:
+            #if there's only 1 sample, it has to be from 1 running seq in seq group
+            parent_seq = next(iter(seq_group.seqs_dict.values()))
+            child_sample = samples[0]
+            if not seq_group.sampling_params.use_beam_search:
+                #fastpath
+                parent_seq.append_token_id(child_sample.output_token,
+                                            child_sample.logprobs)
+                if self.detokenizer and seq_group.sampling_params.detokenize:
+                    new_char_count = self.detokenizer.decode_sequence_inplace(
+                        parent_seq, seq_group.sampling_params)
+                else:
+                    new_char_count = 0
+
+                stopped = self.stop_checker.maybe_stop_sequence(
+                    parent_seq,
+                    new_char_count,
+                    seq_group.sampling_params,
+                    lora_req=seq_group.lora_request,
+                )
+                #if parent_seq.is_finished():
+                if stopped:
+                    self.scheduler.free_seq(parent_seq)
+                return
         parent_seqs = seq_group.get_seqs(status=SequenceStatus.RUNNING)
         existing_finished_seqs = seq_group.get_finished_seqs()
         parent_child_dict: Dict[int, List[SequenceOutput]] = {
