@@ -247,7 +247,7 @@ class DefaultModelLoader(BaseModelLoader):
                                                model,
                                                "fall_back_to_pt_during_load",
                                                True)), )
-            if (model_config.quantization == 'fp8'
+            if (model_config.quantization == 'fp8_rocm'
                     and model_config.quantized_weights_path is not None):
                 model.load_quantized_weights(
                     safetensors_weights_iterator([
