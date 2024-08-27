@@ -9,8 +9,11 @@
 
 #ifdef USE_ROCM
   #include "amd/quant_utils.cuh"
+  #include "amd/hip_float8.h"
+  using FP8_TYPE = c10::Float8_e4m3fnuz;
 #else
   #include "nvidia/quant_utils.cuh"
+  using FP8_TYPE = c10::Float8_e4m3fn;
 #endif
 
 namespace vllm {
@@ -78,14 +81,18 @@ __device__ __forceinline__ float atomicMaxFloat(float* addr, float value) {
   return old;
 }
 
-#define FP8_E4M3_MAX std::numeric_limits<c10::Float8_e4m3fn>::max()
+#define FP8_E4M3_MAX std::numeric_limits<FP8_TYPE>::max()
 
 template <typename scalar_t>
-__device__ __forceinline__ c10::Float8_e4m3fn scaled_fp8_conversion(
+__device__ __forceinline__ FP8_TYPE scaled_fp8_conversion(
     const scalar_t val, const float scale) {
   float x = static_cast<float>(val) / scale;
   float r = fmax(-FP8_E4M3_MAX, fmin(x, FP8_E4M3_MAX));
-  return static_cast<c10::Float8_e4m3fn>(r);
+  #ifdef USE_ROCM
+  return static_cast<FP8_TYPE>(r);
+  #else
+  return FP8_TYPE(hip_fp8(r).data, FP8_TYPE::from_bits());
+  #endif
 }
 
 // Compute the absolute maximum m of the input tensor and store
@@ -126,12 +133,12 @@ __global__ void segmented_max_reduction(float* __restrict__ scale,
   // atomically write the max to the target location
   if (threadIdx.x == 0) {
     atomicMaxFloat(scale,
-                   cache[0] / std::numeric_limits<c10::Float8_e4m3fn>::max());
+                   cache[0] / std::numeric_limits<FP8_TYPE>::max());
   }
 }
 
 template <typename scalar_t>
-__global__ void scaled_fp8_quant_kernel(c10::Float8_e4m3fn* __restrict__ out,
+__global__ void scaled_fp8_quant_kernel(FP8_TYPE* __restrict__ out,
                                         const scalar_t* __restrict__ input,
                                         const float* __restrict__ scale,
                                         int64_t num_elems) {
@@ -157,7 +164,7 @@ void static_scaled_fp8_quant(torch::Tensor& out,    // [..., d]
   VLLM_DISPATCH_FLOATING_TYPES(
       input.scalar_type(), "scaled_fp8_quant_kernel", [&] {
         vllm::scaled_fp8_quant_kernel<scalar_t><<<grid, block, 0, stream>>>(
-            out.data_ptr<c10::Float8_e4m3fn>(), input.data_ptr<scalar_t>(),
+            out.data_ptr<FP8_TYPE>(), input.data_ptr<scalar_t>(),
             scale.data_ptr<float>(), num_elems);
       });
 }
@@ -177,7 +184,7 @@ void dynamic_scaled_fp8_quant(torch::Tensor& out,    // [..., d]
         vllm::segmented_max_reduction<scalar_t><<<grid, block, 0, stream>>>(
             scale.data_ptr<float>(), input.data_ptr<scalar_t>(), num_elems);
         vllm::scaled_fp8_quant_kernel<scalar_t><<<grid, block, 0, stream>>>(
-            out.data_ptr<c10::Float8_e4m3fn>(), input.data_ptr<scalar_t>(),
+            out.data_ptr<FP8_TYPE>(), input.data_ptr<scalar_t>(),
             scale.data_ptr<float>(), num_elems);
       });
 }

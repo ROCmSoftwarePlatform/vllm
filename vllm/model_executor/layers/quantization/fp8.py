@@ -10,11 +10,14 @@ from vllm.model_executor.layers.linear import LinearBase, LinearMethodBase
 from vllm.model_executor.layers.quantization.base_config import (
     QuantizationConfig, QuantizeMethodBase)
 from vllm.model_executor.utils import set_weight_attrs
-from vllm.utils import print_warning_once
+from vllm.utils import print_warning_once, is_hip
 
 ACTIVATION_SCHEMES = ["static", "dynamic"]
 
 logger = init_logger(__name__)
+
+
+TORCH_SCALED_MM_SCALE_RESULT = torch.ones(1).cuda() if is_hip() else None
 
 
 class Fp8Config(QuantizationConfig):
@@ -155,10 +158,12 @@ class Fp8LinearMethod(LinearMethodBase):
             # ACTIVATION SCALE
             if self.quant_config.activation_scheme == "static":
                 self._create_scale_param(
-                    scale_name="act_scale",
+                    scale_name="input_scale",
                     layer=layer,
                     output_partition_sizes=output_partition_sizes,
                     **extra_weight_attrs)
+            else:
+                layer.input_scale = None
 
     def scales_shard_indexer(
             self, param: torch.Tensor, loaded_weight: torch.Tensor,
@@ -188,7 +193,7 @@ class Fp8LinearMethod(LinearMethodBase):
             layer.weight = Parameter(qweight.t(), requires_grad=False)
             layer.weight_scale = Parameter(weight_scale, requires_grad=False)
             layer.logical_widths = None
-            layer.act_scale = None
+            layer.input_scale = None
             return
 
         # If checkpoint is fp8, requantize the separately quantized logical
@@ -196,6 +201,18 @@ class Fp8LinearMethod(LinearMethodBase):
         else:
             # WEIGHT_SCALE / WEIGHT
             #   Loop over logical weights, requantizing with single scale.
+            if is_hip:
+                weight, weight_scale, input_scale = \
+                        normalize_e4m3fn_to_e4m3fnuz(
+                            weight=layer.weight,
+                            weight_scale=layer.weight_scale,
+                            input_scale=layer.input_scale)
+                layer.weight = Parameter(weight, requires_grad=False)
+                layer.weight_scale = Parameter(weight_scale, requires_grad=False)
+                if input_scale is not None:
+                    layer.act_scale = Parameter(input_scale,
+                                                      requires_grad=False)
+            
             max_w_scale = layer.weight_scale.max()
             start = 0
             for idx, logical_width in enumerate(layer.logical_widths):
@@ -244,16 +261,19 @@ class Fp8LinearMethod(LinearMethodBase):
         # torch._scaled_mm is more performant for matrices with
         # batch dimension > 16. Note that this could change
         # in the future.
-        output, _ = torch._scaled_mm(
+        output = torch._scaled_mm(
             qinput,
             layer.weight,
             out_dtype=x.dtype,
             scale_a=x_scale,
             scale_b=layer.weight_scale,
+            scale_result=TORCH_SCALED_MM_SCALE_RESULT,
             bias=bias,
         )
 
-        return torch.narrow(output, 0, 0, x.shape[0])
+        if is_hip():
+            return torch.narrow(output, 0, 0, x.shape[0])
+        return torch.narrow(output[0], 0, 0, x.shape[0])
 
 
 class Fp8KVCacheMethod(QuantizeMethodBase):
@@ -301,9 +321,10 @@ def all_close_1d(x: torch.Tensor) -> bool:
 
 def per_tensor_quantize(tensor: torch.Tensor,
                         inv_scale: float) -> torch.Tensor:
-    finfo = torch.finfo(torch.float8_e4m3fn)
+    fp8_dtype = torch.float8_e4m3fnuz if is_hip() else torch.float8_e4m3fn
+    finfo = torch.finfo(fp8_dtype)
     qweight = (tensor / inv_scale).clamp(min=finfo.min, max=finfo.max)
-    return qweight.to(torch.float8_e4m3fn)
+    return qweight.to(fp8_dtype)
 
 
 def per_tensor_dequantize(tensor: torch.Tensor,
@@ -311,3 +332,27 @@ def per_tensor_dequantize(tensor: torch.Tensor,
     fake_qweight = tensor.to(torch.float16)
     dq_weight = fake_qweight * inv_scale
     return dq_weight
+
+
+def normalize_e4m3fn_to_e4m3fnuz(
+    weight: torch.Tensor,
+    weight_scale: torch.Tensor,
+    input_scale: Optional[torch.Tensor] = None
+) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
+    assert weight.dtype == torch.float8_e4m3fn
+    # The bits pattern 10000000(-128) represents zero in e4m3fn
+    # but NaN in e4m3fnuz. So here we set it to 0.
+    # https://onnx.ai/onnx/technical/float8.html
+    weight_as_int8 = weight.view(torch.int8)
+    ROCM_FP8_NAN_AS_INT = -128
+    weight_as_int8[weight_as_int8 == ROCM_FP8_NAN_AS_INT] = 0
+    weight = weight_as_int8.view(torch.float8_e4m3fnuz)
+
+    # For the same bits representation, e4m3fnuz value is half of
+    # the e4m3fn value, so we should double the scaling factor to
+    # get the same dequantized value.
+    # https://onnx.ai/onnx/technical/float8.html
+    weight_scale = weight_scale * 2.0
+    if input_scale is not None:
+        input_scale = input_scale * 2.0
+    return weight, weight_scale, input_scale
