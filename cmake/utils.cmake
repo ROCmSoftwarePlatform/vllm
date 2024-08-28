@@ -123,11 +123,6 @@ function (get_torch_gpu_compiler_flags OUT_GPU_FLAGS GPU_LANG)
       "-U__HIP_NO_HALF_CONVERSIONS__"
       "-U__HIP_NO_HALF_OPERATORS__"
       "-fno-gpu-rdc")
-      
-    string(TOUPPER ${CMAKE_BUILD_TYPE} VLLM_BUILD_TYPE)
-    if(${VLLM_BUILD_TYPE} STREQUAL "DEBUG")
-        list(APPEND GPU_FLAGS "-O0" "-ggdb3")
-    endif()
 
   endif()
   set(${OUT_GPU_FLAGS} ${GPU_FLAGS} PARENT_SCOPE)
