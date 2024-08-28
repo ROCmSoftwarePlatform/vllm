@@ -8,6 +8,9 @@ if TYPE_CHECKING:
     VLLM_INSTANCE_ID: Optional[str] = None
     VLLM_NCCL_SO_PATH: Optional[str] = None
     LD_LIBRARY_PATH: Optional[str] = None
+    VLLM_ROCM_PREFER_TORCH: bool = False
+    VLLM_ROCM_PREFER_TRITON: bool = True
+    VLLM_USE_SDPA_ATTENTION: bool = False
     VLLM_USE_TRITON_FLASH_ATTN: bool = True
     VLLM_USE_ROCM_SKINNY_GEMM: bool = True
     VLLM_USE_ROCM_CUSTOM_PAGED_ATTN: bool = True
@@ -43,6 +46,7 @@ if TYPE_CHECKING:
     VLLM_SYNC_SERVER_ACCUM_REQUESTS: int = 1
     VLLM_SYNC_SERVER_ENGINE_STEPS_BETWEEN_POLLS: int = 1
     VLLM_MOE_PADDING: bool = True
+    VLLM_FP8_PADDING: bool = False
 
 # The begin-* and end* here are used by the documentation generator
 # to extract the used env vars.
@@ -134,6 +138,21 @@ environment_variables: Dict[str, Callable[[], Any]] = {
     # library file in the locations specified by `LD_LIBRARY_PATH`
     "LD_LIBRARY_PATH":
     lambda: os.environ.get("LD_LIBRARY_PATH", None),
+
+    # flag to tell vllm to prefer torch on ROCm
+    "VLLM_ROCM_PREFER_TORCH":
+    lambda: (os.environ.get("VLLM_ROCM_PREFER_TORCH", "False").lower() in
+             ("true", "1")),
+
+    # flag to tell vllm to prefer triton on ROCm
+    "VLLM_ROCM_PREFER_TRITON":
+    lambda: (os.environ.get("VLLM_ROCM_PREFER_TRITON", "True").lower() in
+             ("true", "1")),
+
+    # flag to control if vllm should use naive scaled dot-product attention
+    "VLLM_USE_SDPA_ATTENTION":
+    lambda: (os.environ.get("VLLM_USE_SDPA_ATTENTION", "False").lower() in
+             ("true", "1")),
 
     # flag to control if vllm should use triton flash attention
     "VLLM_USE_TRITON_FLASH_ATTN":
@@ -246,6 +265,14 @@ environment_variables: Dict[str, Callable[[], Any]] = {
     # Pad the weight for moe kernel or not
     "VLLM_MOE_PADDING":
     lambda: bool(int(os.getenv("VLLM_MOE_PADDING", "1"))),
+
+    # If set, vllm will print verbose logs during installation
+    "VLLM_USE_TRITON_AWQ":
+    lambda: bool(int(os.getenv("VLLM_USE_TRITON_AWQ", '1'))),
+
+    # Pad the weight for fp8 linear kernel or not
+    "VLLM_FP8_PADDING":
+    lambda: bool(int(os.getenv("VLLM_FP8_PADDING", "0"))),
 }
 
 # end-env-vars-definition
