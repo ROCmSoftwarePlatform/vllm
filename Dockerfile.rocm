@@ -1,14 +1,14 @@
 # default base image
-ARG BASE_IMAGE="rocm/pytorch-private:20240819_exec_dashboard_unified_rc3_added_triton_fa_vllm"
+ARG BASE_IMAGE="rocm/pytorch-private:20240819_exec_dashboard_unified_rc3_added_triton"
 
 ARG COMMON_WORKDIR=/app
 
 # The following ARGs should be "0" or "1". If "1", the respective component will be built and installed on top of the base image
 ARG BUILD_HIPBLASLT="0"
 ARG BUILD_RCCL="0"
-ARG BUILD_FA="0"
+ARG BUILD_FA="1"
 ARG BUILD_CUPY="0"
-ARG BUILD_TRITON="1"
+ARG BUILD_TRITON="0"
 # This ARG should also be "0" or "1". If "1", the vLLM development directory is obtained via git clone.
 # If "0", it is copied in from the local working directory.
 ARG REMOTE_VLLM="0"
@@ -34,6 +34,9 @@ ENV LLVM_SYMBOLIZER_PATH=/opt/rocm/llvm/bin/llvm-symbolizer
 ENV PATH=$PATH:/opt/rocm/bin:/opt/conda/envs/py_3.9/lib/python3.9/site-packages/torch/bin:
 ENV LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/opt/rocm/lib/:/opt/conda/envs/py_3.9/lib/python3.9/site-packages/torch/lib:
 ENV CPLUS_INCLUDE_PATH=$CPLUS_INCLUDE_PATH:/opt/conda/envs/py_3.9/lib/python3.9/site-packages/torch/include:/opt/conda/envs/py_3.9/lib/python3.9/site-packages/torch/include/torch/csrc/api/include/:/opt/rocm/include/:
+
+# Install Pytorch 2.5
+RUN python3 -m pip install --no-cache-dir --pre torch==2.5.0.dev20240826  torchvision==0.20.0.dev20240826 --index-url https://download.pytorch.org/whl/nightly/rocm6.2
 
 WORKDIR ${COMMON_WORKDIR}
 
@@ -70,7 +73,7 @@ FROM export_rccl_${BUILD_RCCL} AS export_rccl
 # -----------------------
 # flash attn build stages
 FROM base AS build_flash_attn
-ARG FA_BRANCH="23a2b1c2f21de2289db83de7d42e125586368e66"
+ARG FA_BRANCH="3cea2fb"
 ARG FA_REPO="https://github.com/ROCm/flash-attention.git"
 ARG PYTORCH_ROCM_ARCH="gfx90a;gfx942"
 RUN git clone ${FA_REPO} \
