@@ -132,7 +132,6 @@ class FBGEMMFp8LinearMethod(LinearMethodBase):
                 layer.input_scale = Parameter(input_scale, requires_grad=False)
             layer.weight_scale = Parameter(weight_scale, requires_grad=False)
 
-
         layer.weight = Parameter(weight.t(), requires_grad=False)
         if self.quant_config.use_marlin:
             prepare_fp8_layer_for_marlin(layer)
