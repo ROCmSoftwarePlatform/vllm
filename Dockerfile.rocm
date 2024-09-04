@@ -1,17 +1,16 @@
 # default base image
-ARG BASE_IMAGE="rocm/pytorch:rocm6.2_ubuntu20.04_py3.9_pytorch_staging"
+ARG BASE_IMAGE="rocm/pytorch:rocm6.1.2_ubuntu20.04_py3.9_pytorch_staging"
 
 ARG COMMON_WORKDIR=/app
 
 # The following ARGs should be "0" or "1". If "1", the respective component will be built and installed on top of the base image
-ARG BUILD_HIPBLASLT="0"
-ARG BUILD_RCCL="0"
-ARG BUILD_FA="0"
+ARG BUILD_HIPBLASLT="1"
+ARG BUILD_RCCL="1"
+ARG BUILD_FA="1"
 ARG BUILD_TRITON="1"
 # This ARG should also be "0" or "1". If "1", the vLLM development directory is obtained via git clone.
 # If "0", it is copied in from the local working directory.
 ARG REMOTE_VLLM="0"
-
 
 # -----------------------
 # vLLM base image
@@ -22,35 +21,13 @@ USER root
 ARG BASE_IMAGE
 ARG COMMON_WORKDIR
 # Used as ARCHes for all components
-ARG VLLM_ROCM_ARCH="gfx90a;gfx942"
-ENV PYTORCH_ROCM_ARCH=${VLLM_ROCM_ARCH}
+ARG ARG_PYTORCH_ROCM_ARCH="gfx90a;gfx942"
+ENV PYTORCH_ROCM_ARCH=${ARG_PYTORCH_ROCM_ARCH}
 
 # Install some basic utilities
 RUN apt-get update -q -y && apt-get install -q -y python3 python3-pip
 RUN apt-get update -q -y && apt-get install -q -y \
-    ccache sqlite3 libsqlite3-dev libfmt-dev libmsgpack-dev libsuitesparse-dev
-
-ENV CCACHE_DIR=/root/.cache/ccache
-
-RUN python3 -m pip install --upgrade pip
-# Remove sccache so it doesn't interfere with ccache
-# TODO: implement sccache support across components
-RUN apt-get purge -y sccache; python3 -m pip uninstall -y sccache; rm -f "$(which sccache)"
-# Install torch == 2.5.0 on ROCm
-RUN case "$(ls /opt | grep -Po 'rocm-[0-9]\.[0-9]')" in \
-        *"rocm-6.1"*) \
-            python3 -m pip uninstall -y torch torchvision \
-            && python3 -m pip install --no-cache-dir --pre \
-                torch==2.5.0.dev20240826 \
-                torchvision==0.20.0.dev20240826 \
-               --index-url https://download.pytorch.org/whl/nightly/rocm6.1;; \
-        *"rocm-6.2"*) \
-            python3 -m pip uninstall -y torch torchvision \
-            && python3 -m pip install --no-cache-dir --pre \
-                torch==2.5.0.dev20240826 \
-                torchvision==0.20.0.dev20240826 \
-                --index-url https://download.pytorch.org/whl/nightly/rocm6.2;; \
-        *) ;; esac
+    sqlite3 libsqlite3-dev libfmt-dev libmsgpack-dev libsuitesparse-dev
 
 ENV LLVM_SYMBOLIZER_PATH=/opt/rocm/llvm/bin/llvm-symbolizer
 ENV PATH=$PATH:/opt/rocm/bin:/opt/conda/envs/py_3.9/lib/python3.9/site-packages/torch/bin:
@@ -59,11 +36,10 @@ ENV CPLUS_INCLUDE_PATH=$CPLUS_INCLUDE_PATH:/opt/conda/envs/py_3.9/lib/python3.9/
 
 WORKDIR ${COMMON_WORKDIR}
 
-
 # -----------------------
 # hipBLASLt build stages
 FROM base AS build_hipblaslt
-ARG HIPBLASLT_BRANCH="e784b4c"
+ARG HIPBLASLT_BRANCH="6f65c6e"
 RUN git clone https://github.com/ROCm/hipBLASLt \
     && cd hipBLASLt \
     && git checkout ${HIPBLASLT_BRANCH} \
@@ -76,11 +52,10 @@ COPY --from=build_hipblaslt ${COMMON_WORKDIR}/hipBLASLt/build/release/*.deb /
 FROM scratch AS export_hipblaslt_0
 FROM export_hipblaslt_${BUILD_HIPBLASLT} AS export_hipblaslt
 
-
 # -----------------------
 # RCCL build stages
 FROM base AS build_rccl
-ARG RCCL_BRANCH="833435b"
+ARG RCCL_BRANCH="73221b4"
 RUN git clone https://github.com/ROCm/rccl \
     && cd rccl \
     && git checkout ${RCCL_BRANCH} \
@@ -91,15 +66,14 @@ COPY --from=build_rccl ${COMMON_WORKDIR}/rccl/build/release/*.deb /
 FROM scratch AS export_rccl_0
 FROM export_rccl_${BUILD_RCCL} AS export_rccl
 
-
 # -----------------------
 # flash attn build stages
 FROM base AS build_flash_attn
-ARG FA_BRANCH="23a2b1c"
+ARG FA_BRANCH="ae7928c"
 ARG FA_REPO="https://github.com/ROCm/flash-attention.git"
 RUN git clone ${FA_REPO} \
     && cd flash-attention \
-    && git checkout "${FA_BRANCH}" \
+    && git checkout ${FA_BRANCH} \
     && git submodule update --init \
     && GPU_ARCHS=${PYTORCH_ROCM_ARCH} python3 setup.py bdist_wheel --dist-dir=dist
 FROM scratch AS export_flash_attn_1
@@ -108,15 +82,12 @@ COPY --from=build_flash_attn ${COMMON_WORKDIR}/flash-attention/dist/*.whl /
 FROM scratch AS export_flash_attn_0
 FROM export_flash_attn_${BUILD_FA} AS export_flash_attn
 
-
 # -----------------------
 # Triton build stages
 FROM base AS build_triton
-ARG TRITON_BRANCH="15325e6"
-ARG TRITON_REPO="https://github.com/triton-lang/triton.git"
-RUN --mount=type=cache,target=/root/.cache/pip \
-    python3 -m pip install pybind11 \
-    && git clone ${TRITON_REPO} \
+ARG TRITON_BRANCH="6ddb79b"
+ARG TRITON_REPO="https://github.com/OpenAI/triton.git"
+RUN git clone ${TRITON_REPO} \
     && cd triton \
     && git checkout ${TRITON_BRANCH} \
     && cd python \
@@ -127,14 +98,12 @@ COPY --from=build_triton ${COMMON_WORKDIR}/triton/python/dist/*.whl /
 FROM scratch AS export_triton_0
 FROM export_triton_${BUILD_TRITON} AS export_triton
 
-
 # AMD-SMI build stages
 FROM base AS build_amdsmi
 RUN cd /opt/rocm/share/amd_smi \
-    && python3 -m pip wheel . --wheel-dir=dist
+    && pip wheel . --wheel-dir=dist
 FROM scratch AS export_amdsmi
 COPY --from=build_amdsmi /opt/rocm/share/amd_smi/dist/*.whl /
-
 
 # -----------------------
 # vLLM (and gradlib) fetch stages
@@ -147,7 +116,6 @@ ONBUILD RUN git clone ${VLLM_REPO} \
 	    && cd vllm \
 	    && git checkout ${VLLM_BRANCH}
 FROM fetch_vllm_${REMOTE_VLLM} AS fetch_vllm
-
 
 # -----------------------
 # vLLM (and gradlib) build stages
@@ -162,8 +130,7 @@ if ls /install/*.deb; then \
     && sed -i 's/, hipblaslt \(.*\), hipfft/, hipfft/g' /var/lib/dpkg/status; \
 fi
 # Build vLLM
-RUN --mount=type=cache,target=/root/.cache/ccache \
-    cd vllm \
+RUN cd vllm \
     && python3 setup.py clean --all && python3 setup.py bdist_wheel --dist-dir=dist
 # Build gradlib
 RUN cd vllm/gradlib \
@@ -187,9 +154,20 @@ ARG COMMON_WORKDIR
 ARG BUILD_FA
 
 RUN python3 -m pip install --upgrade pip && rm -rf /var/lib/apt/lists/*
-# Package upgrades for useful functionality or to avoid dependency issues
-RUN --mount=type=cache,target=/root/.cache/pip \
-    python3 -m pip install --upgrade numba scipy huggingface-hub[cli]
+# Error related to odd state for numpy 1.20.3 where there is no METADATA etc, but an extra LICENSES_bundled.txt.
+# Manually remove it so that later steps of numpy upgrade can continue
+RUN case "$(which python3)" in \
+        *"/opt/conda/envs/py_3.9"*) \
+            rm -rf /opt/conda/envs/py_3.9/lib/python3.9/site-packages/numpy-1.20.3.dist-info/;; \
+        *) ;; esac
+
+RUN --mount=type=bind,from=export_hipblaslt,src=/,target=/install \
+    if ls /install/*.deb; then \
+        apt-get purge -y hipblaslt \
+        && dpkg -i /install/*.deb \
+        && sed -i 's/, hipblaslt-dev \(.*\), hipcub-dev/, hipcub-dev/g' /var/lib/dpkg/status \
+        && sed -i 's/, hipblaslt \(.*\), hipfft/, hipfft/g' /var/lib/dpkg/status; \
+    fi
 
 RUN --mount=type=bind,from=export_rccl,src=/,target=/install \
     if ls /install/*.deb; then \
@@ -222,14 +200,16 @@ RUN --mount=type=bind,from=export_amdsmi,src=/,target=/install \
 RUN python3 -m pip install --upgrade numba scipy huggingface-hub[cli]
 
 # Install vLLM (and gradlib)
+# Make sure punica kernels are built (for LoRA)
+ENV VLLM_INSTALL_PUNICA_KERNELS=1
 RUN --mount=type=bind,from=export_vllm,src=/,target=/install \
     cd /install \
     && pip install -U -r requirements-rocm.txt \
     && case "$(ls /opt | grep -Po 'rocm-[0-9]\.[0-9]')" in \
+           *"rocm-6.0"*) \
+               patch /opt/rocm/include/hip/amd_detail/amd_hip_bf16.h rocm_patch/rocm_bf16.patch;; \
            *"rocm-6.1"*) \
-               cp rocm_patch/libamdhip64.so.6 /opt/rocm/lib/libamdhip64.so.6 \
-               # Prevent interference if torch bundles its own HIP runtime
-               && rm -f "$(python3 -c 'import torch; print(torch.__path__[0])')"/lib/libamdhip64.so* || true;; \
+               cp rocm_patch/libamdhip64.so.6 /opt/rocm/lib/libamdhip64.so.6;; \
            *) ;; esac \
     && pip uninstall -y vllm gradlib \
     && pip install *.whl
@@ -240,6 +220,7 @@ COPY --from=export_vllm /tests ${COMMON_WORKDIR}/vllm/tests
 COPY --from=export_vllm /examples ${COMMON_WORKDIR}/vllm/examples
 COPY --from=export_vllm /.buildkite ${COMMON_WORKDIR}/vllm/.buildkite
 
+
 ENV RAY_EXPERIMENTAL_NOSET_ROCR_VISIBLE_DEVICES=1
 ENV TOKENIZERS_PARALLELISM=false
 
@@ -247,3 +228,4 @@ ENV TOKENIZERS_PARALLELISM=false
 ENV HIP_FORCE_DEV_KERNARG=1
 
 CMD ["/bin/bash"]
+
