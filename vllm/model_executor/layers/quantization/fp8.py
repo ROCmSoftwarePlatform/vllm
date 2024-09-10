@@ -3,6 +3,7 @@ from typing import Any, Callable, Dict, List, Optional
 import torch
 from torch.nn import Module
 from torch.nn.parameter import Parameter
+import torch.nn.functional as F
 
 import vllm.envs as envs
 from vllm import _custom_ops as ops
@@ -242,6 +243,11 @@ class Fp8LinearMethod(LinearMethodBase):
                     weight_scale=weight_scale,
                     logical_widths=layer.logical_widths,
                 )
+
+            # Pad the weight
+            if envs.VLLM_FP8_PADDING:
+                weight = F.pad(weight, (0,256), "constant", 0)[...,:-256]
+                torch.cuda.empty_cache()
 
             # Update layer with new values.
             layer.weight = Parameter(weight.t(), requires_grad=False)
