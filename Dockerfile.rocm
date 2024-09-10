@@ -112,14 +112,21 @@ COPY --from=build_amdsmi /opt/rocm/share/amd_smi/dist/*.whl /
 
 FROM base as build_pytorch
 ARG PYTORCH_BRANCH="v2.5.0-rc1"
+ARG PYTORCH_VISION_BRANCH="v1.19.1"
 ARG PYTORCH_REPO="https://github.com/pytorch/pytorch.git"
-RUN git clone --branch ${PYTORCH_BRANCH} --depth 1 ${PYTORCH_REPO} \
+ARG PYTORCH_VISION_REPO="https://github.com/pytorch/vision.git"
+RUN git clone --branch ${PYTORCH_BRANCH} --depth 1 ${PYTORCH_REPO} pytorch \
     && cd pytorch \
     && python tools/amd_build/build_amd.py \
-    && CMAKE_PREFIX_PATH=$(python3 -c 'import sys; print(sys.prefix)') python3 setup.py bdist_wheel --dist-dir=dist
+    && CMAKE_PREFIX_PATH=$(python3 -c 'import sys; print(sys.prefix)') python3 setup.py bdist_wheel --dist-dir=dist \
+    && cd .. \
+    && git clone --branch ${PYTORCH_VISION_BRANCH} --depth 1 ${PYTORCH_VISION_REPO} vision \
+    && cd vision \
+    && python3 setup.py bdist_wheel --dist-dir=dist
 FROM scratch as export_pytorch_1
 ARG COMMON_WORKDIR
 COPY --from=build_pytorch ${COMMON_WORKDIR}/pytorch/dist/*.whl /
+COPY --from=build_pytorch ${COMMON_WORKDIR}/vision/dist/*.whl /
 FROM scratch as export_pytorch_0
 from export_pytorch_${BUILD_PYTORCH} as export_pytorch
 
@@ -219,6 +226,14 @@ RUN --mount=type=bind,from=export_amdsmi,src=/,target=/install \
     # Preemptively uninstall to prevent pip same-version no-installs
     pip uninstall -y amdsmi \
     && pip install /install/*.whl;
+
+RUN --mount=type=bind,from=export_pytorch,src=/,target=/install \
+    if ls /install/*.whl; then \
+        # Preemptively uninstall to prevent pip same-version no-installs
+        pip uninstall -y torch torchvision \
+        && pip install /install/*.whl \
+        && python3 -m pip install --no-cache-dir --pre torchvision --index-url https://download.pytorch.org/whl/nightly/rocm6.2; \
+    fi
 
 RUN python3 -m pip install --upgrade numba scipy huggingface-hub[cli]
 
