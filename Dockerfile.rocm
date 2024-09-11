@@ -4,7 +4,7 @@ ARG BASE_IMAGE="rocm/pytorch:rocm6.2_ubuntu20.04_py3.9_pytorch_release_2.3.0"
 ARG COMMON_WORKDIR=/app
 
 # The following ARGs should be "0" or "1". If "1", the respective component will be built and installed on top of the base image
-ARG BUILD_HIPBLASLT="1"
+ARG BUILD_HIPBLASLT="0"
 ARG BUILD_RCCL="1"
 ARG BUILD_FA="1"
 ARG BUILD_TRITON="1"
@@ -44,7 +44,9 @@ ARG HIPBLASLT_BRANCH="rocm-6.2.0"
 RUN git clone https://github.com/ROCm/hipBLAS-common.git \
     && cd hipBLAS-common \
     && mkdir build && cd build && cmake .. && make package && dpkg -i ./*.deb \
-    && cd ../.. && git clone https://github.com/ROCm/hipBLASLt \
+    && cd ../.. && git clone https://github.com/ROCm/hipBLAS && cd hipBLAS \
+    && git checkout rocm-6.2.0 && ./install.sh && cd build/release && make package && dpkg -i ./*.deb \
+    && cd ../../.. && git clone https://github.com/ROCm/hipBLASLt.git \
     && cd hipBLASLt \
     && git checkout ${HIPBLASLT_BRANCH} \
     && SCCACHE_IDLE_TIMEOUT=1800 ./install.sh --architecture ${PYTORCH_ROCM_ARCH} \
@@ -53,6 +55,7 @@ RUN git clone https://github.com/ROCm/hipBLAS-common.git \
 FROM scratch AS export_hipblaslt_1
 ARG COMMON_WORKDIR
 COPY --from=build_hipblaslt ${COMMON_WORKDIR}/hipBLAS-common/build/*.deb /
+COPY --from=build_hipblaslt ${COMMON_WORKDIR}/hipBLAS/build/release/*.deb /
 COPY --from=build_hipblaslt ${COMMON_WORKDIR}/hipBLASLt/build/release/*.deb /
 FROM scratch AS export_hipblaslt_0
 FROM export_hipblaslt_${BUILD_HIPBLASLT} AS export_hipblaslt
@@ -112,16 +115,17 @@ COPY --from=build_amdsmi /opt/rocm/share/amd_smi/dist/*.whl /
 
 FROM base as build_pytorch
 ARG PYTORCH_BRANCH="v2.5.0-rc1"
-ARG PYTORCH_VISION_BRANCH="v1.19.1"
+ARG PYTORCH_VISION_BRANCH="v0.19.1"
 ARG PYTORCH_REPO="https://github.com/pytorch/pytorch.git"
 ARG PYTORCH_VISION_REPO="https://github.com/pytorch/vision.git"
-RUN git clone --branch ${PYTORCH_BRANCH} --depth 1 ${PYTORCH_REPO} pytorch \
-    && cd pytorch \
+RUN git clone ${PYTORCH_REPO} pytorch \
+    && cd pytorch && git checkout ${PYTORCH_BRANCH} && git submodule update --init --recursive \
     && python tools/amd_build/build_amd.py \
     && CMAKE_PREFIX_PATH=$(python3 -c 'import sys; print(sys.prefix)') python3 setup.py bdist_wheel --dist-dir=dist \
+    && pip install dist/*.whl \
     && cd .. \
-    && git clone --branch ${PYTORCH_VISION_BRANCH} --depth 1 ${PYTORCH_VISION_REPO} vision \
-    && cd vision \
+    && git clone ${PYTORCH_VISION_REPO} vision \
+    && cd vision && git checkout ${PYTORCH_VISION_BRANCH} \
     && python3 setup.py bdist_wheel --dist-dir=dist
 FROM scratch as export_pytorch_1
 ARG COMMON_WORKDIR
@@ -149,7 +153,7 @@ ARG COMMON_WORKDIR
 # Install hipblaslt
 RUN --mount=type=bind,from=export_hipblaslt,src=/,target=/install \
 if ls /install/*.deb; then \
-    apt-get purge -y hipblaslt \
+    apt-get purge -y hipblaslt hipblas \
     && dpkg -i /install/*.deb \
     && sed -i 's/, hipblaslt-dev \(.*\), hipcub-dev/, hipcub-dev/g' /var/lib/dpkg/status \
     && sed -i 's/, hipblaslt \(.*\), hipfft/, hipfft/g' /var/lib/dpkg/status; \
@@ -193,7 +197,7 @@ RUN case "$(which python3)" in \
 
 RUN --mount=type=bind,from=export_hipblaslt,src=/,target=/install \
     if ls /install/*.deb; then \
-        apt-get purge -y hipblaslt \
+        apt-get purge -y hipblaslt hipblas \
         && dpkg -i /install/*.deb \
         && sed -i 's/, hipblaslt-dev \(.*\), hipcub-dev/, hipcub-dev/g' /var/lib/dpkg/status \
         && sed -i 's/, hipblaslt \(.*\), hipfft/, hipfft/g' /var/lib/dpkg/status; \
@@ -231,8 +235,7 @@ RUN --mount=type=bind,from=export_pytorch,src=/,target=/install \
     if ls /install/*.whl; then \
         # Preemptively uninstall to prevent pip same-version no-installs
         pip uninstall -y torch torchvision \
-        && pip install /install/*.whl \
-        && python3 -m pip install --no-cache-dir --pre torchvision --index-url https://download.pytorch.org/whl/nightly/rocm6.2; \
+        && pip install /install/*.whl; \
     fi
 
 RUN python3 -m pip install --upgrade numba scipy huggingface-hub[cli]
