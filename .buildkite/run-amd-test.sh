@@ -1,7 +1,16 @@
 # This script runs test inside the corresponding ROCm docker container.
-set -ex
+set -o pipefail
 
 # Print ROCm version
+echo "--- Confirming Clean Initial State"
+while true; do
+        sleep 3
+        if grep -q clean /opt/amdgpu/etc/gpu_state; then
+                echo "GPUs state is \"clean\""
+                break
+        fi
+done
+
 echo "--- ROCm info"
 rocminfo
 
@@ -45,15 +54,10 @@ while true; do
         fi
 done
 
-echo "--- Building container"
-sha=$(git rev-parse --short HEAD)
-image_name=rocm_${sha}
-container_name=rocm_${sha}_$(tr -dc A-Za-z0-9 < /dev/urandom | head -c 10; echo)
-docker build \
-        -t ${image_name} \
-        -f Dockerfile.rocm \
-        --progress plain \
-        .
+echo "--- Pulling container" 
+image_name="rocm/vllm-ci:${BUILDKITE_COMMIT}"
+container_name="rocm_${BUILDKITE_COMMIT}_$(tr -dc A-Za-z0-9 < /dev/urandom | head -c 10; echo)"
+docker pull ${image_name}
 
 remove_docker_container() {
    docker rm -f ${container_name} || docker image rm -f ${image_name} || true
@@ -62,12 +66,55 @@ trap remove_docker_container EXIT
 
 echo "--- Running container"
 
-docker run \
+HF_CACHE="$(realpath ~)/huggingface"
+mkdir -p ${HF_CACHE}
+HF_MOUNT="/root/.cache/huggingface"
+
+commands=$@
+PARALLEL_JOB_COUNT=8
+# check if the command contains shard flag, we will run all shards in parallel because the host have 8 GPUs. 
+if [[ $commands == *"--shard-id="* ]]; then
+  for GPU in $(seq 0 $(($PARALLEL_JOB_COUNT-1))); do
+    #replace shard arguments
+    commands=${@//"--shard-id= "/"--shard-id=${GPU} "}
+    commands=${commands//"--num-shards= "/"--num-shards=${PARALLEL_JOB_COUNT} "}
+    docker run \
         --device /dev/kfd --device /dev/dri \
         --network host \
+        --shm-size=16gb \
         --rm \
+        -e HIP_VISIBLE_DEVICES=${GPU} \
         -e HF_TOKEN \
-        --name ${container_name} \
+        -v ${HF_CACHE}:${HF_MOUNT} \
+        -e HF_HOME=${HF_MOUNT} \
+        --name ${container_name}_${GPU}  \
         ${image_name} \
-        /bin/bash -c "${@}"
-
+        /bin/bash -c "${commands}" \
+        |& while read -r line; do echo ">>Shard $GPU: $line"; done &
+    PIDS+=($!)
+  done
+  #wait for all processes to finish and collect exit codes
+  for pid in ${PIDS[@]}; do
+    wait ${pid}
+    STATUS+=($?)
+  done
+  for st in ${STATUS[@]}; do
+    if [[ ${st} -ne 0 ]]; then
+      echo "One of the processes failed with $st"
+      exit ${st}
+    fi
+  done
+else
+  docker run \
+          --device /dev/kfd --device /dev/dri \
+          --network host \
+          --shm-size=16gb \
+          --rm \
+          -e HIP_VISIBLE_DEVICES=0 \
+          -e HF_TOKEN \
+          -v ${HF_CACHE}:${HF_MOUNT} \
+          -e HF_HOME=${HF_MOUNT} \
+          --name ${container_name} \
+          ${image_name} \
+          /bin/bash -c "${commands}"
+fi
