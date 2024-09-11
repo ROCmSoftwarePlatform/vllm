@@ -23,20 +23,6 @@
   #define UNREACHABLE_CODE assert(false);
 #endif
 
-#if defined(__HIPCC__) && (defined(__gfx90a__) || defined(__gfx940__) || \
-                           defined(__gfx941__) || defined(__gfx942__))
-  #define __HIP__MI300_MI250__
-#endif
-
-#if defined(NDEBUG)
-  #undef NDEBUG
-  #include <assert.h>
-  #define UNREACHABLE_CODE assert(false);
-  #define NDEBUG
-#else
-  #define UNREACHABLE_CODE assert(false);
-#endif
-
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 #define DIVIDE_ROUND_UP(a, b) (((a) + (b) - 1) / (b))
@@ -61,7 +47,6 @@ typedef struct _B16x8 {
   _B16x4 xy[2];
 } _B16x8;
 
-using _B8x2x2 = uint32_t;
 using _B8x8 = uint2;
 
 ////// Non temporal load stores ///////
@@ -403,14 +388,7 @@ __global__ __launch_bounds__(NUM_THREADS) void paged_attention_ll4mi_QKV_kernel(
         const int offset1 = head_elem / X;
         const int offset2 = head_elem % X;
         const cache_t* k_ptr3 = k_ptr2 + offset1 * BLOCK_SIZE * X + offset2;
-        //_B8x8 Klocalb8 = *reinterpret_cast<const _B8x8*>(k_ptr3);
         Klocalb8[d] = *reinterpret_cast<const _B8x8*>(k_ptr3);
-        // union alignas(16){
-        //   uint4 u4;
-        //   _B16x8 u16x8;
-        // } tmp;
-        // tmp.u4 = vllm::fp8::scaled_convert<uint4, _B8x8, KV_DTYPE>(Klocalb8,
-        // k_scale); Klocal[d] = tmp.u16x8;
       }
     }
 
@@ -684,22 +662,6 @@ __global__ __launch_bounds__(NUM_THREADS) void paged_attention_ll4mi_QKV_kernel(
       }
     }
   } else {  // warp in context
-  #if 0
-    if constexpr (KV_DTYPE != vllm::Fp8KVCacheDataType::kAuto) {
-    #pragma unroll
-      for (int vh = 0; vh < VHELOOP; vh++) {
-    #pragma unroll
-        for (int vt = 0; vt < VTLOOP; vt++) {
-            union alignas(16){
-              uint4 u4;
-              _B16x8 u16x8;
-            } tmp;
-            tmp.u4 = vllm::fp8::scaled_convert<uint4, _B8x8, KV_DTYPE>(Vlocalb8[vh][vt], v_scale);
-            Vlocal[vh][vt] = tmp.u16x8;
-        }
-      }
-    }
-  #endif
   // iterate across heads
   #pragma unroll
     for (int qh = 0; qh < QHLOOP; qh++) {
@@ -964,11 +926,11 @@ template <typename scalar_t, typename cache_t,
           int NUM_THREADS,
           int GQA_RATIO>
 __global__ __launch_bounds__(NUM_THREADS) void paged_attention_ll4mi_QKV_kernel(
-    const scalar_t* __restrict__ q,        // [num_seqs, num_heads, head_size]
+    const scalar_t* __restrict__ q,       // [num_seqs, num_heads, head_size]
     const cache_t* __restrict__ k_cache,  // [num_blocks, num_kv_heads,
-                                           // head_size/x, block_size, x]
+                                          // head_size/x, block_size, x]
     const cache_t* __restrict__ v_cache,  // [num_blocks, num_kv_heads,
-                                           // head_size, block_size]
+                                          // head_size, block_size]
     const int num_kv_heads, const float scale,
     const int* __restrict__ block_tables,  // [num_seqs, max_num_blocks_per_seq]
     const int* __restrict__ context_lens,  // [num_seqs]

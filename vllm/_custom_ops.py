@@ -687,13 +687,10 @@ def paged_attention_custom(
     k_scale: int,
     v_scale: int,
 ) -> None:
-    torch.ops._custom_C.paged_attention_custom(out, exp_sum, max_logits,
-                                               tmp_out, query, key_cache,
-                                               value_cache, num_kv_heads,
-                                               scale, block_tables, seq_lens,
-                                               block_size, max_seq_len,
-                                               alibi_slopes, kv_cache_dtype,
-                                               k_scale, v_scale)
+    torch.ops._custom_C.paged_attention_custom(
+        out, exp_sum, max_logits, tmp_out, query, key_cache, value_cache,
+        num_kv_heads, scale, block_tables, seq_lens, block_size, max_seq_len,
+        alibi_slopes, kv_cache_dtype, k_scale, v_scale)
 
 
 def wvSpltK(a: torch.Tensor, b: torch.Tensor, out: torch.Tensor, N: int,
