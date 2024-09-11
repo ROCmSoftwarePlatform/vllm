@@ -1,9 +1,9 @@
 from typing import Any, Callable, Dict, List, Optional
 
 import torch
+import torch.nn.functional as F
 from torch.nn import Module
 from torch.nn.parameter import Parameter
-import torch.nn.functional as F
 
 import vllm.envs as envs
 from vllm import _custom_ops as ops
@@ -123,6 +123,7 @@ class Fp8LinearMethod(LinearMethodBase):
         # kernel for fast weight-only FP8 quantization
         capability = current_platform.get_device_capability()
         capability = capability[0] * 10 + capability[1]
+        self.out_dtype = torch.get_default_dtype()
         self.use_marlin = capability < 89 or envs.VLLM_TEST_FORCE_FP8_MARLIN
         # Disable marlin for rocm
         if is_hip():
@@ -246,7 +247,7 @@ class Fp8LinearMethod(LinearMethodBase):
 
             # Pad the weight
             if envs.VLLM_FP8_PADDING:
-                weight = F.pad(weight, (0,256), "constant", 0)[...,:-256]
+                weight = F.pad(weight, (0, 256), "constant", 0)[..., :-256]
                 torch.cuda.empty_cache()
 
             # Update layer with new values.
@@ -280,6 +281,7 @@ class Fp8LinearMethod(LinearMethodBase):
             input=x,
             weight=layer.weight,
             weight_scale=layer.weight_scale,
+            out_dtype=self.out_dtype,
             input_scale=layer.input_scale,
             bias=bias,
             cutlass_fp8_supported=self.cutlass_fp8_supported,

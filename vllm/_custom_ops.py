@@ -49,6 +49,11 @@ def silu_and_mul(out: torch.Tensor, x: torch.Tensor) -> None:
     torch.ops._C.silu_and_mul(out, x)
 
 
+def scaled_silu_and_mul(out: torch.Tensor, x: torch.Tensor,
+                        scale: torch.Tensor) -> None:
+    torch.ops._C.scaled_silu_and_mul(out, x, scale)
+
+
 def gelu_and_mul(out: torch.Tensor, x: torch.Tensor) -> None:
     torch.ops._C.gelu_and_mul(out, x)
 

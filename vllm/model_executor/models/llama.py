@@ -42,6 +42,7 @@ from vllm.model_executor.layers.quantization.base_config import (
     QuantizationConfig)
 from vllm.model_executor.layers.quantization.compressed_tensors.utils import (
     get_compressed_tensors_cache_scale)
+from vllm.model_executor.layers.quantization.fp8 import Fp8Config
 from vllm.model_executor.layers.rotary_embedding import get_rope
 from vllm.model_executor.layers.sampler import Sampler, SamplerOutput
 from vllm.model_executor.layers.vocab_parallel_embedding import (
@@ -79,6 +80,7 @@ class LlamaMLP(nn.Module):
                                            bias=bias,
                                            quant_config=quant_config,
                                            prefix=f"{prefix}.down_proj")
+        self.use_fp8 = isinstance(quant_config, Fp8Config)
         if hidden_act != "silu":
             raise ValueError(f"Unsupported activation: {hidden_act}. "
                              "Only silu is supported for now.")
@@ -95,7 +97,8 @@ class LlamaMLP(nn.Module):
             x = out.view(x.shape[0], x.shape[1], out.shape[1])
         else:
             gate_up, _ = self.gate_up_proj(x)
-            x = self.act_fn(gate_up)
+            x = self.act_fn(
+                gate_up, self.down_proj.input_scale if self.use_fp8 else None)
         x, _ = self.down_proj(x)
         return x
 
