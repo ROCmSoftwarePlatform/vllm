@@ -256,7 +256,8 @@ class LlamaDecoderLayer(nn.Module):
         residual: Optional[torch.Tensor],
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         # Self Attention
-        scale = None if not self.use_fp8 else self.self_attn.qkv_proj.input_scale
+        scale = None if not self.use_fp8 else \
+            self.self_attn.qkv_proj.input_scale
         if residual is None:
             residual = hidden_states
             hidden_states = self.input_layernorm(hidden_states, None, scale)
