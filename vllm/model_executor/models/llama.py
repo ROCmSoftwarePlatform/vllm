@@ -207,6 +207,7 @@ class LlamaDecoderLayer(nn.Module):
     ) -> None:
         super().__init__()
         self.hidden_size = config.hidden_size
+        self.use_fp8 = isinstance(quant_config, Fp8Config)
         rope_theta = getattr(config, "rope_theta", 10000)
         rope_scaling = getattr(config, "rope_scaling", None)
         if rope_scaling is not None and getattr(
@@ -255,12 +256,13 @@ class LlamaDecoderLayer(nn.Module):
         residual: Optional[torch.Tensor],
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         # Self Attention
+        scale = None if not self.use_fp8 else self.self_attn.qkv_proj.input_scale
         if residual is None:
             residual = hidden_states
-            hidden_states = self.input_layernorm(hidden_states)
+            hidden_states = self.input_layernorm(hidden_states, None, scale)
         else:
             hidden_states, residual = self.input_layernorm(
-                hidden_states, residual)
+                hidden_states, residual, scale)
         hidden_states = self.self_attn(
             positions=positions,
             hidden_states=hidden_states,
@@ -269,8 +271,9 @@ class LlamaDecoderLayer(nn.Module):
         )
 
         # Fully Connected
+        scale = None if not self.use_fp8 else self.mlp.gate_up_proj.input_scale
         hidden_states, residual = self.post_attention_layernorm(
-            hidden_states, residual)
+            hidden_states, residual, scale)
         hidden_states = self.mlp(hidden_states)
         return hidden_states, residual
 
