@@ -82,7 +82,7 @@ __global__ void rms_norm_kernel(
       reinterpret_cast<vec8_t<scalar_t> const*>(weight);
   const int vec_hidden_size = hidden_size >> 3;
 
-  // Compute variance. Be carefull, hidden_size should multiple of 4.
+  // Compute variance. Be careful, hidden_size should multiple of 4.
   for (int idx = threadIdx.x; idx < vec_hidden_size; idx += blockDim.x) {
     vec8_t<scalar_t> x = vectorized_in[blockIdx.x * vec_hidden_size + idx];
     v8_variance += x * x;
