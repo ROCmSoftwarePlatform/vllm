@@ -49,6 +49,11 @@ def silu_and_mul(out: torch.Tensor, x: torch.Tensor) -> None:
     torch.ops._C.silu_and_mul(out, x)
 
 
+def scaled_silu_and_mul(out: torch.Tensor, x: torch.Tensor,
+                        scale: torch.Tensor) -> None:
+    torch.ops._C.scaled_silu_and_mul(out, x, scale)
+
+
 def gelu_and_mul(out: torch.Tensor, x: torch.Tensor) -> None:
     torch.ops._C.gelu_and_mul(out, x)
 
@@ -163,6 +168,19 @@ def rms_norm(out: torch.Tensor, input: torch.Tensor, weight: torch.Tensor,
 def fused_add_rms_norm(input: torch.Tensor, residual: torch.Tensor,
                        weight: torch.Tensor, epsilon: float) -> None:
     torch.ops._C.fused_add_rms_norm(input, residual, weight, epsilon)
+
+
+def scaled_rms_norm(out: torch.Tensor, input: torch.Tensor,
+                    weight: torch.Tensor, scale: torch.Tensor,
+                    epsilon: float) -> None:
+    torch.ops._C.scaled_rms_norm(out, input, weight, scale, epsilon)
+
+
+def scaled_fused_add_rms_norm(out: torch.Tensor, input: torch.Tensor,
+                              residual: torch.Tensor, weight: torch.Tensor,
+                              scale: torch.Tensor, epsilon: float) -> None:
+    torch.ops._C.scaled_fused_add_rms_norm(out, input, residual, weight, scale,
+                                           epsilon)
 
 
 def advance_step(num_seqs: int, num_queries: int, block_size: int,
@@ -684,13 +702,13 @@ def paged_attention_custom(
     max_seq_len: int,
     alibi_slopes: Optional[torch.Tensor],
     kv_cache_dtype: str,
+    k_scale: int,
+    v_scale: int,
 ) -> None:
-    torch.ops._custom_C.paged_attention_custom(out, exp_sum, max_logits,
-                                               tmp_out, query, key_cache,
-                                               value_cache, num_kv_heads,
-                                               scale, block_tables, seq_lens,
-                                               block_size, max_seq_len,
-                                               alibi_slopes, kv_cache_dtype)
+    torch.ops._custom_C.paged_attention_custom(
+        out, exp_sum, max_logits, tmp_out, query, key_cache, value_cache,
+        num_kv_heads, scale, block_tables, seq_lens, block_size, max_seq_len,
+        alibi_slopes, kv_cache_dtype, k_scale, v_scale)
 
 
 def wvSpltK(a: torch.Tensor, b: torch.Tensor, out: torch.Tensor, N: int,
