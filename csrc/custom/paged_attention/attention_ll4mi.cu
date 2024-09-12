@@ -236,6 +236,26 @@ __device__ __forceinline__ _B16x4 addx4(const _B16x4& inp1,
   }
 }
 
+template <typename T, vllm::Fp8KVCacheDataType KV_DTYPE>
+__device__ __forceinline__ _B16x8 scaled_convert_b8x8(const _B8x8 input,
+                                                      const float scale) {
+  union alignas(16) {
+    uint4 u4;
+    _B16x8 u16x8;
+    vllm::bf16_8_t b16x8;
+  } tmp;
+  if constexpr (std::is_same<T, _Float16>::value) {
+    tmp.u4 = vllm::fp8::scaled_convert<uint4, _B8x8, KV_DTYPE>(input, scale);
+    return tmp.u16x8;
+  } else if constexpr (std::is_same<T, __hip_bfloat16>::value) {
+    tmp.b16x8 = vllm::fp8::scaled_convert<vllm::bf16_8_t, _B8x8, KV_DTYPE>(
+        input, scale);
+    return tmp.u16x8;
+  } else {
+    static_assert(false, "unsupported 16b dtype");
+  }
+}
+
 ///////////////////////////////////////
 
 // grid (num_seqs, num_partitions,num_heads/gqa_ratio)
@@ -348,6 +368,7 @@ __global__ __launch_bounds__(NUM_THREADS) void paged_attention_ll4mi_QKV_kernel(
           (vblock_idx <= last_ctx_block) ? vblock_idx : last_ctx_block;
       vphysical_blocks[b] = block_table[vblock_idx_ctx];
     }
+
     // each 4 lanes fetch 8 helems, so warp fetches 8*16 = 128 helems
     const scalar_t* q_ptr =
         q + seq_idx * q_stride + wg_start_head_idx * HEAD_SIZE;
@@ -448,13 +469,8 @@ __global__ __launch_bounds__(NUM_THREADS) void paged_attention_ll4mi_QKV_kernel(
           for (int d = 0; d < BLOCK_SIZE / 8; d++) {
             // Vlocalb8[h][b * BLOCK_SIZE / 8 + d] = v_ptrh8be[d];
             const _B8x8 Vlocalb8 = v_ptrh8be[d];
-            union alignas(16) {
-              uint4 u4;
-              _B16x8 u16x8;
-            } tmp;
-            tmp.u4 = vllm::fp8::scaled_convert<uint4, _B8x8, KV_DTYPE>(Vlocalb8,
-                                                                       v_scale);
-            Vlocal[h][b * BLOCK_SIZE / 8 + d] = tmp.u16x8;
+            Vlocal[h][b * BLOCK_SIZE / 8 + d] =
+                scaled_convert_b8x8<scalar_t, KV_DTYPE>(Vlocalb8, v_scale);
           }
         }
       }
@@ -463,13 +479,8 @@ __global__ __launch_bounds__(NUM_THREADS) void paged_attention_ll4mi_QKV_kernel(
     if constexpr (KV_DTYPE != vllm::Fp8KVCacheDataType::kAuto) {
   #pragma unroll
       for (int d = 0; d < KHELOOP; d++) {
-        union alignas(16) {
-          uint4 u4;
-          _B16x8 u16x8;
-        } tmp;
-        tmp.u4 = vllm::fp8::scaled_convert<uint4, _B8x8, KV_DTYPE>(Klocalb8[d],
-                                                                   k_scale);
-        Klocal[d] = tmp.u16x8;
+        Klocal[d] =
+            scaled_convert_b8x8<scalar_t, KV_DTYPE>(Klocalb8[d], k_scale);
       }
     }
 
@@ -662,6 +673,7 @@ __global__ __launch_bounds__(NUM_THREADS) void paged_attention_ll4mi_QKV_kernel(
       }
     }
   } else {  // warp in context
+
   // iterate across heads
   #pragma unroll
     for (int qh = 0; qh < QHLOOP; qh++) {
