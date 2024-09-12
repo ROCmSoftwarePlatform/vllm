@@ -41,21 +41,15 @@ WORKDIR ${COMMON_WORKDIR}
 # hipBLASLt build stages
 FROM base AS build_hipblaslt
 ARG HIPBLASLT_BRANCH="rocm-6.2.0"
-RUN git clone https://github.com/ROCm/hipBLAS-common.git \
-    && cd hipBLAS-common \
-    && mkdir build && cd build && cmake .. && make package && dpkg -i ./*.deb \
-    && cd ../.. && git clone https://github.com/ROCm/hipBLAS && cd hipBLAS \
-    && git checkout rocm-6.2.0 && ./install.sh && cd build/release && make package && dpkg -i ./*.deb \
-    && cd ../../.. && git clone https://github.com/ROCm/hipBLASLt.git \
+RUN apt-get purge -y hipblaslt \
+    && git clone https://github.com/ROCm/hipBLASLt.git \
     && cd hipBLASLt \
     && git checkout ${HIPBLASLT_BRANCH} \
-    && SCCACHE_IDLE_TIMEOUT=1800 ./install.sh --architecture ${PYTORCH_ROCM_ARCH} \
+    && SCCACHE_IDLE_TIMEOUT=1800 ./install.sh --architecture ${PYTORCH_ROCM_ARCH} --legacy_hipblas_direct \
     && cd build/release \
     && make package
 FROM scratch AS export_hipblaslt_1
 ARG COMMON_WORKDIR
-COPY --from=build_hipblaslt ${COMMON_WORKDIR}/hipBLAS-common/build/*.deb /
-COPY --from=build_hipblaslt ${COMMON_WORKDIR}/hipBLAS/build/release/*.deb /
 COPY --from=build_hipblaslt ${COMMON_WORKDIR}/hipBLASLt/build/release/*.deb /
 FROM scratch AS export_hipblaslt_0
 FROM export_hipblaslt_${BUILD_HIPBLASLT} AS export_hipblaslt
@@ -153,7 +147,7 @@ ARG COMMON_WORKDIR
 # Install hipblaslt
 RUN --mount=type=bind,from=export_hipblaslt,src=/,target=/install \
 if ls /install/*.deb; then \
-    apt-get purge -y hipblaslt hipblas \
+    apt-get purge -y hipblaslt \
     && dpkg -i /install/*.deb \
     && sed -i 's/, hipblaslt-dev \(.*\), hipcub-dev/, hipcub-dev/g' /var/lib/dpkg/status \
     && sed -i 's/, hipblaslt \(.*\), hipfft/, hipfft/g' /var/lib/dpkg/status; \
@@ -197,7 +191,7 @@ RUN case "$(which python3)" in \
 
 RUN --mount=type=bind,from=export_hipblaslt,src=/,target=/install \
     if ls /install/*.deb; then \
-        apt-get purge -y hipblaslt hipblas \
+        apt-get purge -y hipblaslt \
         && dpkg -i /install/*.deb \
         && sed -i 's/, hipblaslt-dev \(.*\), hipcub-dev/, hipcub-dev/g' /var/lib/dpkg/status \
         && sed -i 's/, hipblaslt \(.*\), hipfft/, hipfft/g' /var/lib/dpkg/status; \
