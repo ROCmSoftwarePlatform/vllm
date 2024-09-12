@@ -18,12 +18,11 @@ from vllm.logger import init_logger
 # yapf: disable
 from vllm.transformers_utils.configs import (ChatGLMConfig, DbrxConfig,
                                              EAGLEConfig, ExaoneConfig,
-                                             GraniteConfig, InternVLChatConfig,
-                                             JAISConfig, MedusaConfig,
-                                             MLPSpeculatorConfig, MPTConfig,
-                                             NemotronConfig, RWConfig,
-                                             UltravoxConfig,
-                                             Grok1Config)
+                                             GraniteConfig, Grok1Config,
+                                             InternVLChatConfig, JAISConfig,
+                                             MedusaConfig, MLPSpeculatorConfig,
+                                             MPTConfig, NemotronConfig,
+                                             RWConfig, UltravoxConfig)
 # yapf: enable
 from vllm.transformers_utils.utils import check_gguf_file
 

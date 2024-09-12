@@ -26,7 +26,6 @@ from typing import Iterable, List, Optional, Tuple
 
 import torch
 from torch import nn
-from vllm.transformers_utils.configs import Grok1Config
 
 from vllm.attention import Attention, AttentionMetadata
 from vllm.config import CacheConfig, LoRAConfig
@@ -47,6 +46,7 @@ from vllm.model_executor.model_loader.weight_utils import (
     default_weight_loader, maybe_remap_kv_scale_name)
 from vllm.model_executor.sampling_metadata import SamplingMetadata
 from vllm.sequence import IntermediateTensors
+from vllm.transformers_utils.configs import Grok1Config
 
 from .interfaces import SupportsLoRA
 from .utils import is_pp_missing_parameter, make_layers
@@ -54,8 +54,8 @@ from .utils import is_pp_missing_parameter, make_layers
 attn_output_multiplier = 0.08838834764831845
 output_multiplier_scale = 0.5773502691896257
 max_attn_val = 30.0
-reduce_conversion_kernel: bool = True if os.getenv("VLLM_FP8_REDUCE_CONV",
-        '0') == "1" else False
+reduce_conversion_kernel: bool = os.getenv("VLLM_FP8_REDUCE_CONV", '0') == "1"
+
 
 class Grok1MoE(nn.Module):
     """A tensor-parallel MoE implementation for Grok1 that shards each expert
@@ -201,27 +201,29 @@ class Grok1DecoderLayer(nn.Module):
         self.hidden_size = config.hidden_size
         # Requires transformers > 4.32.0
         rope_theta = getattr(config, "rope_theta", 10000)
-        self.attn = Grok1Attention(
-            hidden_size=self.hidden_size,
-            num_heads=config.num_attention_heads,
-            max_position=config.max_position_embeddings,
-            num_kv_heads=config.num_key_value_heads,
-            rope_theta=rope_theta,
-            cache_config=cache_config,
-            quant_config=quant_config,
-            prefix=f"{prefix}.attn")
-        self.moe_block = Grok1MoE(
-            num_experts=config.num_experts,
-            top_k=config.num_experts_per_tok,
-            hidden_size=config.hidden_size,
-            intermediate_size=config.intermediate_size,
-            quant_config=quant_config,
-            prefix=f"{prefix}.moe_block")
+        self.attn = Grok1Attention(hidden_size=self.hidden_size,
+                                   num_heads=config.num_attention_heads,
+                                   max_position=config.max_position_embeddings,
+                                   num_kv_heads=config.num_key_value_heads,
+                                   rope_theta=rope_theta,
+                                   cache_config=cache_config,
+                                   quant_config=quant_config,
+                                   prefix=f"{prefix}.attn")
+        self.moe_block = Grok1MoE(num_experts=config.num_experts,
+                                  top_k=config.num_experts_per_tok,
+                                  hidden_size=config.hidden_size,
+                                  intermediate_size=config.intermediate_size,
+                                  quant_config=quant_config,
+                                  prefix=f"{prefix}.moe_block")
 
-        self.pre_attn_norm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
-        self.post_attn_norm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
-        self.pre_moe_norm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
-        self.post_moe_norm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+        self.pre_attn_norm = RMSNorm(config.hidden_size,
+                                     eps=config.rms_norm_eps)
+        self.post_attn_norm = RMSNorm(config.hidden_size,
+                                      eps=config.rms_norm_eps)
+        self.pre_moe_norm = RMSNorm(config.hidden_size,
+                                    eps=config.rms_norm_eps)
+        self.post_moe_norm = RMSNorm(config.hidden_size,
+                                     eps=config.rms_norm_eps)
 
     def forward(
         self,
@@ -234,10 +236,15 @@ class Grok1DecoderLayer(nn.Module):
         # Self Attention
         if residual is None:
             residual = hidden_states
-            hidden_states = self.pre_attn_norm(hidden_states, self.attn.qkv_proj.activation_scaling_factor) if reduce_conversion_kernel else self.pre_attn_norm(hidden_states)
+            hidden_states = self.pre_attn_norm(
+                hidden_states, self.attn.qkv_proj.activation_scaling_factor
+            ) if reduce_conversion_kernel else self.pre_attn_norm(
+                hidden_states)
         else:
-            hidden_states, residual = self.pre_attn_norm(hidden_states, self.attn.qkv_proj.activation_scaling_factor, residual) if reduce_conversion_kernel else self.pre_attn_norm(
-                hidden_states, residual)
+            hidden_states, residual = self.pre_attn_norm(
+                hidden_states, self.attn.qkv_proj.activation_scaling_factor,
+                residual) if reduce_conversion_kernel else self.pre_attn_norm(
+                    hidden_states, residual)
         hidden_states = self.attn(
             positions=positions,
             hidden_states=hidden_states,
@@ -254,7 +261,7 @@ class Grok1DecoderLayer(nn.Module):
         hidden_states = self.moe_block(hidden_states)
 
         hidden_states = self.post_moe_norm(hidden_states)
-        return hidden_states, residual 
+        return hidden_states, residual
 
 
 class Grok1Model(nn.Module):
@@ -357,10 +364,10 @@ class Grok1ForCausalLM(nn.Module, SupportsLoRA):
         self.lora_config = lora_config
 
         self.model = Grok1Model(config,
-                                  cache_config,
-                                  quant_config,
-                                  lora_config=lora_config,
-                                  prefix="model")
+                                cache_config,
+                                quant_config,
+                                lora_config=lora_config,
+                                prefix="model")
         self.unpadded_vocab_size = config.vocab_size
         if lora_config:
             self.unpadded_vocab_size += lora_config.lora_extra_vocab_size
@@ -377,7 +384,8 @@ class Grok1ForCausalLM(nn.Module, SupportsLoRA):
         if self.config.tie_word_embeddings:
             self.lm_head.weight = self.model.embed_tokens.weight
         self.logits_processor = LogitsProcessor(self.unpadded_vocab_size,
-                                                config.vocab_size, output_multiplier_scale)
+                                                config.vocab_size,
+                                                output_multiplier_scale)
         self.sampler = Sampler()
 
     def forward(
@@ -489,9 +497,8 @@ class Grok1ForCausalLM(nn.Module, SupportsLoRA):
                     if "norm.scale" in name:
                         name = name.replace("scale", "weight")
 
-                    if "lm_head" in name:
-                        if self.config.tie_word_embeddings:
-                            continue
+                    if "lm_head" in name and self.config.tie_word_embeddings:
+                        continue
 
                     if name is None:
                         continue
