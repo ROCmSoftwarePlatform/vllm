@@ -128,7 +128,8 @@ elif is_rocm_pytorch:
                         '-DLEGACY_HIPBLAS_DIRECT=ON',
                     ],
                     'nvcc': [
-                        '-O3', '-U__CUDA_NO_HALF_OPERATORS__',
+                        '-O3',
+                        '-U__CUDA_NO_HALF_OPERATORS__',
                         '-U__CUDA_NO_HALF_CONVERSIONS__',
                         "-ftemplate-depth=1024",
                         '-DLEGACY_HIPBLAS_DIRECT=ON',
@@ -147,7 +148,8 @@ elif is_rocm_pytorch:
                         '-DLEGACY_HIPBLAS_DIRECT=ON',
                     ],
                     'nvcc': [
-                        '-O3', '-U__CUDA_NO_HALF_OPERATORS__',
+                        '-O3',
+                        '-U__CUDA_NO_HALF_OPERATORS__',
                         '-U__CUDA_NO_HALF_CONVERSIONS__',
                         "-ftemplate-depth=1024",
                         '-DLEGACY_HIPBLAS_DIRECT=ON',
