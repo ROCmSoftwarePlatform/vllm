@@ -22,7 +22,8 @@ from vllm.transformers_utils.configs import (ChatGLMConfig, DbrxConfig,
                                              JAISConfig, MedusaConfig,
                                              MLPSpeculatorConfig, MPTConfig,
                                              NemotronConfig, RWConfig,
-                                             UltravoxConfig)
+                                             UltravoxConfig,
+                                             Grok1Config)
 # yapf: enable
 from vllm.transformers_utils.utils import check_gguf_file
 
@@ -52,6 +53,7 @@ _CONFIG_REGISTRY: Dict[str, Type[PretrainedConfig]] = {
     # Granite can be removed from here once we have upgraded to
     # transformers 4.45+
     "granite": GraniteConfig,
+    "grok-1": Grok1Config,
 }
 
 for name, cls in _CONFIG_REGISTRY.items():

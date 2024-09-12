@@ -14,6 +14,7 @@ from vllm.transformers_utils.configs.mlp_speculator import MLPSpeculatorConfig
 from vllm.transformers_utils.configs.mpt import MPTConfig
 from vllm.transformers_utils.configs.nemotron import NemotronConfig
 from vllm.transformers_utils.configs.ultravox import UltravoxConfig
+from vllm.transformers_utils.configs.grok1 import Grok1Config
 
 __all__ = [
     "ChatGLMConfig",
@@ -31,4 +32,5 @@ __all__ = [
     # Granite can be removed from here once we have upgraded to
     # transformers 4.45+
     "GraniteConfig",
+    "Grok1Config",
 ]
