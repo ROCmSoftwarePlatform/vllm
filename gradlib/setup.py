@@ -125,6 +125,7 @@ elif is_rocm_pytorch:
                 extra_compile_args={
                     'cxx': [
                         '-O3',
+                        '-DLEGACY_HIPBLAS_DIRECT=ON',
                     ],
                     'nvcc': [
                         '-O3', '-U__CUDA_NO_HALF_OPERATORS__',
@@ -142,6 +143,7 @@ elif is_rocm_pytorch:
                 extra_compile_args={
                     'cxx': [
                         '-O3',
+                        '-DLEGACY_HIPBLAS_DIRECT=ON',
                     ],
                     'nvcc': [
                         '-O3', '-U__CUDA_NO_HALF_OPERATORS__',
