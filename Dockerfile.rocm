@@ -40,7 +40,7 @@ WORKDIR ${COMMON_WORKDIR}
 # -----------------------
 # hipBLASLt build stages
 FROM base AS build_hipblaslt
-ARG HIPBLASLT_BRANCH="rocm-6.2.0"
+ARG HIPBLASLT_BRANCH="e6da924"
 RUN apt-get purge -y hipblaslt \
     && git clone https://github.com/ROCm/hipBLASLt.git \
     && cd hipBLASLt \
