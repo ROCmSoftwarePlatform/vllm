@@ -10,7 +10,7 @@ from vllm.utils import is_hip
 # providing scaling factor for result. This value is created
 # as global value to avoid multiple tensor allocations, and
 # can be removed once pytorch fixes the bug.
-TORCH_SCALED_MM_SCALE_RESULT = torch.ones(1).cuda() if is_hip() else None
+TORCH_DEVICE_IDENTITY = torch.ones(1).cuda() if is_hip() else None
 
 
 def cutlass_fp8_supported() -> bool:
@@ -87,6 +87,7 @@ def apply_fp8_linear(
     input: torch.Tensor,
     weight: torch.Tensor,
     weight_scale: torch.Tensor,
+    out_dtype: Optional[torch.dtype] = None,
     input_scale: Optional[torch.Tensor] = None,
     input_scale_ub: Optional[torch.Tensor] = None,
     bias: Optional[torch.Tensor] = None,
@@ -96,6 +97,9 @@ def apply_fp8_linear(
     # ops.scaled_fp8_quant supports both dynamic and static quant.
     #   If dynamic, layer.input_scale is None and x_scale computed from x.
     #   If static, layer.input_scale is scalar and x_scale is input_scale.
+
+    if out_dtype is None:
+        out_dtype = input.dtype
 
     # cutlass_scaled_mm supports per tensor/channel W and per tensor/token A
     if cutlass_fp8_supported:
@@ -119,29 +123,29 @@ def apply_fp8_linear(
         # Note: we pad the input because torch._scaled_mm is more performant
         # for matrices with batch dimension > 16.
         # This could change in the future.
-        qinput, x_scale = ops.scaled_fp8_quant(
-            input,
-            input_scale,
-            num_token_padding=17,
-            use_per_token_if_dynamic=use_per_token_if_dynamic)
+        if input.dtype != torch.float8_e4m3fnuz:
+            qinput, x_scale = ops.scaled_fp8_quant(
+                input,
+                input_scale,
+                num_token_padding=17,
+                use_per_token_if_dynamic=use_per_token_if_dynamic)
+        else:
+            qinput, x_scale = input, input_scale
 
         per_tensor_weights = (weight_scale.numel() == 1)
         per_tensor_activations = (x_scale.numel() == 1)
 
+        global TORCH_DEVICE_IDENTITY
+        if TORCH_DEVICE_IDENTITY.device != weight.device:
+            TORCH_DEVICE_IDENTITY = TORCH_DEVICE_IDENTITY.to(weight.device)
         if per_tensor_weights and per_tensor_activations:
             # Fused GEMM_DQ
-            global TORCH_SCALED_MM_SCALE_RESULT
-            if TORCH_SCALED_MM_SCALE_RESULT.device != weight.device:
-                TORCH_SCALED_MM_SCALE_RESULT = TORCH_SCALED_MM_SCALE_RESULT.to(
-                    weight.device)
-            output = torch._scaled_mm(
-                qinput,
-                weight,
-                out_dtype=input.dtype,
-                scale_a=x_scale,
-                scale_b=weight_scale,
-                scale_result=TORCH_SCALED_MM_SCALE_RESULT,
-                bias=bias)
+            output = torch._scaled_mm(qinput,
+                                      weight,
+                                      out_dtype=out_dtype,
+                                      scale_a=x_scale,
+                                      scale_b=weight_scale,
+                                      bias=bias)
             # A fix for discrepancy in scaled_mm which returns tuple
             # for torch < 2.5 and a single value in torch >= 2.5
             if type(output) is tuple and len(output) == 2:
@@ -167,9 +171,13 @@ def apply_fp8_linear(
             # GEMM
             # This computes C = (X * W).
             # Output in fp32 to allow subsequent ops to happen in-place
-            output, _ = torch._scaled_mm(qinput,
-                                         weight,
-                                         out_dtype=torch.float32)
+            output = torch._scaled_mm(qinput,
+                                      weight,
+                                      scale_a=TORCH_DEVICE_IDENTITY,
+                                      scale_b=TORCH_DEVICE_IDENTITY,
+                                      out_dtype=torch.float32)
+            if type(output) is tuple and len(output) == 2:
+                output = output[0]
             # Unpad (undo num_token_padding)
             output = torch.narrow(output, 0, 0, input.shape[0])
             x_scale = torch.narrow(x_scale, 0, 0, input.shape[0])
