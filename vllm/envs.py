@@ -64,13 +64,13 @@ if TYPE_CHECKING:
     VLLM_ALLOW_LONG_MAX_MODEL_LEN: bool = False
     VLLM_TEST_FORCE_FP8_MARLIN: bool = False
     VLLM_RPC_GET_DATA_TIMEOUT_MS: int = 5000
-    VLLM_ALLOW_ENGINE_USE_RAY: bool = False
     VLLM_PLUGINS: Optional[List[str]] = None
     VLLM_TORCH_PROFILER_DIR: Optional[str] = None
     VLLM_ALLOW_RUNTIME_LORA_UPDATING: bool = False
     VLLM_SYNC_SERVER_ACCUM_REQUESTS: int = 1
     VLLM_SYNC_SERVER_ENGINE_STEPS_BETWEEN_POLLS: int = 1
-    VLLM_MOE_PADDING: bool = True
+    VLLM_MOE_PADDING: bool = False
+    VLLM_FP8_PADDING: bool = True
 
 
 def get_default_cache_root():
@@ -226,6 +226,16 @@ environment_variables: Dict[str, Callable[[], Any]] = {
     lambda:
     (os.environ.get("VLLM_DYNAMO_USE_CUSTOM_DISPATCHER", "True").lower() in
      ("true", "1")),
+
+    # Internal flag to control whether we use custom op,
+    # or use the native pytorch implementation
+    "VLLM_TEST_COMPILE_NO_CUSTOM_OPS":
+    lambda: int(os.environ.get("VLLM_TEST_COMPILE_NO_CUSTOM_OPS", "0")),
+
+    # Internal flag to enable Dynamo fullgraph capture
+    "VLLM_TEST_DYNAMO_FULLGRAPH_CAPTURE":
+    lambda: bool(
+        os.environ.get("VLLM_TEST_DYNAMO_FULLGRAPH_CAPTURE", "1") != "0"),
 
     # small gemms custom implementation for MI3* cards
     "VLLM_USE_ROCM_SKINNY_GEMM":
@@ -425,14 +435,6 @@ environment_variables: Dict[str, Callable[[], Any]] = {
     "VLLM_RPC_GET_DATA_TIMEOUT_MS":
     lambda: int(os.getenv("VLLM_RPC_GET_DATA_TIMEOUT_MS", "5000")),
 
-    # If set, allow running the engine as a separate ray actor,
-    # which is a deprecated feature soon to be removed.
-    # See https://github.com/vllm-project/vllm/issues/7045
-    "VLLM_ALLOW_ENGINE_USE_RAY":
-    lambda:
-    (os.environ.get("VLLM_ALLOW_ENGINE_USE_RAY", "0").strip().lower() in
-     ("1", "true")),
-
     # a list of plugin names to load, separated by commas.
     # if this is not set, it means all plugins will be loaded
     # if this is set to an empty string, no plugins will be loaded
@@ -466,7 +468,11 @@ environment_variables: Dict[str, Callable[[], Any]] = {
 
     # Pad the weight for moe kernel or not
     "VLLM_MOE_PADDING":
-    lambda: bool(int(os.getenv("VLLM_MOE_PADDING", "1"))),
+    lambda: bool(int(os.getenv("VLLM_MOE_PADDING", "0"))),
+
+    # Pad the weight for moe kernel or not
+    "VLLM_FP8_PADDING":
+    lambda: bool(int(os.getenv("VLLM_FP8_PADDING", "1"))),
 }
 
 # end-env-vars-definition

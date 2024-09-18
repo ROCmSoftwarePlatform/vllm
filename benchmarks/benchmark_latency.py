@@ -10,7 +10,7 @@ import torch
 from tqdm import tqdm
 
 from vllm import LLM, SamplingParams
-from vllm.engine.arg_utils import EngineArgs
+from vllm.engine.arg_utils import DEVICE_OPTIONS, EngineArgs
 from vllm.inputs import PromptInputs
 from vllm.model_executor.layers.quantization import QUANTIZATION_METHODS
 from vllm.utils import FlexibleArgumentParser
@@ -47,6 +47,7 @@ def main(args: argparse.Namespace):
         distributed_executor_backend=args.distributed_executor_backend,
         otlp_traces_endpoint=args.otlp_traces_endpoint,
         enable_prefix_caching=args.enable_prefix_caching,
+        num_scheduler_steps=args.num_scheduler_steps,
     )
 
     sampling_params = SamplingParams(
@@ -205,13 +206,11 @@ if __name__ == '__main__':
         default=None,
         help=('path to save the pytorch profiler output. Can be visualized '
               'with ui.perfetto.dev or Tensorboard.'))
-    parser.add_argument(
-        "--device",
-        type=str,
-        default="auto",
-        choices=["auto", "cuda", "cpu", "openvino", "tpu", "xpu"],
-        help='device type for vLLM execution, supporting CUDA, OpenVINO and '
-        'CPU.')
+    parser.add_argument("--device",
+                        type=str,
+                        default="auto",
+                        choices=DEVICE_OPTIONS,
+                        help='device type for vLLM execution')
     parser.add_argument('--block-size',
                         type=int,
                         default=16,
@@ -281,5 +280,10 @@ if __name__ == '__main__':
         type=str,
         default=None,
         help='Target URL to which OpenTelemetry traces will be sent.')
+    parser.add_argument(
+        "--num-scheduler-steps",
+        type=int,
+        default=1,
+        help="Maximum number of forward steps per scheduler call.")
     args = parser.parse_args()
     main(args)

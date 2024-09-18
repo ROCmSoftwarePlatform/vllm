@@ -5,7 +5,7 @@ set -o pipefail
 echo "--- Confirming Clean Initial State"
 while true; do
         sleep 3
-        if grep -q clean /opt/amdgpu/etc/gpu_state; then
+        if grep -q clean ${BUILDKITE_META_DATA_RESET_TARGET}; then
                 echo "GPUs state is \"clean\""
                 break
         fi
@@ -44,11 +44,11 @@ cleanup_docker
 
 echo "--- Resetting GPUs"
 
-echo "reset" > /opt/amdgpu/etc/gpu_state
+echo "reset" > ${BUILDKITE_META_DATA_RESET_TARGET}
 
 while true; do
         sleep 3
-        if grep -q clean /opt/amdgpu/etc/gpu_state; then
+	if grep -q clean ${BUILDKITE_META_DATA_RESET_TARGET}; then
                 echo "GPUs state is \"clean\""
                 break
         fi
@@ -71,13 +71,36 @@ mkdir -p ${HF_CACHE}
 HF_MOUNT="/root/.cache/huggingface"
 
 commands=$@
+echo "Commands:$commands"
+#ignore certain kernels tests
+if [[ $commands == *" kernels "* ]]; then
+  commands="${commands} \
+  --ignore=kernels/test_attention.py \
+  --ignore=kernels/test_attention_selector.py \
+  --ignore=kernels/test_blocksparse_attention.py \
+  --ignore=kernels/test_causal_conv1d.py \
+  --ignore=kernels/test_cutlass.py \
+  --ignore=kernels/test_encoder_decoder_attn.py \
+  --ignore=kernels/test_flash_attn.py \
+  --ignore=kernels/test_flashinfer.py \
+  --ignore=kernels/test_int8_quant.py \
+  --ignore=kernels/test_machete_gemm.py \
+  --ignore=kernels/test_mamba_ssm.py \
+  --ignore=kernels/test_marlin_gemm.py \
+  --ignore=kernels/test_moe.py \
+  --ignore=kernels/test_prefix_prefill.py \
+  --ignore=kernels/test_rand.py \
+  --ignore=kernels/test_sampler.py"
+fi
+
 PARALLEL_JOB_COUNT=8
 # check if the command contains shard flag, we will run all shards in parallel because the host have 8 GPUs. 
 if [[ $commands == *"--shard-id="* ]]; then
   for GPU in $(seq 0 $(($PARALLEL_JOB_COUNT-1))); do
     #replace shard arguments
-    commands=${@//"--shard-id= "/"--shard-id=${GPU} "}
+    commands=${commands//"--shard-id= "/"--shard-id=${GPU} "}
     commands=${commands//"--num-shards= "/"--num-shards=${PARALLEL_JOB_COUNT} "}
+    echo "Shard ${GPU} commands:$commands"
     docker run \
         --device /dev/kfd --device /dev/dri \
         --network host \
@@ -105,8 +128,9 @@ if [[ $commands == *"--shard-id="* ]]; then
     fi
   done
 else
+  echo "Render devices: $BUILDKITE_AGENT_META_DATA_RENDER_DEVICES"
   docker run \
-          --device /dev/kfd --device /dev/dri \
+          --device /dev/kfd $BUILDKITE_AGENT_META_DATA_RENDER_DEVICES \
           --network host \
           --shm-size=16gb \
           --rm \

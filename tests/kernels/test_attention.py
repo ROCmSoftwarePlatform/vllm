@@ -4,10 +4,15 @@ from typing import List, Optional, Tuple
 import pytest
 import torch
 
+from tests.kernels.utils import opcheck
 from vllm import _custom_ops as ops
 from vllm.utils import get_max_shared_memory_bytes, is_hip
 
 from .allclose_default import get_default_atol, get_default_rtol
+
+if not is_hip():
+    from xformers import ops as xops
+    from xformers.ops.fmha.attn_bias import BlockDiagonalCausalMask
 
 FLOAT32_BYTES = torch.finfo(torch.float).bits // 8
 # This will change depending on the compute capability.
@@ -196,6 +201,13 @@ def test_paged_attention(
             k_scale,
             v_scale,
         )
+
+        opcheck(torch.ops._C.paged_attention_v1,
+                (output, query, key_cache, value_cache, num_kv_heads, scale,
+                 block_tables, seq_lens, block_size, max_seq_len, alibi_slopes,
+                 kv_cache_dtype, k_scale, v_scale, 0, 0, 0, 64, 0),
+                cond=(head_size == HEAD_SIZES[0]))
+
     elif version in ("v2", "custom"):
         num_partitions = ((max_seq_len + PARTITION_SIZE - 1) // PARTITION_SIZE)
         assert PARTITION_SIZE % block_size == 0
@@ -209,26 +221,63 @@ def test_paged_attention(
             dtype=torch.float32,
         )
         max_logits = torch.empty_like(exp_sums)
-        attn_func = ops.paged_attention_v2 if version == "v2" else ops.paged_attention_custom
-        attn_func(
-            output,
-            exp_sums,
-            max_logits,
-            tmp_output,
-            query,
-            key_cache,
-            value_cache,
-            num_kv_heads,
-            scale,
-            block_tables,
-            seq_lens,
-            block_size,
-            max_seq_len,
-            alibi_slopes,
-            kv_cache_dtype,
-            k_scale,
-            v_scale,
-        )
+
+        if version == "v2":
+            ops.paged_attention_v2(
+                output,
+                exp_sums,
+                max_logits,
+                tmp_output,
+                query,
+                key_cache,
+                value_cache,
+                num_kv_heads,
+                scale,
+                block_tables,
+                seq_lens,
+                block_size,
+                max_seq_len,
+                alibi_slopes,
+                kv_cache_dtype,
+                k_scale,
+                v_scale,
+            )
+
+            opcheck(torch.ops._C.ops.paged_attention_v2,
+                    (output, exp_sums, max_logits, tmp_output, query, key_cache,
+                    value_cache, num_kv_heads, scale, block_tables, seq_lens,
+                    block_size, max_seq_len, alibi_slopes, kv_cache_dtype,
+                    k_scale, v_scale, 0, 0, 0, 64, 0),
+                    cond=(head_size == HEAD_SIZES[0]))
+
+        else:
+            ops.paged_attention_custom(
+                output,
+                exp_sums,
+                max_logits,
+                tmp_output,
+                query,
+                key_cache,
+                value_cache,
+                num_kv_heads,
+                scale,
+                block_tables,
+                seq_lens,
+                block_size,
+                max_seq_len,
+                alibi_slopes,
+                kv_cache_dtype,
+                k_scale,
+                v_scale,
+            )
+
+            opcheck(torch.ops._C.ops.paged_attention_custom,
+                    (output, exp_sums, max_logits, tmp_output, query, key_cache,
+                    value_cache, num_kv_heads, scale, block_tables, seq_lens,
+                    block_size, max_seq_len, alibi_slopes, kv_cache_dtype,
+                    k_scale, v_scale),
+                    cond=(head_size == 64))
+
     else:
         raise AssertionError(f"Unknown version: {version}")
 
@@ -311,9 +360,6 @@ def ref_multi_query_kv_attention(
     return torch.cat(ref_outputs, dim=0)
 
 
-if not is_hip():
-    from xformers import ops as xops
-    from xformers.ops.fmha.attn_bias import BlockDiagonalCausalMask
 
 # TODO(woosuk): Add tests for USE_ALIBI=True.
 @pytest.mark.parametrize("num_seqs", NUM_PREFILL_SEQS)
