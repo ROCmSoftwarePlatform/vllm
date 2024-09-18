@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 logger = init_logger(__name__)
 
-_PARTITION_SIZE_CUSTOM = 512
+_PARTITION_SIZE_ROCM = 512
 ON_NAVI = "gfx1" in torch.cuda.get_device_properties("cuda").gcnArchName
 
 
@@ -550,9 +550,9 @@ class ROCmFlashAttentionImpl(AttentionImpl):
             if use_custom:
                 max_seq_len = decode_meta.max_decode_seq_len
                 max_num_partitions = (
-                    (max_seq_len + _PARTITION_SIZE_CUSTOM - 1) //
-                    _PARTITION_SIZE_CUSTOM)
-                assert _PARTITION_SIZE_CUSTOM % block_size == 0
+                    (max_seq_len + _PARTITION_SIZE_ROCM - 1) //
+                    _PARTITION_SIZE_ROCM)
+                assert _PARTITION_SIZE_ROCM % block_size == 0
                 tmp_output = torch.empty(
                     size=(num_seqs, num_heads, max_num_partitions, head_size),
                     dtype=output.dtype,

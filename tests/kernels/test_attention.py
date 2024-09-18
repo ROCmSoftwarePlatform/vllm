@@ -114,7 +114,7 @@ def ref_single_query_cached_kv_attention(
 
 
 @pytest.mark.parametrize(
-    "version", ["v1", "v2"] if not is_hip() else ["v1", "v2", "custom"])
+    "version", ["v1", "v2"] if not is_hip() else ["v1", "v2", "rocm"])
 @pytest.mark.parametrize("num_seqs", NUM_GEN_SEQS)
 @pytest.mark.parametrize("num_heads", NUM_HEADS)
 @pytest.mark.parametrize("head_size", HEAD_SIZES)
@@ -138,7 +138,7 @@ def test_paged_attention(
     device: str,
 ) -> None:
     if ((kv_cache_dtype == "fp8" and head_size % 16)
-            or (version == "custom" and head_size not in (64, 128))):
+            or (version == "rocm" and head_size not in (64, 128))):
         pytest.skip()
     random.seed(seed)
     torch.random.manual_seed(seed)
@@ -209,7 +209,7 @@ def test_paged_attention(
                  kv_cache_dtype, k_scale, v_scale, 0, 0, 0, 64, 0),
                 cond=(head_size == HEAD_SIZES[0]))
 
-    elif version in ("v2", "custom"):
+    elif version in ("v2", "rocm"):
         if is_hip():
             PARTITION_SIZE = 1024 if version == "v2" else 512
         num_partitions = ((max_seq_len + PARTITION_SIZE - 1) // PARTITION_SIZE)
