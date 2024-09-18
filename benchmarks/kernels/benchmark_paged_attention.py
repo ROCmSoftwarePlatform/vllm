@@ -81,6 +81,7 @@ def main(
     output = torch.empty_like(query)
     if version == "v2":
         if is_hip() and not args.custom_paged_attn:
+            global PARTITION_SIZE
             PARTITION_SIZE = 1024
         num_partitions = ((max_seq_len + PARTITION_SIZE - 1) // PARTITION_SIZE)
         tmp_output = torch.empty(

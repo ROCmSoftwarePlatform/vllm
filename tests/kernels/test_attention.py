@@ -210,8 +210,8 @@ def test_paged_attention(
                 cond=(head_size == HEAD_SIZES[0]))
 
     elif version in ("v2", "custom"):
-        if is_hip() and version == "v2":
-            PARTITION_SIZE = 1024
+        if is_hip():
+            PARTITION_SIZE = 1024 if version == "v2" else 512
         num_partitions = ((max_seq_len + PARTITION_SIZE - 1) // PARTITION_SIZE)
         assert PARTITION_SIZE % block_size == 0
         num_seqs, num_heads, head_size = output.shape
@@ -246,7 +246,7 @@ def test_paged_attention(
                 v_scale,
             )
 
-            opcheck(torch.ops._C.ops.paged_attention_v2,
+            opcheck(torch.ops._C.paged_attention_v2,
                     (output, exp_sums, max_logits, tmp_output, query,
                      key_cache, value_cache, num_kv_heads, scale, block_tables,
                      seq_lens, block_size, max_seq_len, alibi_slopes,
@@ -254,7 +254,7 @@ def test_paged_attention(
                     cond=(head_size == HEAD_SIZES[0]))
 
         else:
-            ops.paged_attention_custom(
+            ops.paged_attention_rocm(
                 output,
                 exp_sums,
                 max_logits,
@@ -274,7 +274,7 @@ def test_paged_attention(
                 v_scale,
             )
 
-            opcheck(torch.ops._C.ops.paged_attention_custom,
+            opcheck(torch.ops._rocm_C.paged_attention,
                     (output, exp_sums, max_logits, tmp_output, query,
                      key_cache, value_cache, num_kv_heads, scale, block_tables,
                      seq_lens, block_size, max_seq_len, alibi_slopes,
