@@ -3,8 +3,6 @@ from typing import List, Optional, Tuple
 
 import pytest
 import torch
-from xformers import ops as xops
-from xformers.ops.fmha.attn_bias import BlockDiagonalCausalMask
 
 from vllm import _custom_ops as ops
 from vllm.utils import get_max_shared_memory_bytes, is_hip
@@ -28,8 +26,7 @@ NUM_HEADS = [(40, 40), (64, 8)]  # Arbitrary values for testing
 
 # FlashAttention forward only supports head dimension at most 128
 # https://github.com/ROCmSoftwarePlatform/flash-attention/blob/3d2b6f5d037782cc2c906909a46fb7e2e1b48b25/csrc/flash_attn_rocm/flash_api.cpp#L62
-HEAD_SIZES = [64, 80, 96, 112, 120, 128, 192, 256
-              ] if not is_hip() else [64, 80, 96, 112, 128]
+HEAD_SIZES = [64, 80, 96, 112, 120, 128, 192, 256]
 
 BLOCK_SIZES = [16, 32]
 USE_ALIBI = [False, True]
@@ -111,7 +108,7 @@ def ref_single_query_cached_kv_attention(
         output[i].copy_(out, non_blocking=True)
 
 
-@pytest.mark.parametrize("version", ["v1", "v2"])
+@pytest.mark.parametrize("version", ["v1", "v2"] if not is_hip() else ["v1", "v2", "custom"])
 @pytest.mark.parametrize("num_seqs", NUM_GEN_SEQS)
 @pytest.mark.parametrize("num_heads", NUM_HEADS)
 @pytest.mark.parametrize("head_size", HEAD_SIZES)
@@ -134,7 +131,8 @@ def test_paged_attention(
     seed: int,
     device: str,
 ) -> None:
-    if kv_cache_dtype == "fp8" and head_size % 16:
+    if ((kv_cache_dtype == "fp8" and head_size % 16)
+        or (version == "custom" and head_size not in (64, 128))):
         pytest.skip()
     random.seed(seed)
     torch.random.manual_seed(seed)
@@ -198,7 +196,7 @@ def test_paged_attention(
             k_scale,
             v_scale,
         )
-    elif version == "v2":
+    elif version in ("v2", "custom"):
         num_partitions = ((max_seq_len + PARTITION_SIZE - 1) // PARTITION_SIZE)
         assert PARTITION_SIZE % block_size == 0
         num_seqs, num_heads, head_size = output.shape
@@ -211,7 +209,8 @@ def test_paged_attention(
             dtype=torch.float32,
         )
         max_logits = torch.empty_like(exp_sums)
-        ops.paged_attention_v2(
+        attn_func = ops.paged_attention_v2 if version == "v2" else ops.paged_attention_custom
+        attn_func(
             output,
             exp_sums,
             max_logits,
@@ -312,6 +311,10 @@ def ref_multi_query_kv_attention(
     return torch.cat(ref_outputs, dim=0)
 
 
+if not is_hip():
+    from xformers import ops as xops
+    from xformers.ops.fmha.attn_bias import BlockDiagonalCausalMask
+
 # TODO(woosuk): Add tests for USE_ALIBI=True.
 @pytest.mark.parametrize("num_seqs", NUM_PREFILL_SEQS)
 @pytest.mark.parametrize("num_heads", NUM_HEADS)
@@ -319,6 +322,7 @@ def ref_multi_query_kv_attention(
 @pytest.mark.parametrize("dtype", DTYPES)
 @pytest.mark.parametrize("seed", SEEDS)
 @pytest.mark.parametrize("device", CUDA_DEVICES)
+@pytest.mark.skipif(is_hip(), reason="Xformers backend is not supported on ROCm.")
 @torch.inference_mode()
 def test_multi_query_kv_attention(
     num_seqs: int,

@@ -684,8 +684,8 @@ def paged_attention_custom(
     max_seq_len: int,
     alibi_slopes: Optional[torch.Tensor],
     kv_cache_dtype: str,
-    k_scale: int,
-    v_scale: int,
+    k_scale: float,
+    v_scale: float,
 ) -> None:
     torch.ops._custom_C.paged_attention_custom(
         out, exp_sum, max_logits, tmp_out, query, key_cache, value_cache,
