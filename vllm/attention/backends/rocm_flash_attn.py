@@ -19,7 +19,11 @@ if TYPE_CHECKING:
 
 logger = init_logger(__name__)
 
+<<<<<<< HEAD
 _PARTITION_SIZE = 512
+=======
+_PARTITION_SIZE = 256
+>>>>>>> 40581f4f77e173aece7df0b8d2cf291077ef0cc1
 ON_NAVI = "gfx1" in torch.cuda.get_device_properties("cuda").gcnArchName
 
 
