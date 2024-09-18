@@ -549,8 +549,9 @@ class ROCmFlashAttentionImpl(AttentionImpl):
                 decode_meta.max_decode_seq_len)
             if use_custom:
                 max_seq_len = decode_meta.max_decode_seq_len
-                max_num_partitions = ((max_seq_len + _PARTITION_SIZE_CUSTOM - 1) //
-                                      _PARTITION_SIZE_CUSTOM)
+                max_num_partitions = (
+                    (max_seq_len + _PARTITION_SIZE_CUSTOM - 1) //
+                    _PARTITION_SIZE_CUSTOM)
                 assert _PARTITION_SIZE_CUSTOM % block_size == 0
                 tmp_output = torch.empty(
                     size=(num_seqs, num_heads, max_num_partitions, head_size),
@@ -631,5 +632,4 @@ def use_rocm_custom_paged_attention(qtype: torch.dtype, head_size: int,
     return (envs.VLLM_USE_ROCM_CUSTOM_PAGED_ATTN and not ON_NAVI
             and qtype in (torch.half, torch.bfloat16)
             and head_size in (64, 128) and block_size in (16, 32)
-            and (gqa_ratio >= 1 and gqa_ratio <= 16)
-            and max_seq_len <= 32768)
+            and (gqa_ratio >= 1 and gqa_ratio <= 16) and max_seq_len <= 32768)

@@ -113,7 +113,8 @@ def ref_single_query_cached_kv_attention(
         output[i].copy_(out, non_blocking=True)
 
 
-@pytest.mark.parametrize("version", ["v1", "v2"] if not is_hip() else ["v1", "v2", "custom"])
+@pytest.mark.parametrize(
+    "version", ["v1", "v2"] if not is_hip() else ["v1", "v2", "custom"])
 @pytest.mark.parametrize("num_seqs", NUM_GEN_SEQS)
 @pytest.mark.parametrize("num_heads", NUM_HEADS)
 @pytest.mark.parametrize("head_size", HEAD_SIZES)
@@ -137,7 +138,7 @@ def test_paged_attention(
     device: str,
 ) -> None:
     if ((kv_cache_dtype == "fp8" and head_size % 16)
-        or (version == "custom" and head_size not in (64, 128))):
+            or (version == "custom" and head_size not in (64, 128))):
         pytest.skip()
     random.seed(seed)
     torch.random.manual_seed(seed)
@@ -246,10 +247,10 @@ def test_paged_attention(
             )
 
             opcheck(torch.ops._C.ops.paged_attention_v2,
-                    (output, exp_sums, max_logits, tmp_output, query, key_cache,
-                    value_cache, num_kv_heads, scale, block_tables, seq_lens,
-                    block_size, max_seq_len, alibi_slopes, kv_cache_dtype,
-                    k_scale, v_scale, 0, 0, 0, 64, 0),
+                    (output, exp_sums, max_logits, tmp_output, query,
+                     key_cache, value_cache, num_kv_heads, scale, block_tables,
+                     seq_lens, block_size, max_seq_len, alibi_slopes,
+                     kv_cache_dtype, k_scale, v_scale, 0, 0, 0, 64, 0),
                     cond=(head_size == HEAD_SIZES[0]))
 
         else:
@@ -274,10 +275,10 @@ def test_paged_attention(
             )
 
             opcheck(torch.ops._C.ops.paged_attention_custom,
-                    (output, exp_sums, max_logits, tmp_output, query, key_cache,
-                    value_cache, num_kv_heads, scale, block_tables, seq_lens,
-                    block_size, max_seq_len, alibi_slopes, kv_cache_dtype,
-                    k_scale, v_scale),
+                    (output, exp_sums, max_logits, tmp_output, query,
+                     key_cache, value_cache, num_kv_heads, scale, block_tables,
+                     seq_lens, block_size, max_seq_len, alibi_slopes,
+                     kv_cache_dtype, k_scale, v_scale),
                     cond=(head_size == 64))
 
     else:
@@ -362,7 +363,6 @@ def ref_multi_query_kv_attention(
     return torch.cat(ref_outputs, dim=0)
 
 
-
 # TODO(woosuk): Add tests for USE_ALIBI=True.
 @pytest.mark.parametrize("num_seqs", NUM_PREFILL_SEQS)
 @pytest.mark.parametrize("num_heads", NUM_HEADS)
@@ -370,7 +370,8 @@ def ref_multi_query_kv_attention(
 @pytest.mark.parametrize("dtype", DTYPES)
 @pytest.mark.parametrize("seed", SEEDS)
 @pytest.mark.parametrize("device", CUDA_DEVICES)
-@pytest.mark.skipif(is_hip(), reason="Xformers backend is not supported on ROCm.")
+@pytest.mark.skipif(is_hip(),
+                    reason="Xformers backend is not supported on ROCm.")
 @torch.inference_mode()
 def test_multi_query_kv_attention(
     num_seqs: int,
