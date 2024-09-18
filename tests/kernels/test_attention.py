@@ -209,6 +209,8 @@ def test_paged_attention(
                 cond=(head_size == HEAD_SIZES[0]))
 
     elif version in ("v2", "custom"):
+        if is_hip() and version == "v2":
+            PARTITION_SIZE = 1024
         num_partitions = ((max_seq_len + PARTITION_SIZE - 1) // PARTITION_SIZE)
         assert PARTITION_SIZE % block_size == 0
         num_seqs, num_heads, head_size = output.shape

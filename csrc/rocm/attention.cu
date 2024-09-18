@@ -609,7 +609,6 @@ __global__ __launch_bounds__(NUM_THREADS) void paged_attention_ll4mi_QKV_kernel(
       }
     }
   } else {  // warp in context
-
   // iterate across heads
   #pragma unroll
     for (int qh = 0; qh < QHLOOP; qh++) {
