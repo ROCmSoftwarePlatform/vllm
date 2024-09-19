@@ -24,8 +24,7 @@ class Gemm:
         self.m = m
         self.k = k
         self.n = n
-        self.bias = torch.randn(m, dtype=indtype,
-                                device='cuda') if bias else None
+        self.bias = torch.randn(m, device='cuda').to(indtype) if bias else None
         self.indtype = indtype
         self.outdtype = outdtype
         self.use_rocblas = (indtype == outdtype
@@ -59,11 +58,12 @@ class Gemm:
                                                self.weights.t(),
                                                bias=self.bias,
                                                out_dtype=self.outdtype)
-        print('M N K bias',
+        print('M N K bias dtype',
               self.m,
               self.n,
               self.k,
               self.bias is not None,
+              self.indtype,
               '>>> Total hipb solutions',
               len(sols),
               flush=True)
@@ -72,11 +72,13 @@ class Gemm:
 
     def check_gemm_ref(self, libtype, solidx):
         if self.indtype == torch.float8_e4m3fnuz:
-            ref, _ = torch._scaled_mm(self.inp,
+            ref = torch._scaled_mm(self.inp,
                                       self.weights.t(),
                                       scale_a=ONE,
                                       scale_b=ONE,
                                       out_dtype=self.outdtype)
+            if type(ref) == tuple and len(ref) == 2:
+                ref = ref[0]
         else:
             ref = F.linear(self.inp, self.weights, self.bias)
         if libtype == 'hipblaslt':
@@ -172,10 +174,11 @@ class Gemm:
 
     def find_rocblas_sols(self):
         sols = rocsolidxgemm.rocb_findallsols(self.inp, self.weights.t())
-        print('M N K',
+        print('M N K dtype',
               self.m,
               self.n,
               self.k,
+              self.indtype,
               '>>> Total rocb solutions',
               len(sols),
               flush=True)
@@ -280,23 +283,28 @@ class GemmTuner:
         self.rocblas_decode = rocblas_decode
         self.tuned_file = tuned_file
         if Path(tuned_file).is_file():
-            self.gdf = pd.read_csv(tuned_file)
+            self.tuned_shapes = pd.read_csv(tuned_file)
         else:
-            self.gdf = None
+            self.tuned_shapes = None
 
     def add_gemm(self, m, n, k, indtype=None, bias=False):
         indtype = self.indtype if self.indtype is not None else indtype
         assert indtype is not None
-        if (self.gdf is None or
-            (self.gdf[(self.gdf['M'] == m) & (self.gdf['N'] == n) &
-                      (self.gdf['K'] == k) & (self.gdf['bias'] == bias) &
-                      (self.gdf['dtype'] == indtype)].empty)):
+        outdtype = self.outdtype if self.outdtype is not None else indtype
+        assert outdtype is not None
+        if (self.tuned_shapes is None or (self.tuned_shapes[
+            (self.tuned_shapes['M'] == m) & (self.tuned_shapes['N'] == n) &
+            (self.tuned_shapes['K'] == k) &
+            (self.tuned_shapes['bias'] == bias) &
+            (self.tuned_shapes['dtype'] == str(indtype)) &
+            (self.tuned_shapes['outdtype'] == str(outdtype))].empty)):
             entry = {
                 'M': [m],
                 'N': [n],
                 'K': [k],
                 'bias': [bias],
-                'dtype': [indtype]
+                'dtype': [indtype],
+                'outdtype': [outdtype]
             }
             df = pd.DataFrame(entry)
             self.gemm_problems = pd.concat([self.gemm_problems, df],
@@ -308,8 +316,7 @@ class GemmTuner:
 
     def find_best_sols(self):
         df = self.gemm_problems
-        soldf = pd.DataFrame(
-            columns=['libtype', 'solidx', 'soltimes', 'indtype', 'outdtype'])
+        soldf = pd.DataFrame(columns=['libtype', 'solidx', 'soltimes'])
         for i in range(len(df)):
             ds = df.loc[i, :]
             indtype = self.indtype or ds['dtype']
@@ -325,14 +332,13 @@ class GemmTuner:
             soldf.loc[i, 'libtype'] = gemmobj.best_libtype
             soldf.loc[i, 'solidx'] = gemmobj.best_solidx
             soldf.loc[i, 'soltimes'] = gemmobj.best_soltime
+
             del gemmobj
             torch.cuda.empty_cache()
 
-        soldf['indtype'] = self.indtype
-        soldf['outdtype'] = self.outdtype
         finaldf = pd.concat([self.gemm_problems, soldf], axis=1)
-        if self.gdf is not None:
-            finaldf = pd.concat([finaldf, self.gdf])
+        if self.tuned_shapes is not None:
+            finaldf = pd.concat([finaldf, self.tuned_shapes])
         finaldf['solidx'] = finaldf['solidx'].convert_dtypes('int64')
         finaldf.to_csv(self.tuned_file, index=False)
         print(finaldf)
