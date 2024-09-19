@@ -53,6 +53,7 @@ from vllm.logger import init_logger
 
 logger = init_logger(__name__)
 
+
 def get_wikitext2_text(tokenizer):
     hf_hub_download(repo_id='alexei-v-ivanov-amd/wiki',
                     repo_type="dataset",
@@ -231,5 +232,3 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     main(args)
-
-

@@ -499,6 +499,7 @@ def _greedy_sample(
         sample_idx += num_parent_seqs
     return results
 
+
 def _forced_sample(
     selected_seq_groups: List[SequenceGroupToSample],
     samples: torch.Tensor,
@@ -530,6 +531,7 @@ def _forced_sample(
         results.append((next_token_ids, parent_ids))
         sample_idx += num_parent_seqs
     return results
+
 
 def _random_sample(
     selected_seq_groups: List[SequenceGroupToSample],
