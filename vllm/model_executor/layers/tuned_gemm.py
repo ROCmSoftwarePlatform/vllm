@@ -32,7 +32,7 @@ class TunedGemm:
             "gfx1" not in torch.cuda.get_device_properties('cuda').gcnArchName
 
         if (self.save_gemm == 1):
-            self.tuned_df = pd.DataFrame(columns=['M', 'N', 'K', 'bias'])
+            self.tuned_df = pd.DataFrame(columns=['M', 'N', 'K', 'bias', 'dtype'])
         else:
             self.tuned_df = None
 
@@ -45,7 +45,7 @@ class TunedGemm:
         solds = {}
         for i in range(len(df)):
             ds = df.iloc[i]
-            key = (ds['M'], ds['N'], ds['K'], ds['bias'])
+            key = (ds['M'], ds['N'], ds['K'], ds['bias'], ds['dtype'])
             if ds['libtype'] == 'hipblaslt':
                 soltype = 1
             elif ds['libtype'] == 'rocblas':
@@ -53,8 +53,8 @@ class TunedGemm:
             solds[key] = (soltype, int(ds['solidx']))
         self.solids = solds
         #print('>>>',solds)
-    def query_sol(self, m, n, k, bias):
-        return self.solids.get((m, n, k, bias), (0, 0))
+    def query_sol(self, m, n, k, bias, dtype):
+        return self.solids.get((m, n, k, bias, str(dtype)), (0, 0))
 
     def apply_skinny(self, m, n, k, inp_view, weights):
         if not self.use_skinny:
@@ -96,7 +96,7 @@ class TunedGemm:
         n = inp_view.shape[0]
         k = inp_view.shape[1]
         use_bias = bias is not None
-        soltype, solidx = self.query_sol(m=m, n=n, k=k, bias=use_bias)
+        soltype, solidx = self.query_sol(m=m, n=n, k=k, bias=use_bias, dtype=inp.dtype)
         out = self.apply_skinny(m, n, k, inp_view, weights)
         if out is not None:
             if batched:
