@@ -136,7 +136,8 @@ def main(args: argparse.Namespace):
     num_tokens_generated = 0
     starting_time = datetime.datetime.now()
     MESSAGE = (f"Starting generation @ {starting_time}\n" \
-                f" Have the test sample of {len(my_test_enc['input_ids'])} tokens" \
+                " Have the test sample of "
+                f"{len(my_test_enc['input_ids'])} tokens" \
                 f" will try to process {my_n_patches} patche(s)," \
                 f" generating {my_n_samples} tokens in each patch" \
                 f" from the initial context of {args.context_size} tokens.")
