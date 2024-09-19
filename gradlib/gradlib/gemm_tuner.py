@@ -29,7 +29,10 @@ def generate_mk_sets(model_dir, tp=1):
 
 
 def get_dtype(dtype_str):
-    dtype = torch.float16
+    if dtype_str is None:
+        return None
+    if dtype_str.startswith('torch'):
+        return getattr(torch, dtype_str.split('.')[1])
     if dtype_str == 'f32':
         dtype = torch.float32
     elif dtype_str == 'bf16':
@@ -74,13 +77,13 @@ if __name__ == '__main__':
                         help="Tensor parallelism to be used.")
     parser.add_argument("--indtype",
                         type=str,
-                        default='f16',
+                        default=None,
                         choices=["f32", "f16", "bf16", "fp8"],
-                        help="dtype f32 f16 bf16 fp8")
+                        help="dtype: f32 f16 bf16 fp8. Use this to override the input_file or if no input_file provided")
     parser.add_argument("--outdtype",
                         type=str,
                         choices=["f32", "f16", "bf16", "fp8"],
-                        help="dtype f32 f16 bf16 fp8")
+                        help="dtype: f32 f16 bf16 fp8. Use to override the default value, which is the same as indtype for each shape (see --indtype.)")
     parser.add_argument("--rocblas-decode",
                         action="store_true",
                         default=False,
@@ -93,6 +96,11 @@ if __name__ == '__main__':
                         type=list_of_ints,
                         default=[1, 512, 1024, 2048, 3072, 4096, 8192, 16384],
                         help="N sizes to tune for: 1,128,2048")
+    parser.add_argument(
+        "--all_bias",
+        action="store_true",
+        help="Tune for both bias and non bias cases, regardless of what was used"
+        " to collect the shapes")
     args = parser.parse_args()
 
     if args.outdtype is None:
@@ -110,7 +118,9 @@ if __name__ == '__main__':
         shapes = pd.read_csv(args.input_file)
         for i in range(len(shapes)):
             ds = shapes.iloc[i]
-            gtuner.add_gemm(ds['M'], ds['N'], ds['K'])
+            for bias in [True, False] if args.all_bias else [ds['bias']]:
+                gtuner.add_gemm(ds['M'], ds['N'], ds['K'],
+                                get_dtype(ds['dtype']), bias)
     else:
         if not args.model_dir:
             print(">>> Warning! NO MODEL SPECIFIED. Tuning for LL2 13B TP1")

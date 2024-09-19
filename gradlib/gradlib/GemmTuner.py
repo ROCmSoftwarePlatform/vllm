@@ -20,10 +20,12 @@ ONE = torch.ones(1, dtype=torch.float32, device='cuda')
 
 class Gemm:
 
-    def __init__(self, m, n, k, indtype, outdtype, rocblas_decode=False):
+    def __init__(self, m, n, k, bias, indtype, outdtype, rocblas_decode=False):
         self.m = m
         self.k = k
         self.n = n
+        self.bias = torch.randn(m, dtype=indtype,
+                                device='cuda') if bias else None
         self.indtype = indtype
         self.outdtype = outdtype
         self.use_rocblas = (indtype == outdtype
@@ -53,12 +55,15 @@ class Gemm:
         self.rocblas_decode = rocblas_decode
 
     def find_hipblas_sols(self):
-        sols = hipbsolidxgemm.hipb_findallsols(self.inp, self.weights.t(),
-                                               self.outdtype)
-        print('M N K',
+        sols = hipbsolidxgemm.hipb_findallsols(self.inp,
+                                               self.weights.t(),
+                                               bias=self.bias,
+                                               out_dtype=self.outdtype)
+        print('M N K bias',
               self.m,
               self.n,
               self.k,
+              self.bias is not None,
               '>>> Total hipb solutions',
               len(sols),
               flush=True)
@@ -73,12 +78,17 @@ class Gemm:
                                       scale_b=ONE,
                                       out_dtype=self.outdtype)
         else:
-            ref = F.linear(self.inp, self.weights)
+            ref = F.linear(self.inp, self.weights, self.bias)
         if libtype == 'hipblaslt':
-            c = hipbsolidxgemm.hipb_mm(self.inp, self.weights.t(), solidx,
-                                       self.outdtype)
+            c = hipbsolidxgemm.hipb_mm(self.inp,
+                                       self.weights.t(),
+                                       solidx,
+                                       bias=self.bias,
+                                       out_dtype=self.outdtype)
         elif libtype == 'rocblas':
             c = rocsolidxgemm.rocb_mm(self.inp, self.weights.t(), solidx)
+            if self.bias is not None:
+                c += self.bias
         if torch.allclose(c.to(self.outdtype),
                           ref.to(self.outdtype),
                           atol=self.atol,
@@ -91,20 +101,24 @@ class Gemm:
               solidx,
               'FAILED reference test',
               flush=True)
-        print(ref, flush=True)
-        print(c, flush=True)
+        #print(ref, flush=True)
+        #print(c, flush=True)
         return False
 
     def hipb_time_sol(self, solidx, cold_iters=2, warm_iters=10):
         #print('>>>hipbtime',solidx)
         for i in range(cold_iters):
-            hipbsolidxgemm.hipb_mm(self.inp, self.weights.t(), solidx,
-                                   self.outdtype)
+            hipbsolidxgemm.hipb_mm(self.inp,
+                                   self.weights.t(),
+                                   solidx,
+                                   out_dtype=self.outdtype)
         self.start.record()
         for i in range(warm_iters):
-            hipbsolidxgemm.hipb_mm(
-                self.inp, self.weights2[random.randint(0, self.nb - 1)].t(),
-                solidx, self.outdtype)
+            hipbsolidxgemm.hipb_mm(self.inp,
+                                   self.weights2[random.randint(
+                                       0, self.nb - 1)].t(),
+                                   solidx,
+                                   out_dtype=self.outdtype)
         self.end.record()
         torch.cuda.synchronize()
         gtime = self.start.elapsed_time(self.end) / warm_iters
@@ -133,13 +147,23 @@ class Gemm:
         print(self.hipb_gtimedf.head(self.topn))
 
     def rocb_time_sol(self, solidx, cold_iters=2, warm_iters=10):
-        for i in range(cold_iters):
-            rocsolidxgemm.rocb_mm(self.inp, self.weights.t(), solidx)
+
+        def rocb_mm_bias(inp, w, solidx, bias):
+            return rocsolidxgemm.rocb_mm(inp, w, solidx) + bias
+
+        def rocb_mm_nobias(inp, w, solidx, _):
+            return rocsolidxgemm.rocb_mm(inp, w, solidx)
+
+        rocb_fun = rocb_mm_bias if self.bias is not None else rocb_mm_nobias
+        for _ in range(cold_iters):
+            rocb_fun(self.inp, self.weights.t(), solidx, self.bias)
+
         self.start.record()
-        for i in range(warm_iters):
-            rocsolidxgemm.rocb_mm(
-                self.inp, self.weights2[random.randint(0, self.nb - 1)].t(),
-                solidx)
+        for _ in range(warm_iters):
+            rocb_fun(self.inp, self.weights2[random.randint(0,
+                                                            self.nb - 1)].t(),
+                     solidx, self.bias)
+
         self.end.record()
         torch.cuda.synchronize()
         gtime = self.start.elapsed_time(self.end) / warm_iters
@@ -250,7 +274,7 @@ class GemmTuner:
                  outdtype,
                  tuned_file=None,
                  rocblas_decode=False):
-        self.gemm_problems = pd.DataFrame(columns=['M', 'N', 'K'])
+        self.gemm_problems = pd.DataFrame(columns=['M', 'N', 'K', 'bias'])
         self.indtype = indtype
         self.outdtype = outdtype
         self.rocblas_decode = rocblas_decode
@@ -260,35 +284,47 @@ class GemmTuner:
         else:
             self.gdf = None
 
-    def add_gemm(self, m, n, k):
-        if (self.gdf is None
-                or (self.gdf[(self.gdf['M'] == m) & (self.gdf['N'] == n) &
-                             (self.gdf['K'] == k)].empty)):
-            entry = {'M': [m], 'N': [n], 'K': [k]}
+    def add_gemm(self, m, n, k, indtype=None, bias=False):
+        indtype = self.indtype if self.indtype is not None else indtype
+        assert indtype is not None
+        if (self.gdf is None or
+            (self.gdf[(self.gdf['M'] == m) & (self.gdf['N'] == n) &
+                      (self.gdf['K'] == k) & (self.gdf['bias'] == bias) &
+                      (self.gdf['dtype'] == indtype)].empty)):
+            entry = {
+                'M': [m],
+                'N': [n],
+                'K': [k],
+                'bias': [bias],
+                'dtype': [indtype]
+            }
             df = pd.DataFrame(entry)
             self.gemm_problems = pd.concat([self.gemm_problems, df],
                                            ignore_index=True)
         else:
             print(
-                f">>>Info: Found Duplicate shape(M:{m}, N:{n}, K:{k}), skipping"
+                f">>>Info: Found Duplicate shape(M:{m}, N:{n}, K:{k} bias:{bias}), skipping"
             )
 
     def find_best_sols(self):
         df = self.gemm_problems
         soldf = pd.DataFrame(
-            columns=['libtype', 'solidx', 'soltimems', 'indtype', 'outdtype'])
+            columns=['libtype', 'solidx', 'soltimes', 'indtype', 'outdtype'])
         for i in range(len(df)):
             ds = df.loc[i, :]
+            indtype = self.indtype or ds['dtype']
+            outdtype = self.outdtype or indtype
             gemmobj = Gemm(ds['M'],
                            ds['N'],
                            ds['K'],
-                           indtype=self.indtype,
-                           outdtype=self.outdtype,
+                           ds['bias'],
+                           indtype=indtype,
+                           outdtype=outdtype,
                            rocblas_decode=self.rocblas_decode)
             gemmobj.find_fastest_solution()
             soldf.loc[i, 'libtype'] = gemmobj.best_libtype
             soldf.loc[i, 'solidx'] = gemmobj.best_solidx
-            soldf.loc[i, 'soltimems'] = gemmobj.best_soltime
+            soldf.loc[i, 'soltimes'] = gemmobj.best_soltime
             del gemmobj
             torch.cuda.empty_cache()
 

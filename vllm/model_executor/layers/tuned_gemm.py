@@ -32,7 +32,7 @@ class TunedGemm:
             "gfx1" not in torch.cuda.get_device_properties('cuda').gcnArchName
 
         if (self.save_gemm == 1):
-            self.tuned_df = pd.DataFrame(columns=['M', 'N', 'K'])
+            self.tuned_df = pd.DataFrame(columns=['M', 'N', 'K', 'bias'])
         else:
             self.tuned_df = None
 
@@ -45,7 +45,7 @@ class TunedGemm:
         solds = {}
         for i in range(len(df)):
             ds = df.iloc[i]
-            key = (ds['M'], ds['N'], ds['K'])
+            key = (ds['M'], ds['N'], ds['K'], ds['bias'])
             if ds['libtype'] == 'hipblaslt':
                 soltype = 1
             elif ds['libtype'] == 'rocblas':
@@ -53,8 +53,8 @@ class TunedGemm:
             solds[key] = (soltype, int(ds['solidx']))
         self.solids = solds
         #print('>>>',solds)
-    def query_sol(self, m, n, k):
-        return self.solids.get((m, n, k), (0, 0))
+    def query_sol(self, m, n, k, bias):
+        return self.solids.get((m, n, k, bias), (0, 0))
 
     def apply_skinny(self, m, n, k, inp_view, weights):
         if not self.use_skinny:
@@ -95,14 +95,22 @@ class TunedGemm:
         m = weights.shape[0]
         n = inp_view.shape[0]
         k = inp_view.shape[1]
-        soltype, solidx = self.query_sol(m=m, n=n, k=k)
+        use_bias = bias is not None
+        soltype, solidx = self.query_sol(m=m, n=n, k=k, bias=use_bias)
         out = self.apply_skinny(m, n, k, inp_view, weights)
         if out is not None:
-            pass
+            if batched:
+                out = out.view(inp.shape[0], inp.shape[1], weights.shape[0])
+            if bias is not None:
+                return out + bias
         elif soltype == 1:
-            out = hipb_mm(inp_view, weights.t(), solidx)
+            out = hipb_mm(inp_view, weights.t(), solidx, bias=bias)
+        #    if not torch.allclose(out, F.linear(inp_view, weights, bias), atol=1, rtol=1e-5):
+        #        pass
         elif soltype == 2:
             out = rocb_mm(inp_view, weights.t(), solidx)
+            if bias is not None:
+                out = out + bias
         else:
             if (self.save_gemm == 1):
                 self.tuned_df = pd.concat([
@@ -110,15 +118,15 @@ class TunedGemm:
                     pd.DataFrame({
                         'M': [m],
                         'N': [n],
-                        'K': [k]
+                        'K': [k],
+                        'bias': [bias is not None],
+                        'dtype': [inp.dtype],
                     })
                 ]).drop_duplicates()
                 self.tuned_df.to_csv(self.untune_path, index=False)
             return F.linear(inp, weights, bias)
         if batched:
             out = out.view(inp.shape[0], inp.shape[1], weights.shape[0])
-        if bias is not None:
-            return out + bias
         return out
 
 
