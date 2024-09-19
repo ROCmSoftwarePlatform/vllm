@@ -47,7 +47,6 @@ import math
 import os
 
 from huggingface_hub import hf_hub_download
-from transformers import LlamaTokenizer
 
 from vllm import LLM, SamplingParams
 from vllm.logger import init_logger
