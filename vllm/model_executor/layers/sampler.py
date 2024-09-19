@@ -750,9 +750,7 @@ def get_pythonized_sample_results(
         if sampling_type not in sample_metadata:
             continue
         (seq_group_id, seq_groups) = sample_metadata[sampling_type]
-        if sampling_type == SamplingType.FORCED:
-            sample_results = _forced_sample(seq_groups, forced_samples)
-        elif sampling_type == SamplingType.GREEDY:
+        if sampling_type == SamplingType.GREEDY:
             sample_results = _greedy_sample(seq_groups, greedy_samples)
         elif sampling_type in (SamplingType.RANDOM, SamplingType.RANDOM_SEED):
             sample_results = _random_sample(seq_groups,
