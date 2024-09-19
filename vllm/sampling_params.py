@@ -82,10 +82,8 @@ class SamplingParams(
         min_p: Float that represents the minimum probability for a token to be
             considered, relative to the probability of the most likely token.
             Must be in [0, 1]. Set to 0 to disable this.
-#ifndef NEWSTUFF
         ppl_measurement: Measure perplexity towards the deterministic string 
             instead of probabilistic regressing.
-#endif /* ! NEWSTUFF */
         seed: Random seed to use for the generation.
         use_beam_search: Whether to use beam search instead of sampling.
         length_penalty: Float that penalizes sequences based on their length.
