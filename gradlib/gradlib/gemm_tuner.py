@@ -86,16 +86,14 @@ if __name__ == '__main__':
         type=str,
         default=None,
         choices=["f32", "f16", "bf16", "fp8"],
-        help=
-        "dtype: f32 f16 bf16 fp8. Use this to override the input_file or if no input_file provided"
-    )
+        help="dtype: f32 f16 bf16 fp8. Use this to override the"
+        " input_file or if no input_file provided")
     parser.add_argument(
         "--outdtype",
         type=str,
         choices=["f32", "f16", "bf16", "fp8"],
-        help=
-        "dtype: f32 f16 bf16 fp8. Use to override the default value, which is the same as indtype for each shape (see --indtype.)"
-    )
+        help="dtype: f32 f16 bf16 fp8. Use to override the default value,"
+        " which is the same as indtype for each shape (see --indtype.)")
     parser.add_argument("--rocblas-decode",
                         action="store_true",
                         default=False,
@@ -108,11 +106,11 @@ if __name__ == '__main__':
                         type=list_of_ints,
                         default=[1, 512, 1024, 2048, 3072, 4096, 8192, 16384],
                         help="N sizes to tune for: 1,128,2048")
-    parser.add_argument(
-        "--all_bias",
-        action="store_true",
-        help="Tune for both bias and non bias cases, regardless of what was used"
-        " to collect the shapes")
+    parser.add_argument("--all_bias",
+                        action="store_true",
+                        help="Tune for both bias and non bias cases,"
+                        " regardless of what was used"
+                        " to collect the shapes")
     args = parser.parse_args()
 
     if args.outdtype is None:

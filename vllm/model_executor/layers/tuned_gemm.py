@@ -32,7 +32,8 @@ class TunedGemm:
             "gfx1" not in torch.cuda.get_device_properties('cuda').gcnArchName
 
         if (self.save_gemm == 1):
-            self.tuned_df = pd.DataFrame(columns=['M', 'N', 'K', 'bias', 'dtype'])
+            self.tuned_df = pd.DataFrame(
+                columns=['M', 'N', 'K', 'bias', 'dtype'])
         else:
             self.tuned_df = None
 
@@ -96,7 +97,11 @@ class TunedGemm:
         n = inp_view.shape[0]
         k = inp_view.shape[1]
         use_bias = bias is not None
-        soltype, solidx = self.query_sol(m=m, n=n, k=k, bias=use_bias, dtype=inp.dtype)
+        soltype, solidx = self.query_sol(m=m,
+                                         n=n,
+                                         k=k,
+                                         bias=use_bias,
+                                         dtype=inp.dtype)
         out = self.apply_skinny(m, n, k, inp_view, weights)
         if out is not None:
             if batched:

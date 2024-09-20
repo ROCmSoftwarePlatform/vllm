@@ -73,10 +73,10 @@ class Gemm:
     def check_gemm_ref(self, libtype, solidx):
         if self.indtype == torch.float8_e4m3fnuz:
             ref = torch._scaled_mm(self.inp,
-                                      self.weights.t(),
-                                      scale_a=ONE,
-                                      scale_b=ONE,
-                                      out_dtype=self.outdtype)
+                                   self.weights.t(),
+                                   scale_a=ONE,
+                                   scale_b=ONE,
+                                   out_dtype=self.outdtype)
             if type(ref) == tuple and len(ref) == 2:
                 ref = ref[0]
         else:
@@ -310,9 +310,8 @@ class GemmTuner:
             self.gemm_problems = pd.concat([self.gemm_problems, df],
                                            ignore_index=True)
         else:
-            print(
-                f">>>Info: Found Duplicate shape(M:{m}, N:{n}, K:{k} bias:{bias}), skipping"
-            )
+            print(f">>>Info: Found Duplicate shape(M:{m},"
+                  " N:{n}, K:{k} bias:{bias}), skipping")
 
     def find_best_sols(self):
         df = self.gemm_problems
