@@ -1437,7 +1437,7 @@ def _build_sampler_output(
 
 
 def _get_next_prompt_tokens(
-        seq_group: SequenceGroupToSample) -> Tuple[List[int]]:
+        seq_group: SequenceGroupToSample) -> Tuple[int, ...]:
     """Get a list of next prompt tokens to compute logprob from a
         given sequence group.
 
