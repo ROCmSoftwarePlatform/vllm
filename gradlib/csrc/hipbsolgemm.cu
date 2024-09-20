@@ -122,8 +122,9 @@ std::map<at::ScalarType, hipDataType> dtype_map{
 std::vector<int> hipblasLtMatmul_findallsols_wrapper(
     hipblasLtHandle_t handle, hipblasOperation_t op_A, hipblasOperation_t op_B,
     int m, int n, int k, const void* alpha, const void* a, int lda,
-    const void* b, int ldb, const void* beta, void* c, int ldc, void* bias,
-    hipDataType intype, hipDataType outtype, hipStream_t& stream) {
+    const void* b, int ldb, const void* beta, void* c, int ldc,
+    const void* bias, hipDataType intype, hipDataType outtype,
+    hipStream_t& stream) {
   int flag{0};
   hipblasLtMatrixLayout_t matA, matB, matC;
   hipblasLtMatmulDesc_t matmul;
@@ -192,7 +193,7 @@ hipblasStatus_t hipblasLtMatmul_sol_wrapper(
     hipblasLtHandle_t handle, hipblasOperation_t op_A, hipblasOperation_t op_B,
     int m, int n, int k, const void* alpha, const void* a, int lda,
     const void* scaleA, const void* b, int ldb, const void* scaleB,
-    const void* beta, void* c, int ldc, const void* scaleC, void* bias,
+    const void* beta, void* c, int ldc, const void* scaleC, const void* bias,
     hipDataType intype, hipDataType outtype, hipStream_t& stream,
     int solution_index = -1) {
   // TODO: flag is not supported for hipblasLt yet
@@ -261,8 +262,6 @@ hipblasStatus_t hipblasLtMatmul_sol_wrapper(
                 << ", " << k << "), dtype: " << intype << ", (lda, ldb, ldc): ("
                 << lda << ", " << ldb << ", " << ldc << "), " << std::endl;
     }
-    // std::vector<hipblasLtMatmulHeuristicResult_t>
-    // heuristicResult(request_solutions);
     CHECK_HIPBLAS_ERROR(hipblasLtMatmulAlgoGetHeuristic(
         handle, matmul, matA, matB, matC, matC, preference, request_solutions,
         heuristicResult.data(), &returnedAlgoCount));
@@ -270,113 +269,21 @@ hipblasStatus_t hipblasLtMatmul_sol_wrapper(
       std::cout << "less solution found! request: " << request_solutions
                 << ", found: " << returnedAlgoCount << std::endl;
     }
-    // heuristic_map[gemm_key] = heuristicResult[0];
-    /*
-        if (returnedAlgoCount == 1) {
-          heuristic_map[gemm_key] = heuristicResult[0];
-        } else {
-          // benchmark requested solutions and pick best one
-          int bestIndex { -1 };
-          double bestMs { std::numeric_limits<double>::max() };
-          for (int sol { 0 }; sol < returnedAlgoCount; ++sol) {
-            // warm up
-            for (int iter { 0 }; iter < warmup_iters; ++iter) {
-              CHECK_HIPBLAS_ERROR(hipblasLtMatmul(handle, matmul,
-                  alpha,
-                  a, matA,
-                  b, matB,
-                  beta,
-                  c, matC,
-                  c, matC, // In case beta != 0, these runs can overwrite the
-       values in c
-                           // since c and d are the same
-                           // TODO: allocates separate d memory for these runs
-                  &heuristicResult[sol].algo,
-                  d_workspace, workspace_size,
-                  stream));
-            }
-            // performance measuring
-            double eventMs;
-            CHECK_HIP_ERROR(hipEventRecord(start, stream));
-            for (int iter { 0 }; iter < bench_iters; ++iter) {
-              CHECK_HIPBLAS_ERROR(hipblasLtMatmul(handle, matmul,
-                  alpha,
-                  a, matA,
-                  b, matB,
-                  beta,
-                  c, matC,
-                  c, matC, // In case beta != 0, these runs can overwrite the
-       values in c
-                           // since c and d are the same
-                           // TODO: allocates separate d memory for these runs
-                  &heuristicResult[sol].algo,
-                  d_workspace, workspace_size,
-                  stream));
-            }
-            CHECK_HIP_ERROR(hipEventRecord(stop, stream));
-            CHECK_HIP_ERROR(hipEventSynchronize(stop));
-            float temp;
-            CHECK_HIP_ERROR(hipEventElapsedTime(&temp, start, stop));
-            eventMs = double(temp);
-            eventMs /= bench_iters;
-
-            if (cout_print) {
-              std::cout << "    Sol " << sol << ": average time per iter " <<
-       std::to_string(eventMs) << " ms";
-            }
-            if (bestMs > eventMs) {
-              bestMs = eventMs;
-              bestIndex = sol;
-              if (cout_print) {
-                std::cout << " *" << std::endl;
-              }
-            } else {
-              if (cout_print) {
-                std::cout << std::endl;
-              }
-            }
-          }
-          heuristic_map[gemm_key] = heuristicResult[bestIndex];
-        }
-    */
-    // nvtxRangePop();
   } else {
     std::vector<int> algoIndex(1);
     algoIndex[0] = solution_index;
-    // std::vector<hipblasLtMatmulHeuristicResult_t> tmpAlgo;
     CHECK_HIPBLAS_ERROR(
         hipblaslt_ext::getAlgosFromIndex(handle, algoIndex, heuristicResult));
   }
 
-  // size_t ret_workspace_size = 0;
-
-  // auto status1 = hipblaslt_ext::matmulIsAlgoSupported(handle, matmul,
-  //       alpha,
-  //       matA,
-  //       matB,
-  //       beta,
-  //       matC,
-  //       matC,
-  //       heuristicResult[0].algo,
-  //       ret_workspace_size
-  //);
-  // if (status1 == HIPBLAS_STATUS_SUCCESS) {
-  //   std::cout << "Workspace size" << ret_workspace_size << std::endl;
-
-  //} else {
-  //  std::cout << "Algo not supported!!!" << std::endl;
-
-  //}
   hipblasStatus_t status = hipblasLtMatmul(
       handle, matmul, alpha, a, matA, b, matB, beta, c, matC, c, matC,
       &heuristicResult[0].algo, d_workspace, workspace_size, stream);
 
-  // nvtxRangePushA("hipBLASLt variables deletion");
   CHECK_HIPBLAS_ERROR(hipblasLtMatmulDescDestroy(matmul));
   CHECK_HIPBLAS_ERROR(hipblasLtMatrixLayoutDestroy(matA));
   CHECK_HIPBLAS_ERROR(hipblasLtMatrixLayoutDestroy(matB));
   CHECK_HIPBLAS_ERROR(hipblasLtMatrixLayoutDestroy(matC));
-  // nvtxRangePop();
 
   return status;
 }
@@ -392,10 +299,6 @@ torch::Tensor hipb_mm(const torch::Tensor& mat1, const torch::Tensor& mat2,
   auto mat2_strides{mat2.strides()};
   auto mat1_sizes{mat1.sizes()};
   auto mat2_sizes{mat2.sizes()};
-  // std::cout << " | mat1 info: size: " << mat1_sizes << " stride: " <<
-  // mat1_strides << std::endl
-  //           << " | mat2 info: size: " << mat2_sizes << " stride: " <<
-  //           mat2_strides << std::endl;
 
   TORCH_CHECK(mat1.dim() == 2 && mat2.dim() == 2, "tensors must be 2-D");
   TORCH_CHECK(mat1.dtype() == mat2.dtype(),
@@ -411,8 +314,6 @@ torch::Tensor hipb_mm(const torch::Tensor& mat1, const torch::Tensor& mat2,
           : inDtype};
   auto options{at::TensorOptions().dtype(outDtype).device(at::kCUDA)};
   auto result{torch::empty({mat1_sizes[0], mat2_sizes[1]}, options)};
-  // std::cout << " | result info: size: " << result.sizes() << " stride: " <<
-  // result.strides() << std::endl;
 
   bool transpose_result = true;
   bool transpose_mat1;
@@ -447,16 +348,6 @@ torch::Tensor hipb_mm(const torch::Tensor& mat1, const torch::Tensor& mat2,
     mat1_sizes = mat2.sizes();
     mat2_sizes = mat1.sizes();
   }
-  // std::cout << " | transpose_result: " << (transpose_result ? "true" :
-  // "false") << std::endl
-  //           << " | transpose_A: " << (transpose_mat1 ? "true" : "false") <<
-  //           std::endl
-  //           << " | transpose_B: " << (transpose_mat2 ? "true" : "false") <<
-  //           std::endl;
-  // std::cout << " | A matrix: size: " << mat1_sizes << " stride: " <<
-  // mat1_strides << std::endl
-  //           << " | B matrix: size: " << mat2_sizes << " stride: " <<
-  //           mat2_strides << std::endl;
 
   float one{1.0f};
   float zero{0.0f};
