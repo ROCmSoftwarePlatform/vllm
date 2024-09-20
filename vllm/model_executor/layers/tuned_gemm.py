@@ -103,10 +103,9 @@ class TunedGemm:
                 out = out.view(inp.shape[0], inp.shape[1], weights.shape[0])
             if bias is not None:
                 return out + bias
+            return out
         elif soltype == 1:
             out = hipb_mm(inp_view, weights.t(), solidx, bias=bias)
-        #    if not torch.allclose(out, F.linear(inp_view, weights, bias), atol=1, rtol=1e-5):
-        #        pass
         elif soltype == 2:
             out = rocb_mm(inp_view, weights.t(), solidx)
             if bias is not None:
