@@ -243,6 +243,7 @@ hipblasStatus_t hipblasLtMatmul_sol_wrapper(
     CHECK_HIPBLAS_ERROR(hipblasLtMatmulDescSetAttribute(
         matmul, HIPBLASLT_MATMUL_DESC_BIAS_POINTER, &bias, sizeof(void*)));
     auto epilogue = HIPBLASLT_EPILOGUE_BIAS;
+    static_assert(sizeof(epilogue) == sizeof(int32_t));
     CHECK_HIPBLAS_ERROR(hipblasLtMatmulDescSetAttribute(
         matmul, HIPBLASLT_MATMUL_DESC_EPILOGUE, &epilogue, sizeof(int32_t)));
   }
