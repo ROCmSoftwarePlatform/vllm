@@ -28,6 +28,8 @@ from vllm.worker.embedding_model_runner import EmbeddingModelRunner
 from vllm.worker.enc_dec_model_runner import EncoderDecoderModelRunner
 from vllm.worker.model_runner import GPUModelRunnerBase, ModelRunner
 from vllm.worker.worker_base import LocalOrDistributedWorkerBase, WorkerInput
+from vllm.utils import rpd_trace
+from rpdTracerControl import rpdTracerControl
 
 logger = init_logger(__name__)
 
@@ -131,18 +133,33 @@ class Worker(LocalOrDistributedWorkerBase):
                 with_stack=True,
                 on_trace_ready=torch.profiler.tensorboard_trace_handler(
                     torch_profiler_trace_dir, use_gzip=True))
+        elif envs.VLLM_RPD_PROFILER_DIR:
+            rpd_profiler_trace_dir = envs.VLLM_RPD_PROFILER_DIR
+            logger.info("Profiling enabled. Traces will be saved to: %s",
+                        rpd_profiler_trace_dir)
+            if self.rank == 0:
+                rpd_trace.create_file(filename=rpd_profiler_trace_dir)
+            self.profiler = rpd_trace(filename=rpd_profiler_trace_dir, name='Worker RPD Enabled', nvtx=True)
         else:
             self.profiler = None
 
     def start_profile(self):
         if self.profiler is None:
             raise RuntimeError("Profiler is not enabled.")
-        self.profiler.start()
+
+        if os.getenv('VLLM_RPD_PROFILER_DIR'):
+            self.profiler.__enter__()
+        else:
+            self.profiler.start()
 
     def stop_profile(self):
         if self.profiler is None:
             raise RuntimeError("Profiler is not enabled.")
-        self.profiler.stop()
+
+        if os.getenv('VLLM_RPD_PROFILER_DIR'):
+            self.profiler.__exit__()
+        else:
+            self.profiler.stop()
 
     def _is_encoder_decoder_model(self):
         return self.model_config.is_encoder_decoder_model

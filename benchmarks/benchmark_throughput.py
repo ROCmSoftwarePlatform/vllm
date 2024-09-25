@@ -4,7 +4,8 @@ import json
 import random
 import time
 from typing import List, Optional, Tuple
-
+import os
+from pathlib import Path
 import torch
 import uvloop
 from tqdm import tqdm
@@ -16,7 +17,9 @@ from vllm.entrypoints.openai.api_server import (
     build_async_engine_client_from_engine_args)
 from vllm.model_executor.layers.quantization import QUANTIZATION_METHODS
 from vllm.utils import FlexibleArgumentParser, merge_async_iterators
-
+from vllm.utils import rpd_trace
+from rpdTracerControl import rpdTracerControl as rpd
+from contextlib import contextmanager, nullcontext
 
 def sample_requests(
     dataset_path: str,
@@ -92,6 +95,39 @@ def run_vllm(
     disable_async_output_proc: bool = False,
 ) -> float:
     from vllm import LLM, SamplingParams
+  
+    @contextmanager
+    def rpd_profiler_context():
+        llm.start_profile()
+        yield
+        llm.stop_profile()
+        rpd.top_totals()
+
+    @contextmanager
+    def torch_profiler_context(profile_dir: Optional[str] = None, trace_file_name = None):
+        p = torch.profiler.profile(
+                    activities=[
+                        torch.profiler.ProfilerActivity.CPU,
+                        torch.profiler.ProfilerActivity.CUDA,
+                    ],
+                    on_trace_ready=torch.profiler.tensorboard_trace_handler(
+                        str(profile_dir)))
+        p.start()
+        try:
+            with torch.no_grad():
+                yield p
+        finally:
+            p.stop()
+            print(p.key_averages().table(sort_by="self_cuda_time_total", row_limit=-1))
+
+    def get_profiling_context(profile_dir: Optional[str] = None, trace_file_name = None):
+         if args.profile_torch:
+             return torch_profiler_context(profile_dir, trace_file_name)
+         elif args.profile_rpd:
+             return rpd_profiler_context()
+         else:
+             return nullcontext()
+
     llm = LLM(
         model=model,
         tokenizer=tokenizer,
@@ -132,11 +168,18 @@ def run_vllm(
                 max_tokens=output_len,
             ))
 
-    start = time.perf_counter()
-    llm.generate(prompts, sampling_params, use_tqdm=True)
-    end = time.perf_counter()
-    return end - start
-
+    if args.profile_torch or args.profile_rpd:
+        profile_dir = args.profile_dir
+        name = os.path.basename(os.path.normpath(args.model))
+        model_trace_name =f"{name}_in_{args.input_len}_out_{args.output_len}"
+        with get_profiling_context(profile_dir, model_trace_name):
+            llm.generate(prompts, sampling_params, use_tqdm=True)
+        return
+    else:
+        start = time.perf_counter()
+        llm.generate(prompts, sampling_params, use_tqdm=True)
+        end = time.perf_counter()
+        return end - start
 
 async def run_vllm_async(
     requests: List[Tuple[str, int, int]],
@@ -349,20 +392,25 @@ def main(args: argparse.Namespace):
         raise ValueError(f"Unknown backend: {args.backend}")
     total_num_tokens = sum(prompt_len + output_len
                            for _, prompt_len, output_len in requests)
-    print(f"Throughput: {len(requests) / elapsed_time:.2f} requests/s, "
-          f"{total_num_tokens / elapsed_time:.2f} tokens/s")
+    
+    if args.profile_torch or args.profile_rpd:
+        # Profiling complete
+        pass
+    else:
+        print(f"Throughput: {len(requests) / elapsed_time:.2f} requests/s, "
+              f"{total_num_tokens / elapsed_time:.2f} tokens/s")
 
-    # Output JSON results if specified
-    if args.output_json:
-        results = {
-            "elapsed_time": elapsed_time,
-            "num_requests": len(requests),
-            "total_num_tokens": total_num_tokens,
-            "requests_per_second": len(requests) / elapsed_time,
-            "tokens_per_second": total_num_tokens / elapsed_time,
-        }
-        with open(args.output_json, "w") as f:
-            json.dump(results, f, indent=4)
+        # Output JSON results if specified
+        if args.output_json:
+            results = {
+                "elapsed_time": elapsed_time,
+                "num_requests": len(requests),
+                "total_num_tokens": total_num_tokens,
+                "requests_per_second": len(requests) / elapsed_time,
+                "tokens_per_second": total_num_tokens / elapsed_time,
+            }
+            with open(args.output_json, "w") as f:
+                json.dump(results, f, indent=4)
 
 
 if __name__ == "__main__":
@@ -528,6 +576,20 @@ if __name__ == "__main__":
                         action='store_true',
                         default=False,
                         help="Disable decoupled async engine frontend.")
+    parser.add_argument(
+        '--profile-torch',
+        action='store_true',
+        help='profile the generation process of a single batch')
+    parser.add_argument(
+        '--profile-rpd',
+        action='store_true',
+        help='profile the generation process of a single batch')
+    parser.add_argument(
+        '--profile-dir',
+        type=str,
+        default=None,
+        help=('path to save the profiler output. Can be visualized '
+              'with ui.perfetto.dev or Tensorboard.'))
     args = parser.parse_args()
     if args.tokenizer is None:
         args.tokenizer = args.model

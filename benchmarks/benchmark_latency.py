@@ -2,6 +2,7 @@
 import argparse
 import json
 import time
+import os
 from pathlib import Path
 from typing import List, Optional
 
@@ -15,9 +16,45 @@ from vllm.inputs import PromptType
 from vllm.model_executor.layers.quantization import QUANTIZATION_METHODS
 from vllm.utils import FlexibleArgumentParser
 
+from vllm.utils import rpd_trace
+from rpdTracerControl import rpdTracerControl as rpd
+from contextlib import contextmanager, nullcontext
 
 def main(args: argparse.Namespace):
     print(args)
+    
+    @contextmanager
+    def rpd_profiler_context():
+        llm.start_profile()
+        yield 
+        llm.stop_profile()
+        rpd.top_totals()
+
+    @contextmanager
+    def torch_profiler_context(profile_dir: Optional[str] = None, trace_file_name = None):
+        p = torch.profiler.profile(
+                    activities=[
+                        torch.profiler.ProfilerActivity.CPU,
+                        torch.profiler.ProfilerActivity.CUDA,
+                    ],
+                    on_trace_ready=torch.profiler.tensorboard_trace_handler(
+                        str(profile_dir)))
+        p.start()
+        try:
+            with torch.no_grad():
+                yield p
+        finally:
+            p.stop()
+            print(p.key_averages().table(sort_by="self_cuda_time_total", row_limit=-1))
+
+    def get_profiling_context(profile_dir: Optional[str] = None, trace_file_name = None):
+         if args.profile_torch:
+             return torch_profiler_context(profile_dir, trace_file_name)
+         elif args.profile_rpd:
+            return rpd_profiler_context()
+         else:
+             return nullcontext()
+
 
     # NOTE(woosuk): If the request cannot be processed in a single batch,
     # the engine will automatically process the request in multiple batches.
@@ -65,20 +102,14 @@ def main(args: argparse.Namespace):
     dummy_prompts: List[PromptType] = [{
         "prompt_token_ids": batch
     } for batch in dummy_prompt_token_ids.tolist()]
-
-    def run_to_completion(profile_dir: Optional[str] = None):
+    
+    def run_to_completion(profile_dir: Optional[str] = None, profiling_mode = None):
         if profile_dir:
-            with torch.profiler.profile(
-                    activities=[
-                        torch.profiler.ProfilerActivity.CPU,
-                        torch.profiler.ProfilerActivity.CUDA,
-                    ],
-                    on_trace_ready=torch.profiler.tensorboard_trace_handler(
-                        str(profile_dir))) as p:
-                llm.generate(dummy_prompts,
+            name = os.path.basename(os.path.normpath(args.model))
+            with get_profiling_context():
+                llm.generate(dummy_inputs,
                              sampling_params=sampling_params,
                              use_tqdm=False)
-            print(p.key_averages())
         else:
             start_time = time.perf_counter()
             llm.generate(dummy_prompts,
@@ -91,15 +122,14 @@ def main(args: argparse.Namespace):
     print("Warming up...")
     for _ in tqdm(range(args.num_iters_warmup), desc="Warmup iterations"):
         run_to_completion(profile_dir=None)
-
-    if args.profile:
-        profile_dir = args.profile_result_dir
+    
+    if args.profile_torch or args.profile_rpd:
+        profile_dir = args.profile_dir
         if not profile_dir:
-            profile_dir = Path(
-                "."
-            ) / "vllm_benchmark_result" / f"latency_result_{time.time()}"
+            profile_dir = Path(".") / "vllm_benchmark_latency_result"
+            os.makedirs(profile_dir, exist_ok=True)
         print(f"Profiling (results will be saved to '{profile_dir}')...")
-        run_to_completion(profile_dir=profile_dir)
+        run_to_completion(profile_dir=profile_dir)    
         return
 
     # Benchmark.
@@ -197,14 +227,25 @@ if __name__ == '__main__':
         'cuda version greater than 11.8. On ROCm (AMD GPU), FP8_E4M3 is '
         'instead supported for common inference criteria.')
     parser.add_argument(
-        '--profile',
+        '--quantized-weights-path',
+        type=str,
+        default=None,
+        help='Path to the safetensor file containing the quantized weights '
+        'and scaling factors. This should generally be supplied, when '
+        'quantization is FP8.')
+    parser.add_argument(
+        '--profile-torch',
         action='store_true',
         help='profile the generation process of a single batch')
     parser.add_argument(
-        '--profile-result-dir',
+        '--profile-rpd',
+        action='store_true',
+        help='profile the generation process of a single batch')
+    parser.add_argument(
+        '--profile-dir',
         type=str,
-        default=None,
-        help=('path to save the pytorch profiler output. Can be visualized '
+        default=os.getenv('VLLM_RPD_PROFILER_DIR',default=None),
+        help=('path to save the profiler output. Can be visualized '
               'with ui.perfetto.dev or Tensorboard.'))
     parser.add_argument("--device",
                         type=str,
