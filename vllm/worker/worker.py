@@ -30,6 +30,7 @@ from vllm.worker.model_runner import GPUModelRunnerBase, ModelRunner
 from vllm.worker.worker_base import LocalOrDistributedWorkerBase, WorkerInput
 from vllm.utils import rpd_trace
 from rpdTracerControl import rpdTracerControl
+from pathlib import Path
 
 logger = init_logger(__name__)
 
@@ -134,12 +135,20 @@ class Worker(LocalOrDistributedWorkerBase):
                 on_trace_ready=torch.profiler.tensorboard_trace_handler(
                     torch_profiler_trace_dir, use_gzip=True))
         elif envs.VLLM_RPD_PROFILER_DIR:
-            rpd_profiler_trace_dir = envs.VLLM_RPD_PROFILER_DIR
+            rpd_profiler_trace_dir = Path(envs.VLLM_RPD_PROFILER_DIR)
+
+            if not rpd_profiler_trace_dir.suffix == ".rpd":
+                rpd_profiler_trace_dir = rpd_profiler_trace_dir / "trace.rpd"
+            
+            rpd_profiler_trace_dir.parent.mkdir(parents=True, exist_ok=True)
+
             logger.info("Profiling enabled. Traces will be saved to: %s",
                         rpd_profiler_trace_dir)
+            
             if self.rank == 0:
-                rpd_trace.create_file(filename=rpd_profiler_trace_dir)
-            self.profiler = rpd_trace(filename=rpd_profiler_trace_dir, name='Worker RPD Enabled', nvtx=True)
+                rpd_trace.create_file(filename=str(rpd_profiler_trace_dir))
+            
+            self.profiler = rpd_trace(filename=str(rpd_profiler_trace_dir), name='Worker RPD Enabled', nvtx=True)
         else:
             self.profiler = None
 
