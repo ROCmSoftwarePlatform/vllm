@@ -417,8 +417,7 @@ class DummyModelLoader(BaseModelLoader):
                     # case where cpu offloading is used, where we will move the
                     # parameters onto device for processing and back off after.
                     with device_loading_context(
-                        module, torch.device(device_config.device)
-                    ):
+                            module, torch.device(device_config.device)):
                         quant_method.process_weights_after_loading(module)
         return model.eval()
 
