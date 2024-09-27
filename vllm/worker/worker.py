@@ -147,7 +147,8 @@ class Worker(LocalOrDistributedWorkerBase):
             if self.rank == 0:
                 rpd_trace.create_file(filename=str(rpd_profiler_trace_dir))
             
-            self.profiler = rpd_trace(filename=str(rpd_profiler_trace_dir), name='Worker RPD Enabled', nvtx=True)
+            self.profiler = rpd_trace(filename=str(rpd_profiler_trace_dir),
+                                      name='Worker RPD Enabled', nvtx=True)
         else:
             self.profiler = None
 

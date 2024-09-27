@@ -156,10 +156,10 @@ class _Sentinel:
 ALL_PINNED_SENTINEL = _Sentinel()
 
 class rpd_trace():
-    def __init__(self, filename=None, name=None, nvtx=False, args=None, skip=False):
+    def __init__(self, filename=None, name=None, nvtx=False, args=None,
+                 skip=False):
         self.skip = skip
         if not self.skip:
-            from rpdTracerControl import rpdTracerControl
             if 'RANK' in os.environ or int(os.getenv('WORLD_SIZE', 1)) > 1:
                 filename = f"{filename}_pid{os.getpid()}"
             self.name = name
@@ -226,7 +226,6 @@ class rpd_mark():
             self.name = name
     def __call__(self, func):
         from hipScopedMarker import hipScopedMarker
-        import functools
         @wraps(func)
         def inner(*args, **kwds):
             marker_name = self.name if self.name else f"{func.__name__}"

@@ -30,7 +30,8 @@ def main(args: argparse.Namespace):
         rpd.top_totals()
 
     @contextmanager
-    def torch_profiler_context(profile_dir: Optional[str] = None, trace_file_name = None):
+    def torch_profiler_context(profile_dir: Optional[str] = None,
+                               trace_file_name = None):
         p = torch.profiler.profile(
                     activities=[
                         torch.profiler.ProfilerActivity.CPU,
@@ -44,9 +45,11 @@ def main(args: argparse.Namespace):
                 yield p
         finally:
             p.stop()
-            print(p.key_averages().table(sort_by="self_cuda_time_total", row_limit=-1))
+            print(p.key_averages().table(sort_by="self_cuda_time_total",
+                                         row_limit=-1))
 
-    def get_profiling_context(profile_dir: Optional[str] = None, trace_file_name = None):
+    def get_profiling_context(profile_dir: Optional[str] = None,
+                              trace_file_name = None):
          if args.profile_torch:
              return torch_profiler_context(profile_dir, trace_file_name)
          elif args.profile_rpd:
@@ -102,9 +105,8 @@ def main(args: argparse.Namespace):
         "prompt_token_ids": batch
     } for batch in dummy_prompt_token_ids.tolist()]
     
-    def run_to_completion(profile_dir: Optional[str] = None, profiling_mode = None):
+    def run_to_completion(profile_dir: Optional[str] = None):
         if profile_dir:
-            name = os.path.basename(os.path.normpath(args.model))
             with get_profiling_context():
                 llm.generate(dummy_prompts,
                              sampling_params=sampling_params,
