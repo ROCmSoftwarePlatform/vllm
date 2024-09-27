@@ -27,14 +27,12 @@ import numpy as np
 import numpy.typing as npt
 import psutil
 import torch
-import torch.distributed as dist
 import torch.types
 import yaml
 from packaging.version import Version
 from typing_extensions import ParamSpec, TypeIs, assert_never
 
 import sqlite3
-from contextlib import contextmanager, nullcontext
 from rpdTracerControl import rpdTracerControl
 import vllm.envs as envs
 from vllm.logger import enable_trace_function_call, init_logger
