@@ -16,7 +16,6 @@ from vllm.inputs import PromptType
 from vllm.model_executor.layers.quantization import QUANTIZATION_METHODS
 from vllm.utils import FlexibleArgumentParser
 
-from vllm.utils import rpd_trace
 from rpdTracerControl import rpdTracerControl as rpd
 from contextlib import contextmanager, nullcontext
 

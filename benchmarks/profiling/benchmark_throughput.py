@@ -5,7 +5,6 @@ import random
 import time
 from typing import List, Optional, Tuple
 import os
-from pathlib import Path
 import torch
 import uvloop
 from tqdm import tqdm
@@ -17,7 +16,6 @@ from vllm.entrypoints.openai.api_server import (
     build_async_engine_client_from_engine_args)
 from vllm.model_executor.layers.quantization import QUANTIZATION_METHODS
 from vllm.utils import FlexibleArgumentParser, merge_async_iterators
-from vllm.utils import rpd_trace
 from rpdTracerControl import rpdTracerControl as rpd
 from contextlib import contextmanager, nullcontext
 

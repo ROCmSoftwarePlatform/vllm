@@ -29,7 +29,6 @@ from vllm.worker.enc_dec_model_runner import EncoderDecoderModelRunner
 from vllm.worker.model_runner import GPUModelRunnerBase, ModelRunner
 from vllm.worker.worker_base import LocalOrDistributedWorkerBase, WorkerInput
 from vllm.utils import rpd_trace
-from rpdTracerControl import rpdTracerControl
 from pathlib import Path
 
 logger = init_logger(__name__)
@@ -137,7 +136,7 @@ class Worker(LocalOrDistributedWorkerBase):
         elif envs.VLLM_RPD_PROFILER_DIR:
             rpd_profiler_trace_dir = Path(envs.VLLM_RPD_PROFILER_DIR)
 
-            if not rpd_profiler_trace_dir.suffix == ".rpd":
+            if rpd_profiler_trace_dir.suffix != ".rpd":
                 rpd_profiler_trace_dir = rpd_profiler_trace_dir / "trace.rpd"
             
             rpd_profiler_trace_dir.parent.mkdir(parents=True, exist_ok=True)

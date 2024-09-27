@@ -164,6 +164,7 @@ class rpd_trace():
                 filename = f"{filename}_pid{os.getpid()}"
             self.name = name
             self.args = args if args else ""
+            print(f"filename type {type(filename)}")
             self.rpd = self.initialize_rpd_tracer(filename, nvtx)
 
     def _recreate_cm(self):
@@ -191,20 +192,22 @@ class rpd_trace():
            self.rpd.__exit__(None, None, None)
         return False
 
-    def setup_environment_variables(self, filename):
+    @staticmethod
+    def setup_environment_variables(filename):
         os.environ['RPDT_AUTOSTART'] = '0'
         os.environ['RPDT_FILENAME'] = filename
      
     def initialize_rpd_tracer(self, filename, nvtx):
         try:
-             self.setup_environment_variables(filename)
+             rpd_trace.setup_environment_variables(filename)
              rpdTracerControl.setFilename(name=filename, append=True)
              return rpdTracerControl(nvtx=nvtx)
         except Exception as e:
             print(f"Error initializing rpdTracerControl: {e}")
-            raise 
-    
-    def create_file(self, filename):
+            raise
+
+    @staticmethod
+    def create_file(filename):
         from rocpd.schema import RocpdSchema
         try:
             print("Creating empty rpd schema file ...")
