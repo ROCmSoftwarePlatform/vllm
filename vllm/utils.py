@@ -205,8 +205,9 @@ class rpd_trace():
 
     @staticmethod
     def create_file(filename):
-        from rocpd.schema import RocpdSchema
         import sqlite3
+
+        from rocpd.schema import RocpdSchema
         try:
             print("Creating empty rpd schema file ...")
             filename = str(filename)
