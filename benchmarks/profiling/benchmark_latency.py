@@ -1,13 +1,15 @@
 """Benchmark the latency of processing a single batch of requests."""
 import argparse
 import json
-import time
 import os
+import time
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from typing import List, Optional
 
 import numpy as np
 import torch
+from rpdTracerControl import rpdTracerControl as rpd
 from tqdm import tqdm
 
 from vllm import LLM, SamplingParams
@@ -16,8 +18,6 @@ from vllm.inputs import PromptType
 from vllm.model_executor.layers.quantization import QUANTIZATION_METHODS
 from vllm.utils import FlexibleArgumentParser
 
-from rpdTracerControl import rpdTracerControl as rpd
-from contextlib import contextmanager, nullcontext
 
 def main(args: argparse.Namespace):
     print(args)

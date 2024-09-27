@@ -17,8 +17,8 @@ from vllm.model_executor.sampling_metadata import (SamplingMetadata,
 from vllm.sampling_params import SamplingType
 from vllm.sequence import (CompletionSequenceGroupOutput, Logprob,
                            PromptLogprobs, SampleLogprobs, SequenceOutput)
-from vllm.utils import rpd_mark
 from vllm.spec_decode.metrics import SpecDecodeWorkerMetrics
+from vllm.utils import rpd_mark
 
 if envs.VLLM_USE_FLASHINFER_SAMPLER and find_spec("flashinfer"):
     import flashinfer.sampling

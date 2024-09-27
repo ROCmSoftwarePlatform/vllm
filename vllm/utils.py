@@ -8,6 +8,7 @@ import inspect
 import os
 import random
 import socket
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -30,10 +31,9 @@ import torch
 import torch.types
 import yaml
 from packaging.version import Version
+from rpdTracerControl import rpdTracerControl
 from typing_extensions import ParamSpec, TypeIs, assert_never
 
-import sqlite3
-from rpdTracerControl import rpdTracerControl
 import vllm.envs as envs
 from vllm.logger import enable_trace_function_call, init_logger
 from vllm.platforms import current_platform

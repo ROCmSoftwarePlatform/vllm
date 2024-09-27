@@ -47,7 +47,7 @@ from vllm.sampling_params import SamplingParams
 from vllm.sequence import IntermediateTensors, SequenceGroupMetadata
 from vllm.utils import (DeviceMemoryProfiler, PyObjectCache, async_tensor_h2d,
                         flatten_2d_lists, is_hip, is_pin_memory_available,
-                        supports_dynamo, rpd_mark)
+                        rpd_mark, supports_dynamo)
 from vllm.worker.model_runner_base import (
     ModelRunnerBase, ModelRunnerInputBase, ModelRunnerInputBuilderBase,
     _add_attn_metadata_broadcastable_dict,
