@@ -162,7 +162,6 @@ class rpd_trace():
             from rpdTracerControl import rpdTracerControl
             if 'RANK' in os.environ or int(os.getenv('WORLD_SIZE', 1)) > 1:
                 filename = f"{filename}_pid{os.getpid()}"
-            self.rpd = rpdTracerControl(filename, nvtx=nvtx)
             self.name = name
             self.args = args if args else ""
             self.rpd = self.initialize_rpd_tracer(filename, nvtx)

@@ -107,7 +107,7 @@ def main(args: argparse.Namespace):
         if profile_dir:
             name = os.path.basename(os.path.normpath(args.model))
             with get_profiling_context():
-                llm.generate(dummy_inputs,
+                llm.generate(dummy_prompts,
                              sampling_params=sampling_params,
                              use_tqdm=False)
         else:
