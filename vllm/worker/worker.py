@@ -138,17 +138,18 @@ class Worker(LocalOrDistributedWorkerBase):
 
             if rpd_profiler_trace_dir.suffix != ".rpd":
                 rpd_profiler_trace_dir = rpd_profiler_trace_dir / "trace.rpd"
-            
+
             rpd_profiler_trace_dir.parent.mkdir(parents=True, exist_ok=True)
 
             logger.info("Profiling enabled. Traces will be saved to: %s",
                         rpd_profiler_trace_dir)
-            
+
             if self.rank == 0:
                 rpd_trace.create_file(filename=str(rpd_profiler_trace_dir))
-            
+
             self.profiler = rpd_trace(filename=str(rpd_profiler_trace_dir),
-                                      name='Worker RPD Enabled', nvtx=True)
+                                      name='Worker RPD Enabled',
+                                      nvtx=True)
         else:
             self.profiler = None
 

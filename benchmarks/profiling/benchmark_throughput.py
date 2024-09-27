@@ -95,7 +95,7 @@ def run_vllm(
     disable_async_output_proc: bool = False,
 ) -> float:
     from vllm import LLM, SamplingParams
-  
+
     @contextmanager
     def rpd_profiler_context():
         llm.start_profile()
@@ -106,12 +106,12 @@ def run_vllm(
     @contextmanager
     def torch_profiler_context(profile_dir: Optional[str] = None):
         p = torch.profiler.profile(
-                    activities=[
-                        torch.profiler.ProfilerActivity.CPU,
-                        torch.profiler.ProfilerActivity.CUDA,
-                    ],
-                    on_trace_ready=torch.profiler.tensorboard_trace_handler(
-                        str(profile_dir)))
+            activities=[
+                torch.profiler.ProfilerActivity.CPU,
+                torch.profiler.ProfilerActivity.CUDA,
+            ],
+            on_trace_ready=torch.profiler.tensorboard_trace_handler(
+                str(profile_dir)))
         p.start()
         try:
             with torch.no_grad():
@@ -122,13 +122,13 @@ def run_vllm(
                                          row_limit=-1))
 
     def get_profiling_context(profile_dir: Optional[str] = None,
-                              trace_file_name = None):
-         if args.profile_torch:
-             return torch_profiler_context(profile_dir, trace_file_name)
-         elif args.profile_rpd:
-             return rpd_profiler_context()
-         else:
-             return nullcontext()
+                              trace_file_name=None):
+        if args.profile_torch:
+            return torch_profiler_context(profile_dir, trace_file_name)
+        elif args.profile_rpd:
+            return rpd_profiler_context()
+        else:
+            return nullcontext()
 
     llm = LLM(
         model=model,
@@ -173,7 +173,7 @@ def run_vllm(
     if args.profile_torch or args.profile_rpd:
         profile_dir = args.profile_dir
         name = os.path.basename(os.path.normpath(args.model))
-        model_trace_name =f"{name}_in_{args.input_len}_out_{args.output_len}"
+        model_trace_name = f"{name}_in_{args.input_len}_out_{args.output_len}"
         with get_profiling_context(profile_dir, model_trace_name):
             llm.generate(prompts, sampling_params, use_tqdm=True)
         return
@@ -182,6 +182,7 @@ def run_vllm(
         llm.generate(prompts, sampling_params, use_tqdm=True)
         end = time.perf_counter()
         return end - start
+
 
 async def run_vllm_async(
     requests: List[Tuple[str, int, int]],
@@ -394,7 +395,7 @@ def main(args: argparse.Namespace):
         raise ValueError(f"Unknown backend: {args.backend}")
     total_num_tokens = sum(prompt_len + output_len
                            for _, prompt_len, output_len in requests)
-    
+
     if args.profile_torch or args.profile_rpd:
         # Profiling complete
         pass

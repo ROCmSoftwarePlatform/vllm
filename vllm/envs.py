@@ -453,8 +453,8 @@ environment_variables: Dict[str, Callable[[], Any]] = {
     # Enables rpd profiler if set. Path to the directory where torch profiler
     # traces are saved. Note that it must be an absolute path.
     "VLLM_RPD_PROFILER_DIR":
-    lambda: (None if os.getenv("VLLM_RPD_PROFILER_DIR", None) is None else os
-             .path.expanduser(os.getenv("VLLM_RPD_PROFILER_DIR", "."))),
+    lambda: (None if os.getenv("VLLM_RPD_PROFILER_DIR", None) is None else os.
+             path.expanduser(os.getenv("VLLM_RPD_PROFILER_DIR", "."))),
 
     # If set, vLLM will use Triton implementations of AWQ.
     "VLLM_USE_TRITON_AWQ":

@@ -909,6 +909,7 @@ def _sample_with_torch(
             sampled_token_ids_tensor,
         )
 
+
 @rpd_mark()
 def _sample(
     probs: torch.Tensor,
