@@ -191,23 +191,24 @@ class rpd_trace():
            self.rpd.__exit__(None, None, None)
         return False
 
-    def setup_environment_variables(filename):
+    def setup_environment_variables(self, filename):
         os.environ['RPDT_AUTOSTART'] = '0'
         os.environ['RPDT_FILENAME'] = filename
      
     def initialize_rpd_tracer(self, filename, nvtx):
         try:
-             rpd_trace.setup_environment_variables(filename)
+             self.setup_environment_variables(filename)
              rpdTracerControl.setFilename(name=filename, append=True)
              return rpdTracerControl(nvtx=nvtx)
         except Exception as e:
             print(f"Error initializing rpdTracerControl: {e}")
             raise 
     
-    def create_file(filename):
+    def create_file(self, filename):
         from rocpd.schema import RocpdSchema
         try:
             print("Creating empty rpd schema file ...")
+            filename = str(filename)
             with sqlite3.connect(filename) as connection:
                 schema = RocpdSchema()
                 schema.writeSchema(connection)
