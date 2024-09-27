@@ -8,7 +8,6 @@ import inspect
 import os
 import random
 import socket
-import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -207,6 +206,7 @@ class rpd_trace():
     @staticmethod
     def create_file(filename):
         from rocpd.schema import RocpdSchema
+        import sqlite3
         try:
             print("Creating empty rpd schema file ...")
             filename = str(filename)
