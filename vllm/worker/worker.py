@@ -157,7 +157,7 @@ class Worker(LocalOrDistributedWorkerBase):
         if self.profiler is None:
             raise RuntimeError("Profiler is not enabled.")
 
-        if os.getenv('VLLM_RPD_PROFILER_DIR'):
+        if envs.VLLM_RPD_PROFILER_DIR:
             self.profiler.__enter__()
         else:
             self.profiler.start()
@@ -166,7 +166,7 @@ class Worker(LocalOrDistributedWorkerBase):
         if self.profiler is None:
             raise RuntimeError("Profiler is not enabled.")
 
-        if os.getenv('VLLM_RPD_PROFILER_DIR'):
+        if envs.VLLM_RPD_PROFILER_DIR:
             self.profiler.__exit__()
         else:
             self.profiler.stop()
