@@ -698,7 +698,7 @@ __global__ __launch_bounds__(NUM_THREADS) void paged_attention_ll4mi_QKV_kernel(
 
 // Grid: (num_heads, num_seqs).
 template <typename scalar_t, int HEAD_SIZE, int NUM_THREADS,
-          int PARTITION_SIZE>
+          int PARTITION_SIZE, int NPAR_LOOPS>
 __global__
 __launch_bounds__(NUM_THREADS) void paged_attention_ll4mi_reduce_kernel(
     scalar_t* __restrict__ out,            // [num_seqs, num_heads, head_size]
@@ -726,7 +726,8 @@ __launch_bounds__(NUM_THREADS) void paged_attention_ll4mi_reduce_kernel(
   const int laneid = threadIdx.x % WARP_SIZE;
 
   __shared__ float shared_global_exp_sum;
-  __shared__ float shared_exp_sums[2 * WARP_SIZE];
+    //max num partitions supported is warp_size * NPAR_LOOPS
+  __shared__ float shared_exp_sums[NPAR_LOOPS * WARP_SIZE];
 
   if (warpid == 0) {
     const float* max_logits_ptr = max_logits +
@@ -735,16 +736,27 @@ __launch_bounds__(NUM_THREADS) void paged_attention_ll4mi_reduce_kernel(
 
     // valid partition is the last valid partition in case threadid > num
     // partitions
-    const int valid_partition =
-        (threadIdx.x < num_partitions) ? threadIdx.x : num_partitions - 1;
-    const int valid_partition2 = (WARP_SIZE + threadIdx.x < num_partitions)
-                                     ? WARP_SIZE + threadIdx.x
-                                     : num_partitions - 1;
-    float reg_max_logit = max_logits_ptr[valid_partition];
-    float reg_max_logit2 = max_logits_ptr[valid_partition2];
-    float max_logit = fmaxf(reg_max_logit, reg_max_logit2);
+    int valid_partition[NPAR_LOOPS];
+    float reg_max_logit[NPAR_LOOPS];
+    const int last_valid_partition = num_partitions - 1;
 
-  #pragma unroll
+    #pragma unroll
+    for (int i=0; i<NPAR_LOOPS; i++) {
+        const int partition_no = i*WARP_SIZE + threadIdx.x;
+        valid_partition[i] =
+        (partition_no < num_partitions) ? partition_no : last_valid_partition;
+    }
+    #pragma unroll
+    for (int i=0; i<NPAR_LOOPS; i++) {
+        reg_max_logit[i] = max_logits_ptr[valid_partition[i]];
+    }
+    float max_logit = reg_max_logit[0];
+    #pragma unroll
+    for (int i=1; i<NPAR_LOOPS; i++) {
+        max_logit = fmaxf(max_logit, reg_max_logit[i]);
+    }
+
+    #pragma unroll
     for (int mask = WARP_SIZE / 2; mask >= 1; mask /= 2) {
       max_logit = fmaxf(max_logit, __shfl_xor(max_logit, mask));
     }
@@ -753,17 +765,27 @@ __launch_bounds__(NUM_THREADS) void paged_attention_ll4mi_reduce_kernel(
                                 seq_idx * num_heads * max_num_partitions +
                                 head_idx * max_num_partitions;
 
-    float global_exp_sum = 0.0f;
-    float rescaled_exp_sum = exp_sums_ptr[valid_partition];
-    float rescaled_exp_sum2 = exp_sums_ptr[valid_partition2];
-    rescaled_exp_sum *=
-        (threadIdx.x < num_partitions) ? expf(reg_max_logit - max_logit) : 0.0f;
-    rescaled_exp_sum2 *= (threadIdx.x + WARP_SIZE < num_partitions)
-                             ? expf(reg_max_logit2 - max_logit)
-                             : 0.0f;
-    global_exp_sum += rescaled_exp_sum + rescaled_exp_sum2;
-    shared_exp_sums[threadIdx.x] = rescaled_exp_sum;
-    shared_exp_sums[threadIdx.x + WARP_SIZE] = rescaled_exp_sum2;
+    float rescaled_exp_sum[NPAR_LOOPS];
+    #pragma unroll
+    for (int i=0; i<NPAR_LOOPS; i++) {
+        rescaled_exp_sum[i] = exp_sums_ptr[valid_partition[i]];
+    }
+    #pragma unroll
+    for (int i=0; i<NPAR_LOOPS; i++) {
+        const int partition_no = i*WARP_SIZE + threadIdx.x;
+        rescaled_exp_sum[i] *=
+            (partition_no < num_partitions) ? expf(reg_max_logit[i] - max_logit) : 0.0f;
+    }
+    float global_exp_sum = rescaled_exp_sum[0];
+    #pragma unroll
+    for (int i=1; i<NPAR_LOOPS; i++) {
+        global_exp_sum += rescaled_exp_sum[i];
+    }
+    #pragma unroll
+    for (int i=0; i<NPAR_LOOPS; i++) {
+        const int partition_no = i*WARP_SIZE + threadIdx.x;
+        shared_exp_sums[partition_no] = rescaled_exp_sum[i];
+    }
 
   #pragma unroll
     for (int mask = WARP_SIZE / 2; mask >= 1; mask /= 2) {
@@ -840,10 +862,11 @@ __launch_bounds__(NUM_THREADS) void paged_attention_ll4mi_reduce_kernel(
     }
   }
 
-  if (num_partitions > MAX_NPAR) {
+  for(int p=1; p<NPAR_LOOPS; p++) {
+   if (num_partitions > p*MAX_NPAR) {
     idx = 0;
   #pragma unroll
-    for (int j = MAX_NPAR * HEAD_SIZE; j < 2 * MAX_NPAR * HEAD_SIZE;
+    for (int j = p * MAX_NPAR * HEAD_SIZE; j < (p+1) * MAX_NPAR * HEAD_SIZE;
          j += HEAD_SIZE) {
       // lastj is last valid partition
       const int lastj_offset =
@@ -854,8 +877,9 @@ __launch_bounds__(NUM_THREADS) void paged_attention_ll4mi_reduce_kernel(
 
   #pragma unroll
     for (int j = 0; j < MAX_NPAR; j++) {
-      acc += to_float<scalar_t>(tmps[j]) * shared_exp_sums[j + MAX_NPAR];
+      acc += to_float<scalar_t>(tmps[j]) * shared_exp_sums[j + p*MAX_NPAR];
     }
+   }
   }
 
   const float inv_global_exp_sum =
@@ -896,7 +920,7 @@ __global__ __launch_bounds__(NUM_THREADS) void paged_attention_ll4mi_QKV_kernel(
 
 // Grid: (num_heads, num_seqs).
 template <typename scalar_t, int HEAD_SIZE, int NUM_THREADS,
-          int PARTITION_SIZE>
+          int PARTITION_SIZE, int NPAR_LOOPS>
 __global__
 __launch_bounds__(NUM_THREADS) void paged_attention_ll4mi_reduce_kernel(
     scalar_t* __restrict__ out,            // [num_seqs, num_heads, head_size]
@@ -920,6 +944,12 @@ __launch_bounds__(NUM_THREADS) void paged_attention_ll4mi_reduce_kernel(
           alibi_slopes_ptr, q_stride, kv_block_stride, kv_head_stride,        \
           exp_sums_ptr, max_logits_ptr, tmp_out_ptr, out_ptr, max_ctx_blocks, \
           k_scale, v_scale);
+
+#define LAUNCH_CUSTOM_REDUCTION(NPAR_LOOPS)                                    \
+    paged_attention_ll4mi_reduce_kernel<T, HEAD_SIZE, HEAD_SIZE, PARTITION_SIZE, NPAR_LOOPS> \
+        <<<reduce_grid, reduce_block, 0, stream>>>( \
+            out_ptr, exp_sums_ptr, max_logits_ptr, tmp_out_ptr, \
+            context_lens_ptr, max_num_partitions);
 
 template <typename T, typename KVT, vllm::Fp8KVCacheDataType KV_DTYPE,
           int BLOCK_SIZE, int HEAD_SIZE, int PARTITION_SIZE = 512>
@@ -960,7 +990,7 @@ void paged_attention_custom_launcher(
   const int gqa_ratio = num_heads / num_kv_heads;
   assert(num_heads % num_kv_heads == 0);
   assert(head_size == HEAD_SIZE);
-  assert(max_num_partitions <= 128);
+  assert(max_num_partitions <= 256);
 
   constexpr int NTHR = PARTITION_SIZE;
   dim3 grid(num_seqs, max_num_partitions, num_kv_heads);
@@ -1032,10 +1062,28 @@ void paged_attention_custom_launcher(
   if (max_context_len > PARTITION_SIZE) {
     dim3 reduce_grid(num_heads, num_seqs);
     dim3 reduce_block(head_size);
-    paged_attention_ll4mi_reduce_kernel<T, HEAD_SIZE, HEAD_SIZE, PARTITION_SIZE>
-        <<<reduce_grid, reduce_block, 0, stream>>>(
-            out_ptr, exp_sums_ptr, max_logits_ptr, tmp_out_ptr,
-            context_lens_ptr, max_num_partitions);
+    const int npar_loops = DIVIDE_ROUND_UP(max_num_partitions, WARP_SIZE); 
+    switch(npar_loops) {
+        case 1:
+            LAUNCH_CUSTOM_REDUCTION(1);
+            break;
+        case 2:
+            LAUNCH_CUSTOM_REDUCTION(2);
+            break;
+        case 3:
+            LAUNCH_CUSTOM_REDUCTION(3);
+            break;
+        case 4:
+            LAUNCH_CUSTOM_REDUCTION(4);
+            break;
+        default:
+            TORCH_CHECK(false, "Unsupported npar_loops: ", npar_loops);
+            break;
+    }
+    //paged_attention_ll4mi_reduce_kernel<T, HEAD_SIZE, HEAD_SIZE, PARTITION_SIZE>
+    //    <<<reduce_grid, reduce_block, 0, stream>>>(
+    //        out_ptr, exp_sums_ptr, max_logits_ptr, tmp_out_ptr,
+    //        context_lens_ptr, max_num_partitions);
   }
 }
 
