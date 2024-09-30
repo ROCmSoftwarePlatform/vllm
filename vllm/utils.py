@@ -30,7 +30,6 @@ import torch
 import torch.types
 import yaml
 from packaging.version import Version
-from rpdTracerControl import rpdTracerControl
 from typing_extensions import ParamSpec, TypeIs, assert_never
 
 import vllm.envs as envs
@@ -207,6 +206,7 @@ class rpd_trace():
 
     def initialize_rpd_tracer(self, filename, nvtx):
         try:
+            from rpdTracerControl import rpdTracerControl
             rpd_trace.setup_environment_variables(filename)
             rpdTracerControl.setFilename(name=filename, append=True)
             return rpdTracerControl(nvtx=nvtx)
