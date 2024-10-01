@@ -232,6 +232,15 @@ class rpd_trace():
             print(f"An error occurred while creating the filename: {e}")
 
 
+@lru_cache(maxsize=None)
+def is_hipScopedMarker_available():
+    try:
+        from hipScopedMarker import hipScopedMarker
+    except ImportError:
+        hipScopedMarker = None
+    return hipScopedMarker is not None
+
+
 class rpd_mark():
 
     def __init__(self, name=None):
@@ -239,9 +248,7 @@ class rpd_mark():
 
     def __call__(self, func):
 
-        if envs.VLLM_RPD_PROFILER_DIR is None:
-            return func
-        else:
+        if is_hipScopedMarker_available():
 
             @wraps(func)
             def inner(*args, **kwds):
@@ -251,6 +258,9 @@ class rpd_mark():
                     return func(*args, **kwds)
 
             return inner
+
+        else:
+            return func
 
 
 class Device(enum.Enum):
