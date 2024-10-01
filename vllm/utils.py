@@ -238,15 +238,19 @@ class rpd_mark():
         self.name = name
 
     def __call__(self, func):
-        from hipScopedMarker import hipScopedMarker
 
-        @wraps(func)
-        def inner(*args, **kwds):
-            marker_name = self.name if self.name else f"{func.__name__}"
-            with hipScopedMarker(f"{marker_name}"):
-                return func(*args, **kwds)
+        if envs.VLLM_RPD_PROFILER_DIR is None:
+            return func
+        else:
 
-        return inner
+            @wraps(func)
+            def inner(*args, **kwds):
+                from hipScopedMarker import hipScopedMarker
+                marker_name = self.name if self.name else f"{func.__name__}"
+                with hipScopedMarker(f"{marker_name}"):
+                    return func(*args, **kwds)
+
+            return inner
 
 
 class Device(enum.Enum):
