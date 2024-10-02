@@ -249,10 +249,10 @@ class rpd_mark():
     def __call__(self, func):
 
         if is_hipScopedMarker_available():
+            from hipScopedMarker import hipScopedMarker
 
             @wraps(func)
             def inner(*args, **kwds):
-                from hipScopedMarker import hipScopedMarker
                 marker_name = self.name if self.name else f"{func.__name__}"
                 with hipScopedMarker(f"{marker_name}"):
                     return func(*args, **kwds)
