@@ -100,19 +100,19 @@ def main(args: argparse.Namespace):
     dummy_prompt_token_ids = np.random.randint(10000,
                                                size=(args.batch_size,
                                                      args.input_len))
-    dummy_prompts: List[PromptInputs] = [{
+    dummy_inputs: List[PromptInputs] = [{
         "prompt_token_ids": batch
     } for batch in dummy_prompt_token_ids.tolist()]
 
     def run_to_completion(profile_dir: Optional[str] = None):
         if profile_dir:
             with get_profiling_context():
-                llm.generate(dummy_prompts,
+                llm.generate(dummy_inputs,
                              sampling_params=sampling_params,
                              use_tqdm=False)
         else:
             start_time = time.perf_counter()
-            llm.generate(dummy_prompts,
+            llm.generate(dummy_inputs,
                          sampling_params=sampling_params,
                          use_tqdm=False)
             end_time = time.perf_counter()
