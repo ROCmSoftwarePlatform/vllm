@@ -54,12 +54,15 @@ def main(args: argparse.Namespace):
             return rpd_profiler_context()
         else:
             return nullcontext()
-    
+
     if args.profile_torch or args.profile_rpd:
-        profile_dir = Path(args.profile_dir or "./vllm_benchmark_latency_result")
+        profile_dir = Path(args.profile_dir
+                           or "./vllm_benchmark_latency_result")
         profile_dir.mkdir(parents=True, exist_ok=True)
         name = os.path.basename(os.path.normpath(args.model))
-        model_trace_name = f"{name}_in_{args.input_len}_out_{args.output_len}_batch_{args.batch_size}_tp_{args.tensor_parallel_size}"
+        model_trace_name = (
+            f"{name}_in_{args.input_len}_out_{args.output_len}_"
+            f"batch_{args.batch_size}_tp_{args.tensor_parallel_size}")
         print(f"Profiling (results will be saved to '{profile_dir}')...")
         if args.profile_rpd:
             profile_dir /= f"{model_trace_name}.rpd"
