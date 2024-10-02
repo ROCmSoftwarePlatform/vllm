@@ -8,6 +8,7 @@ from contextlib import contextmanager, nullcontext
 from typing import List, Optional, Tuple
 
 import torch
+from pathlib import Path
 import uvloop
 from rpdTracerControl import rpdTracerControl as rpd
 from tqdm import tqdm
@@ -121,14 +122,23 @@ def run_vllm(
             print(p.key_averages().table(sort_by="self_cuda_time_total",
                                          row_limit=-1))
 
-    def get_profiling_context(profile_dir: Optional[str] = None,
-                              trace_file_name=None):
+    def get_profiling_context(profile_dir: Optional[str] = None):
         if args.profile_torch:
-            return torch_profiler_context(profile_dir, trace_file_name)
+            return torch_profiler_context(profile_dir)
         elif args.profile_rpd:
             return rpd_profiler_context()
         else:
             return nullcontext()
+
+    if args.profile_torch or args.profile_rpd:
+        profile_dir = Path(args.profile_dir or "./vllm_benchmark_throughput_result")
+        profile_dir.mkdir(parents=True, exist_ok=True)
+        name = os.path.basename(os.path.normpath(args.model))
+        model_trace_name = f"{name}_in_{args.input_len}_out_{args.output_len}_tp_{args.tensor_parallel_size}"
+        print(f"Profiling (results will be saved to '{profile_dir}')...")
+        if args.profile_rpd:
+            profile_dir /= f"{model_trace_name}.rpd"
+            os.environ["VLLM_RPD_PROFILER_DIR"] = str(profile_dir)
 
     llm = LLM(
         model=model,
@@ -171,10 +181,7 @@ def run_vllm(
             ))
 
     if args.profile_torch or args.profile_rpd:
-        profile_dir = args.profile_dir
-        name = os.path.basename(os.path.normpath(args.model))
-        model_trace_name = f"{name}_in_{args.input_len}_out_{args.output_len}"
-        with get_profiling_context(profile_dir, model_trace_name):
+        with get_profiling_context(profile_dir):
             llm.generate(prompts, sampling_params, use_tqdm=True)
         return
     else:
