@@ -330,6 +330,8 @@ def _get_seq_len_block_table_args(
 
     partial_prefix_sum = 0
     if attn_type == AttentionType.ENCODER:
+        assert attn_metadata.encoder_seq_lens is not None
+        assert attn_metadata.encoder_seq_lens_tensor is not None
         query_seq_start_loc = torch.tensor(
             [0] + [partial_prefix_sum := partial_prefix_sum + i
                    for i in attn_metadata.encoder_seq_lens],
@@ -344,6 +346,8 @@ def _get_seq_len_block_table_args(
     elif attn_type == AttentionType.DECODER:
         # Decoder self-attention
         # Choose max_seq_len based on whether we are in prompt_run
+        assert attn_metadata.seq_lens is not None
+        assert attn_metadata.seq_lens_tensor is not None
         query_seq_start_loc = torch.tensor(
             [0] + [partial_prefix_sum := partial_prefix_sum + i
                    for i in attn_metadata.seq_lens],
@@ -356,6 +360,8 @@ def _get_seq_len_block_table_args(
                 query_seq_start_loc, max_seq_len,
                 attn_metadata.seq_lens, causal_mask)
     elif attn_type == AttentionType.ENCODER_DECODER:
+        assert attn_metadata.seq_lens is not None
+        assert attn_metadata.encoder_seq_lens_tensor is not None
         query_start_loc = torch.tensor(
             [0] + [partial_prefix_sum := partial_prefix_sum + i
                    for i in attn_metadata.seq_lens],
@@ -363,6 +369,8 @@ def _get_seq_len_block_table_args(
                     dtype = attn_metadata.encoder_seq_lens_tensor.dtype)
 
         partial_prefix_sum = 0
+        assert attn_metadata.encoder_seq_lens is not None
+        assert attn_metadata.seq_lens_tensor is not None
         key_seq_start_loc = torch.tensor(
             [0] + [partial_prefix_sum := partial_prefix_sum + i
                    for i in attn_metadata.encoder_seq_lens],
@@ -481,7 +489,7 @@ class ROCmFlashAttentionImpl(AttentionImpl):
                   None, :].expand(tokens, n_kv_heads, n_rep,
                                   head_dim).reshape(tokens, n_kv_heads * n_rep,
                                                     head_dim))
-    
+
     def forward(
         self,
         query: torch.Tensor,
@@ -705,6 +713,7 @@ class ROCmFlashAttentionImpl(AttentionImpl):
                 max_seq_len = (decode_meta.max_decode_seq_len
                     if attn_type != AttentionType.ENCODER_DECODER else
                             decode_meta.max_encoder_seq_len)
+                assert max_seq_len is not None
                 max_num_partitions = (
                     (max_seq_len + _PARTITION_SIZE_ROCM - 1) //
                     _PARTITION_SIZE_ROCM)
