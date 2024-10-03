@@ -2,8 +2,10 @@ from abc import abstractmethod
 from typing import Dict, List, Optional, Tuple
 
 import torch
+import torch.nn.functional as F
 from torch.nn.parameter import Parameter, UninitializedParameter
 
+import vllm.envs as envs
 from vllm.distributed import (divide, get_tensor_model_parallel_rank,
                               get_tensor_model_parallel_world_size,
                               split_tensor_along_last_dim,
@@ -19,9 +21,6 @@ from vllm.model_executor.parameter import (BasevLLMParameter,
                                            PerTensorScaleParameter,
                                            RowvLLMParameter)
 from vllm.model_executor.utils import set_weight_attrs
-
-import torch.nn.functional as F
-import vllm.envs as envs
 
 logger = init_logger(__name__)
 

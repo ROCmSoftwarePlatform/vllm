@@ -12,8 +12,8 @@ import torch
 from torch._prims_common import TensorLikeType
 
 from vllm.attention import AttentionBackend, AttentionMetadata, AttentionType
-from vllm.utils import (STR_BACKEND_ENV_VAR, STR_XFORMERS_ATTN_VAL,
-                        STR_ROCM_FLASH_ATTN_VAL, make_tensor_with_pad)
+from vllm.utils import (STR_BACKEND_ENV_VAR, STR_ROCM_FLASH_ATTN_VAL,
+                        STR_XFORMERS_ATTN_VAL, make_tensor_with_pad)
 
 # For now, disable "test_aot_dispatch_dynamic" since there are some
 # bugs related to this test in PyTorch 2.4.

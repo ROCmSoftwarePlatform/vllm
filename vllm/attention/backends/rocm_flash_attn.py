@@ -2,7 +2,6 @@
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Type
 
-from tests.kernels.utils import ref_masked_attention
 import torch
 
 import vllm.envs as envs
@@ -162,9 +161,12 @@ class ROCmFlashAttentionMetadata(AttentionMetadata, PagedAttentionMetadata):
             max_query_len=self.max_query_len,
             max_prefill_seq_len=self.max_prefill_seq_len,
             max_decode_seq_len=0,
-            query_start_loc=None if self.query_start_loc is None else self.query_start_loc[:self.num_prefills + 1],
-            seq_start_loc=None if self.seq_start_loc is None else self.seq_start_loc[:self.num_prefills + 1],
-            context_lens_tensor=None if self.context_lens_tensor is None else self.context_lens_tensor[:self.num_prefills],
+            query_start_loc=None if self.query_start_loc is None 
+                            else self.query_start_loc[:self.num_prefills + 1],
+            seq_start_loc=None if self.seq_start_loc is None 
+                            else self.seq_start_loc[:self.num_prefills + 1],
+            context_lens_tensor=None if self.context_lens_tensor is None 
+                            else self.context_lens_tensor[:self.num_prefills],
             block_tables=self.block_tables[:self.num_prefills],
             use_cuda_graph=False,
             # Begin encoder & cross attn fields below...
@@ -326,12 +328,13 @@ def _get_seq_len_block_table_args(
     * Appropriate max sequence-length scalar
     '''
 
-
+    partial_prefix_sum = 0
     if attn_type == AttentionType.ENCODER:
-        query_seq_start_loc = torch.tensor([sum(attn_metadata.encoder_seq_lens[:i]) 
-                            for i in range(len(attn_metadata.encoder_seq_lens) + 1)],
-                            device = attn_metadata.encoder_seq_lens_tensor.device,
-                            dtype = attn_metadata.encoder_seq_lens_tensor.dtype)
+        query_seq_start_loc = torch.tensor(
+            [0] + [partial_prefix_sum := partial_prefix_sum + i
+                   for i in attn_metadata.encoder_seq_lens],
+                    device = attn_metadata.encoder_seq_lens_tensor.device,
+                    dtype = attn_metadata.encoder_seq_lens_tensor.dtype)
         causal_mask = False
 
         # No block tables associated with encoder attention
@@ -341,10 +344,11 @@ def _get_seq_len_block_table_args(
     elif attn_type == AttentionType.DECODER:
         # Decoder self-attention
         # Choose max_seq_len based on whether we are in prompt_run
-        query_seq_start_loc = torch.tensor([sum(attn_metadata.seq_lens[:i]) 
-                            for i in range(len(attn_metadata.seq_lens) + 1)],
-                                device = attn_metadata.seq_lens_tensor.device,
-                                dtype = attn_metadata.seq_lens_tensor.dtype)
+        query_seq_start_loc = torch.tensor(
+            [0] + [partial_prefix_sum := partial_prefix_sum + i
+                   for i in attn_metadata.seq_lens],
+                    device = attn_metadata.seq_lens_tensor.device,
+                    dtype = attn_metadata.seq_lens_tensor.dtype)
         max_seq_len = attn_metadata.max_prefill_seq_len
         causal_mask = True
 
@@ -352,15 +356,18 @@ def _get_seq_len_block_table_args(
                 query_seq_start_loc, max_seq_len,
                 attn_metadata.seq_lens, causal_mask)
     elif attn_type == AttentionType.ENCODER_DECODER:
-        query_start_loc = torch.tensor([sum(attn_metadata.seq_lens[:i]) 
-                        for i in range(len(attn_metadata.seq_lens) + 1)],
-                        device = attn_metadata.encoder_seq_lens_tensor.device,
-                        dtype = attn_metadata.encoder_seq_lens_tensor.dtype)
+        query_start_loc = torch.tensor(
+            [0] + [partial_prefix_sum := partial_prefix_sum + i
+                   for i in attn_metadata.seq_lens],
+                    device = attn_metadata.encoder_seq_lens_tensor.device,
+                    dtype = attn_metadata.encoder_seq_lens_tensor.dtype)
 
-        key_seq_start_loc = torch.tensor([sum(attn_metadata.encoder_seq_lens[:i]) 
-                        for i in range(len(attn_metadata.encoder_seq_lens) + 1)],
-                        device = attn_metadata.seq_lens_tensor.device,
-                        dtype = attn_metadata.seq_lens_tensor.dtype)
+        partial_prefix_sum = 0
+        key_seq_start_loc = torch.tensor(
+            [0] + [partial_prefix_sum := partial_prefix_sum + i
+                   for i in attn_metadata.encoder_seq_lens],
+                    device = attn_metadata.seq_lens_tensor.device,
+                    dtype = attn_metadata.seq_lens_tensor.dtype)
         causal_mask = False
 
         # Enc/dec cross-attention KVs match encoder sequence length;
@@ -491,8 +498,8 @@ class ROCmFlashAttentionImpl(AttentionImpl):
         For decoder-only models: query, key and value must be non-None.
 
         For encoder/decoder models:
-        * ROCmFlashAttentionImpl.forward() may be invoked for both self- and cross-
-          attention layers.
+        * ROCmFlashAttentionImpl.forward() may be invoked for both self- and 
+            cross-attention layers.
         * For self-attention: query, key and value must be non-None.
         * For cross-attention:
             * Query must be non-None
@@ -546,9 +553,10 @@ class ROCmFlashAttentionImpl(AttentionImpl):
                 kv_cache, self.num_kv_heads, self.head_size)
 
             if key is not None and value is not None:
-                # Reshape the input keys and values and store them in the cache.
-                # If kv_cache is not provided, the new key and value tensors are
-                # not cached. This happens during the initial memory profiling run.
+                # Reshape the input keys and values and store them in the 
+                # cache. If kv_cache is not provided, the new key and value
+                # tensors are not cached. This happens during the initial 
+                # memory profiling run.
                 PagedAttention.write_to_paged_cache(
                     key,
                     value,
@@ -564,11 +572,9 @@ class ROCmFlashAttentionImpl(AttentionImpl):
 
         if attn_type != AttentionType.ENCODER:
             num_prefill_tokens = attn_metadata.num_prefill_tokens
-            num_decode_tokens = attn_metadata.num_decode_tokens
         else:
             assert attn_metadata.num_encoder_tokens is not None
             num_prefill_tokens = attn_metadata.num_encoder_tokens
-            num_decode_tokens = 0
 
         # Query for decode. KV is not needed because it is already cached.
         decode_query = query[num_prefill_tokens:]
@@ -637,7 +643,7 @@ class ROCmFlashAttentionImpl(AttentionImpl):
                         key,
                         value,
                         query_seq_start_loc,
-                        num_tokens,
+                        num_prefill_tokens,
                         self.num_heads,
                         self.head_size,
                         self.scale,
@@ -690,7 +696,6 @@ class ROCmFlashAttentionImpl(AttentionImpl):
             # Whether to use rocm custom paged attention or not
             output = torch.empty_like(decode_query)
             num_seqs, num_heads, head_size = decode_query.shape
-            num_tokens = num_seqs
             block_size = value_cache.shape[3]
             gqa_ratio = num_heads // self.num_kv_heads
             use_custom = _use_rocm_custom_paged_attention(

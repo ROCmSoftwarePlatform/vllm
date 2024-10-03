@@ -23,7 +23,8 @@ from vllm.multimodal import (MULTIMODAL_REGISTRY, MultiModalInputs,
 from vllm.sampling_params import SamplingParams
 from vllm.sequence import (IntermediateTensors, PoolerOutput,
                            SequenceGroupMetadata)
-from vllm.utils import STR_NOT_IMPL_ENC_DEC_BACKEND, is_hip, make_tensor_with_pad
+from vllm.utils import (STR_NOT_IMPL_ENC_DEC_BACKEND, is_hip,
+                        make_tensor_with_pad)
 from vllm.worker.model_runner import (GPUModelRunnerBase,
                                       ModelInputForGPUBuilder,
                                       ModelInputForGPUWithSamplingMetadata,
