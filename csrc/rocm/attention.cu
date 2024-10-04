@@ -659,7 +659,8 @@ __global__ __launch_bounds__(NUM_THREADS) void paged_attention_ll4mi_QKV_kernel(
   __syncthreads();
 
   if (warpid == 0) {
-    const float out_scale = (fp8_out_scale_ptr != nullptr) ? __fdividef(1.0f,(*fp8_out_scale_ptr)) : 1.0f; 
+    //const float out_scale = (fp8_out_scale_ptr != nullptr) ? __fdividef(1.0f,(*fp8_out_scale_ptr)) : 1.0f; 
+    const float out_scale = (fp8_out_scale_ptr != nullptr) ? 1.0f/(*fp8_out_scale_ptr) : 1.0f; 
     _B16x4 vout[QHLOOP][VHELOOP];
     // iterate across heads
   #pragma unroll
@@ -922,7 +923,8 @@ __launch_bounds__(NUM_THREADS) void paged_attention_ll4mi_reduce_kernel(
 
   const float inv_global_exp_sum =
       __fdividef(1.0f, shared_global_exp_sum + 1e-6f);
-  const float out_scale = (fp8_out_scale_ptr != nullptr) ? __fdividef(1.0f,(*fp8_out_scale_ptr)) : 1.0f; 
+  //const float out_scale = (fp8_out_scale_ptr != nullptr) ? __fdividef(1.0f,(*fp8_out_scale_ptr)) : 1.0f; 
+  const float out_scale = (fp8_out_scale_ptr != nullptr) ? 1.0f/(*fp8_out_scale_ptr) : 1.0f; 
   acc *= inv_global_exp_sum;
   acc *= out_scale;
   OUTT* out_ptr =
