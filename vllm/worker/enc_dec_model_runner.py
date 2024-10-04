@@ -141,8 +141,8 @@ class EncoderDecoderModelRunner(GPUModelRunnerBase[EncoderDecoderModelInput]):
             logger.info("EncoderDecoderModelRunner requires "
                         "XFormers or ROCM backend; overriding backend "
                         "auto-selection and forcing XFormers or ROCM.")
-            global_force_attn_backend(_Backend.ROCM_FLASH 
-                                    if is_hip() else _Backend.XFORMERS)
+            global_force_attn_backend(
+                _Backend.ROCM_FLASH if is_hip() else _Backend.XFORMERS)
         elif is_forced_by_global:
             # Backend override enforced by global variable takes
             # precedence over vLLM backend environment variable.

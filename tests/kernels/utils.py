@@ -525,12 +525,12 @@ def make_backend(backend_name: str) -> AttentionBackend:
         # NOTE: xFormers backend cannot be imported for CPU and AMD GPUs.
         from vllm.attention.backends.xformers import XFormersBackend
         return XFormersBackend()
-    
-    if backend_name == STR_ROCM_FLASH_ATTN_VAL:        
+
+    if backend_name == STR_ROCM_FLASH_ATTN_VAL:
         from vllm.attention.backends.rocm_flash_attn import (  # noqa: F401
             ROCmFlashAttentionBackend)
         return ROCmFlashAttentionBackend
-    
+
     raise AssertionError(
         f"Unrecognized backend_name {backend_name} for unit test")
 

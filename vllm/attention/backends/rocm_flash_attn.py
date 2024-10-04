@@ -138,7 +138,7 @@ class ROCmFlashAttentionMetadata(AttentionMetadata, PagedAttentionMetadata):
     # and block tables
     cross_slot_mapping: Optional[torch.Tensor] = None
     cross_block_tables: Optional[torch.Tensor] = None
-    
+
     @property
     def prefill_metadata(self) -> Optional["ROCmFlashAttentionMetadata"]:
         if self.num_prefills == 0:
@@ -161,12 +161,12 @@ class ROCmFlashAttentionMetadata(AttentionMetadata, PagedAttentionMetadata):
             max_query_len=self.max_query_len,
             max_prefill_seq_len=self.max_prefill_seq_len,
             max_decode_seq_len=0,
-            query_start_loc=None if self.query_start_loc is None 
-                            else self.query_start_loc[:self.num_prefills + 1],
-            seq_start_loc=None if self.seq_start_loc is None 
-                            else self.seq_start_loc[:self.num_prefills + 1],
-            context_lens_tensor=None if self.context_lens_tensor is None 
-                            else self.context_lens_tensor[:self.num_prefills],
+            query_start_loc=None if self.query_start_loc is None else
+            self.query_start_loc[:self.num_prefills + 1],
+            seq_start_loc=None if self.seq_start_loc is None else
+            self.seq_start_loc[:self.num_prefills + 1],
+            context_lens_tensor=None if self.context_lens_tensor is None else
+            self.context_lens_tensor[:self.num_prefills],
             block_tables=self.block_tables[:self.num_prefills],
             use_cuda_graph=False,
             # Begin encoder & cross attn fields below...
@@ -174,8 +174,7 @@ class ROCmFlashAttentionMetadata(AttentionMetadata, PagedAttentionMetadata):
             encoder_seq_lens_tensor=self.encoder_seq_lens_tensor,
             max_encoder_seq_len=self.max_encoder_seq_len,
             cross_slot_mapping=self.cross_slot_mapping,
-            cross_block_tables=self.cross_block_tables
-        )
+            cross_block_tables=self.cross_block_tables)
         return self._cached_prefill_metadata
 
     @property
@@ -208,8 +207,7 @@ class ROCmFlashAttentionMetadata(AttentionMetadata, PagedAttentionMetadata):
             encoder_seq_lens_tensor=self.encoder_seq_lens_tensor,
             max_encoder_seq_len=self.max_encoder_seq_len,
             cross_slot_mapping=self.cross_slot_mapping,
-            cross_block_tables=self.cross_block_tables
-        )
+            cross_block_tables=self.cross_block_tables)
         return self._cached_decode_metadata
 
     def advance_step(self, model_input: "ModelInputForGPUWithSamplingMetadata",
@@ -333,10 +331,12 @@ def _get_seq_len_block_table_args(
         assert attn_metadata.encoder_seq_lens is not None
         assert attn_metadata.encoder_seq_lens_tensor is not None
         query_seq_start_loc = torch.tensor(
-            [0] + [partial_prefix_sum := partial_prefix_sum + i
-                   for i in attn_metadata.encoder_seq_lens],
-                    device = attn_metadata.encoder_seq_lens_tensor.device,
-                    dtype = attn_metadata.encoder_seq_lens_tensor.dtype)
+            [0] + [
+                partial_prefix_sum := partial_prefix_sum + i
+                for i in attn_metadata.encoder_seq_lens
+            ],
+            device=attn_metadata.encoder_seq_lens_tensor.device,
+            dtype=attn_metadata.encoder_seq_lens_tensor.dtype)
         causal_mask = False
 
         # No block tables associated with encoder attention
@@ -349,33 +349,38 @@ def _get_seq_len_block_table_args(
         assert attn_metadata.seq_lens is not None
         assert attn_metadata.seq_lens_tensor is not None
         query_seq_start_loc = torch.tensor(
-            [0] + [partial_prefix_sum := partial_prefix_sum + i
-                   for i in attn_metadata.seq_lens],
-                    device = attn_metadata.seq_lens_tensor.device,
-                    dtype = attn_metadata.seq_lens_tensor.dtype)
+            [0] + [
+                partial_prefix_sum := partial_prefix_sum + i
+                for i in attn_metadata.seq_lens
+            ],
+            device=attn_metadata.seq_lens_tensor.device,
+            dtype=attn_metadata.seq_lens_tensor.dtype)
         max_seq_len = attn_metadata.max_prefill_seq_len
         causal_mask = True
 
-        return (query_seq_start_loc, max_seq_len,
-                query_seq_start_loc, max_seq_len,
-                attn_metadata.seq_lens, causal_mask)
+        return (query_seq_start_loc, max_seq_len, query_seq_start_loc,
+                max_seq_len, attn_metadata.seq_lens, causal_mask)
     elif attn_type == AttentionType.ENCODER_DECODER:
         assert attn_metadata.seq_lens is not None
         assert attn_metadata.encoder_seq_lens_tensor is not None
         query_start_loc = torch.tensor(
-            [0] + [partial_prefix_sum := partial_prefix_sum + i
-                   for i in attn_metadata.seq_lens],
-                    device = attn_metadata.encoder_seq_lens_tensor.device,
-                    dtype = attn_metadata.encoder_seq_lens_tensor.dtype)
+            [0] + [
+                partial_prefix_sum := partial_prefix_sum + i
+                for i in attn_metadata.seq_lens
+            ],
+            device=attn_metadata.encoder_seq_lens_tensor.device,
+            dtype=attn_metadata.encoder_seq_lens_tensor.dtype)
 
         partial_prefix_sum = 0
         assert attn_metadata.encoder_seq_lens is not None
         assert attn_metadata.seq_lens_tensor is not None
         key_seq_start_loc = torch.tensor(
-            [0] + [partial_prefix_sum := partial_prefix_sum + i
-                   for i in attn_metadata.encoder_seq_lens],
-                    device = attn_metadata.seq_lens_tensor.device,
-                    dtype = attn_metadata.seq_lens_tensor.dtype)
+            [0] + [
+                partial_prefix_sum := partial_prefix_sum + i
+                for i in attn_metadata.encoder_seq_lens
+            ],
+            device=attn_metadata.seq_lens_tensor.device,
+            dtype=attn_metadata.seq_lens_tensor.dtype)
         causal_mask = False
 
         # Enc/dec cross-attention KVs match encoder sequence length;
@@ -385,6 +390,7 @@ def _get_seq_len_block_table_args(
                 attn_metadata.seq_lens, causal_mask)
     else:
         raise AttributeError(f"Invalid attention type {str(attn_type)}")
+
 
 class ROCmFlashAttentionImpl(AttentionImpl):
     """
@@ -547,7 +553,7 @@ class ROCmFlashAttentionImpl(AttentionImpl):
         Returns:
             shape = [num_tokens, num_heads * head_size]
         """
-        
+
         query = query.view(-1, self.num_heads, self.head_size)
         if key is not None:
             assert value is not None
@@ -561,9 +567,9 @@ class ROCmFlashAttentionImpl(AttentionImpl):
                 kv_cache, self.num_kv_heads, self.head_size)
 
             if key is not None and value is not None:
-                # Reshape the input keys and values and store them in the 
+                # Reshape the input keys and values and store them in the
                 # cache. If kv_cache is not provided, the new key and value
-                # tensors are not cached. This happens during the initial 
+                # tensors are not cached. This happens during the initial
                 # memory profiling run.
                 PagedAttention.write_to_paged_cache(
                     key,
@@ -571,8 +577,8 @@ class ROCmFlashAttentionImpl(AttentionImpl):
                     key_cache,
                     value_cache,
                     attn_metadata.slot_mapping
-                        if attn_type != AttentionType.ENCODER_DECODER else
-                            attn_metadata.cross_slot_mapping,
+                    if attn_type != AttentionType.ENCODER_DECODER else
+                    attn_metadata.cross_slot_mapping,
                     self.kv_cache_dtype,
                     k_scale,
                     v_scale,
@@ -595,14 +601,10 @@ class ROCmFlashAttentionImpl(AttentionImpl):
 
         if prefill_meta := attn_metadata.prefill_metadata:
             output = torch.empty_like(query)
-            (
-                query_seq_start_loc,
-                query_max_seq_len,
-                key_seq_start_loc,
-                key_max_seq_len,
-                seq_lens,
-                causal_mask
-            ) = _get_seq_len_block_table_args(prefill_meta, attn_type)
+            (query_seq_start_loc, query_max_seq_len, key_seq_start_loc,
+             key_max_seq_len, seq_lens,
+             causal_mask) = _get_seq_len_block_table_args(
+                 prefill_meta, attn_type)
 
             # Prompt run.
             if kv_cache is None or prefill_meta.block_tables.numel() == 0:
@@ -711,8 +713,8 @@ class ROCmFlashAttentionImpl(AttentionImpl):
                 decode_meta.max_decode_seq_len)
             if use_custom:
                 max_seq_len = (decode_meta.max_decode_seq_len
-                    if attn_type != AttentionType.ENCODER_DECODER else
-                            decode_meta.max_encoder_seq_len)
+                               if attn_type != AttentionType.ENCODER_DECODER
+                               else decode_meta.max_encoder_seq_len)
                 assert max_seq_len is not None
                 max_num_partitions = (
                     (max_seq_len + _PARTITION_SIZE_ROCM - 1) //
@@ -744,11 +746,11 @@ class ROCmFlashAttentionImpl(AttentionImpl):
                     self.num_kv_heads,
                     self.scale,
                     decode_meta.block_tables
-                        if attn_type != AttentionType.ENCODER_DECODER else
-                            decode_meta.cross_block_tables,
+                    if attn_type != AttentionType.ENCODER_DECODER else
+                    decode_meta.cross_block_tables,
                     decode_meta.seq_lens_tensor
-                        if attn_type != AttentionType.ENCODER_DECODER else
-                            decode_meta.encoder_seq_lens_tensor,
+                    if attn_type != AttentionType.ENCODER_DECODER else
+                    decode_meta.encoder_seq_lens_tensor,
                     block_size,
                     max_seq_len,
                     self.alibi_slopes,
@@ -762,14 +764,14 @@ class ROCmFlashAttentionImpl(AttentionImpl):
                     key_cache,
                     value_cache,
                     decode_meta.block_tables
-                        if attn_type != AttentionType.ENCODER_DECODER else
-                            decode_meta.cross_block_tables,
+                    if attn_type != AttentionType.ENCODER_DECODER else
+                    decode_meta.cross_block_tables,
                     decode_meta.seq_lens_tensor
-                        if attn_type != AttentionType.ENCODER_DECODER else
-                            decode_meta.encoder_seq_lens_tensor,
+                    if attn_type != AttentionType.ENCODER_DECODER else
+                    decode_meta.encoder_seq_lens_tensor,
                     decode_meta.max_decode_seq_len
-                        if attn_type != AttentionType.ENCODER_DECODER else
-                            decode_meta.max_encoder_seq_len,
+                    if attn_type != AttentionType.ENCODER_DECODER else
+                    decode_meta.max_encoder_seq_len,
                     self.kv_cache_dtype,
                     self.num_kv_heads,
                     self.scale,
