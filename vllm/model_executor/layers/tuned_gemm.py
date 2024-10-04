@@ -84,7 +84,7 @@ class TunedGemm:
         # uses this for linear units. However, sampler
         # will use torch.matmul with 2 dimensions only
         if inp.dim() == 3:
-            inp_view = inp.view(-1, inp.size(-1))
+            inp_view = inp.reshape(-1, inp.size(-1))
             batched = True
         else:
             inp_view = inp

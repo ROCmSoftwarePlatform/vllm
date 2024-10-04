@@ -2,10 +2,8 @@ from abc import abstractmethod
 from typing import Dict, List, Optional, Tuple
 
 import torch
-import torch.nn.functional as F
 from torch.nn.parameter import Parameter, UninitializedParameter
 
-import vllm.envs as envs
 from vllm.distributed import (divide, get_tensor_model_parallel_rank,
                               get_tensor_model_parallel_world_size,
                               split_tensor_along_last_dim,
@@ -133,10 +131,7 @@ class UnquantizedLinearMethod(LinearMethodBase):
               layer: torch.nn.Module,
               x: torch.Tensor,
               bias: Optional[torch.Tensor] = None) -> torch.Tensor:
-        if envs.VLLM_NO_TUNED_GEMM:
-            return F.linear(x, layer.weight, bias)
-        else:
-            return tgemm.mm(x, layer.weight, bias)
+        return tgemm.mm(x, layer.weight, bias)
 
 
 class LinearBase(torch.nn.Module):
