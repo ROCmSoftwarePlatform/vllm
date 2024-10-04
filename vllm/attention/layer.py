@@ -97,23 +97,23 @@ class Attention(nn.Module):
     ) -> torch.Tensor:
         if fp8_out_scale is not None:
             return self.impl.forward(query,
-                                 key,
-                                 value,
-                                 kv_cache,
-                                 attn_metadata,
-                                 self._k_scale,
-                                 self._v_scale,
-                                 attn_type=attn_type,
-                                 fp8_out_scale=fp8_out_scale)
+                                     key,
+                                     value,
+                                     kv_cache,
+                                     attn_metadata,
+                                     self._k_scale,
+                                     self._v_scale,
+                                     attn_type=attn_type,
+                                     fp8_out_scale=fp8_out_scale)
         else:
             return self.impl.forward(query,
-                                 key,
-                                 value,
-                                 kv_cache,
-                                 attn_metadata,
-                                 self._k_scale,
-                                 self._v_scale,
-                                 attn_type=attn_type)
+                                     key,
+                                     value,
+                                     kv_cache,
+                                     attn_metadata,
+                                     self._k_scale,
+                                     self._v_scale,
+                                     attn_type=attn_type)
 
     def extra_repr(self) -> str:
         s = f"head_size={self.impl.head_size}"  # type: ignore
