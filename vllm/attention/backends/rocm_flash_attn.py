@@ -388,6 +388,7 @@ class ROCmFlashAttentionImpl(AttentionImpl):
         k_scale: float = 1.0,
         v_scale: float = 1.0,
         attn_type: AttentionType = AttentionType.DECODER,
+        fp8_out_scale: torch.Tensor = None,
     ) -> torch.Tensor:
         """Forward pass with FlashAttention and PagedAttention.
 
@@ -434,7 +435,6 @@ class ROCmFlashAttentionImpl(AttentionImpl):
         num_decode_tokens = attn_metadata.num_decode_tokens
         assert key.shape[0] == num_prefill_tokens + num_decode_tokens
         assert value.shape[0] == num_prefill_tokens + num_decode_tokens
-
         output = torch.empty_like(query)
         # Query for decode. KV is not needed because it is already cached.
         decode_query = query[num_prefill_tokens:]
@@ -568,10 +568,15 @@ class ROCmFlashAttentionImpl(AttentionImpl):
                     device=output.device,
                 )
                 max_logits = torch.empty_like(exp_sums)
+                cpa_fp8_out = False
                 if num_prefill_tokens > 0:
                     out = output[num_prefill_tokens:]
                 else:
-                    out = output
+                    if fp8_out_scale is not None:
+                        out = torch.empty_like(output,dtype=torch.float8_e4m3fnuz)
+                        cpa_fp8_out = True
+                    else:
+                        out = output
                 ops.paged_attention_rocm(
                     out,
                     exp_sums,
@@ -590,7 +595,10 @@ class ROCmFlashAttentionImpl(AttentionImpl):
                     self.kv_cache_dtype,
                     k_scale,
                     v_scale,
+                    fp8_out_scale if cpa_fp8_out else None,
                 )
+                if cpa_fp8_out:
+                    return out.view(num_tokens, hidden_size)
             else:
                 output[num_prefill_tokens:] = PagedAttention.forward_decode(
                     decode_query,

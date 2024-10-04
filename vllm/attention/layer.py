@@ -93,9 +93,20 @@ class Attention(nn.Module):
         kv_cache: Optional[torch.Tensor],
         attn_metadata: AttentionMetadata,
         attn_type: AttentionType = AttentionType.DECODER,
+        fp8_out_scale: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-
-        return self.impl.forward(query,
+        if fp8_out_scale is not None:
+            return self.impl.forward(query,
+                                 key,
+                                 value,
+                                 kv_cache,
+                                 attn_metadata,
+                                 self._k_scale,
+                                 self._v_scale,
+                                 attn_type=attn_type,
+                                 fp8_out_scale=fp8_out_scale)
+        else:
+            return self.impl.forward(query,
                                  key,
                                  value,
                                  kv_cache,
