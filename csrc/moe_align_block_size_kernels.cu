@@ -34,7 +34,7 @@ __global__ void moe_align_block_size_kernel(scalar_t* __restrict__ topk_ids,
   int32_t* tokens_cnts =
       shared_mem;  // 2d tensor with shape (num_experts + 1, num_experts)
   int32_t* cumsum =
-      shared_mem + (num_experts + 1) *
+      shared_mem + (blockDim.x + 1) *
                        num_experts;  // 1d tensor with shape (num_experts + 1)
 
   for (int i = 0; i < num_experts; ++i) {
@@ -117,15 +117,16 @@ void moe_align_block_size(torch::Tensor topk_ids, int64_t num_experts,
       topk_ids.scalar_type(), "moe_align_block_size_kernel", [&] {
         // calc needed amount of shared mem for `tokens_cnts` and `cumsum`
         // tensors
+        const int32_t num_thread = num_experts << 1;
         const int32_t shared_mem =
-            ((num_experts + 1) * num_experts + (num_experts + 1)) *
+            ((num_thread + 1) * num_experts + (num_experts + 1)) *
             sizeof(int32_t);
 
         // set dynamic shared mem
         auto kernel = vllm::moe_align_block_size_kernel<scalar_t>;
         AT_CUDA_CHECK(VLLM_DevFuncAttribute_SET_MaxDynamicSharedMemorySize(
             (void*)kernel, shared_mem));
-        kernel<<<1, num_experts, shared_mem, stream>>>(
+        kernel<<<1, num_thread, shared_mem, stream>>>(
             topk_ids.data_ptr<scalar_t>(), sorted_token_ids.data_ptr<int32_t>(),
             experts_ids.data_ptr<int32_t>(),
             num_tokens_post_pad.data_ptr<int32_t>(), num_experts, block_size,
