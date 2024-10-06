@@ -53,10 +53,12 @@ __global__ void moe_align_block_size_kernel(scalar_t* __restrict__ topk_ids,
   __syncthreads();
 
   // For each expert we accumulate the token counts from the different threads.
-  tokens_cnts[index(num_experts, 0, threadIdx.x)] = 0;
-  for (int i = 1; i <= blockDim.x; ++i) {
-    tokens_cnts[index(num_experts, i, threadIdx.x)] +=
-        tokens_cnts[index(num_experts, i - 1, threadIdx.x)];
+  if (threadIdx.x < num_experts) {
+    tokens_cnts[index(num_experts, 0, threadIdx.x)] = 0;
+    for (int i = 1; i <= blockDim.x; ++i) {
+      tokens_cnts[index(num_experts, i, threadIdx.x)] +=
+          tokens_cnts[index(num_experts, i - 1, threadIdx.x)];
+    }
   }
 
   __syncthreads();
@@ -79,9 +81,11 @@ __global__ void moe_align_block_size_kernel(scalar_t* __restrict__ topk_ids,
    * For each expert, each thread processes the tokens of the corresponding
    * blocks and stores the corresponding expert_id for each block.
    */
-  for (int i = cumsum[threadIdx.x]; i < cumsum[threadIdx.x + 1];
-       i += block_size) {
-    expert_ids[i / block_size] = threadIdx.x;
+  if (threadIdx.x < num_experts) {
+    for (int i = cumsum[threadIdx.x]; i < cumsum[threadIdx.x + 1];
+         i += block_size) {
+      expert_ids[i / block_size] = threadIdx.x;
+    }
   }
 
   /**
