@@ -27,6 +27,7 @@ import torch
 from torch import nn
 from transformers import LlamaConfig
 
+import vllm.envs as envs
 from vllm import _custom_ops as ops
 from vllm.attention import Attention, AttentionMetadata
 from vllm.config import CacheConfig, LoRAConfig
@@ -55,7 +56,6 @@ from vllm.utils import is_hip
 
 from .interfaces import SupportsLoRA
 from .utils import PPMissingLayer, is_pp_missing_parameter, make_layers
-import vllm.envs as envs
 
 
 class LlamaMLP(nn.Module):
