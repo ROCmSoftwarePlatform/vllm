@@ -55,6 +55,7 @@ from vllm.utils import is_hip
 
 from .interfaces import SupportsLoRA
 from .utils import PPMissingLayer, is_pp_missing_parameter, make_layers
+import vllm.envs as envs
 
 
 class LlamaMLP(nn.Module):
@@ -180,7 +181,9 @@ class LlamaAttention(nn.Module):
                               num_kv_heads=self.num_kv_heads,
                               cache_config=cache_config,
                               quant_config=quant_config)
-        self.attn_fp8_out = is_hip() and isinstance(quant_config, Fp8Config)
+        self.attn_fp8_out = envs.VLLM_USE_ROCM_CUSTOM_PAGED_ATTN_FP8_OUT \
+                            and is_hip() \
+                            and isinstance(quant_config, Fp8Config)
 
     def forward(
         self,
