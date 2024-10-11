@@ -18,7 +18,8 @@ from vllm.model_executor.layers.rotary_embedding import get_rope
 from vllm.model_executor.layers.sampler import Sampler, SamplerOutput
 from vllm.model_executor.layers.vocab_parallel_embedding import (
     DEFAULT_VOCAB_PADDING_SIZE, ParallelLMHead, VocabParallelEmbedding)
-from vllm.model_executor.model_loader.weight_utils import (default_weight_loader, maybe_remap_kv_scale_name)
+from vllm.model_executor.model_loader.weight_utils import (
+    default_weight_loader, maybe_remap_kv_scale_name)
 from vllm.model_executor.sampling_metadata import SamplingMetadata
 from vllm.sequence import IntermediateTensors
 from vllm.transformers_utils.configs.dbrx import DbrxConfig
@@ -106,9 +107,8 @@ class DbrxExperts(FusedMoE):
                     loaded_weight,
                     [-1, self.intermediate_size * self.tp_size, self.d_model],
                 )
-                param_data[:,
-                           shard_size:2 * shard_size, :] = loaded_weight[:,
-                                                                         shard, :]
+                param_data[:, shard_size:2 *
+                           shard_size, :] = loaded_weight[:, shard, :]
             elif param_name.endswith("weight_scale"):
                 param_data[:, 1] = loaded_weight
             else:
