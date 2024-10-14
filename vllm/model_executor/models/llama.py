@@ -51,7 +51,7 @@ from vllm.model_executor.model_loader.weight_utils import (
     default_weight_loader, kv_cache_scales_loader, maybe_remap_kv_scale_name)
 from vllm.model_executor.sampling_metadata import SamplingMetadata
 from vllm.sequence import IntermediateTensors
-from vllm.utils import is_hip
+from vllm.utils import is_hip, is_navi4x
 
 from .interfaces import SupportsLoRA
 from .utils import PPMissingLayer, is_pp_missing_parameter, make_layers
@@ -80,7 +80,7 @@ class LlamaMLP(nn.Module):
                                            bias=bias,
                                            quant_config=quant_config,
                                            prefix=f"{prefix}.down_proj")
-        self.use_fp8 = isinstance(quant_config, Fp8Config)
+        self.use_fp8 = isinstance(quant_config, Fp8Config) if is_hip() and not is_navi4x() else False
         if hidden_act != "silu":
             raise ValueError(f"Unsupported activation: {hidden_act}. "
                              "Only silu is supported for now.")
@@ -207,7 +207,7 @@ class LlamaDecoderLayer(nn.Module):
     ) -> None:
         super().__init__()
         self.hidden_size = config.hidden_size
-        self.use_fp8 = isinstance(quant_config, Fp8Config)
+        self.use_fp8 = isinstance(quant_config, Fp8Config) if is_hip() and not is_navi4x() else False
         rope_theta = getattr(config, "rope_theta", 10000)
         rope_scaling = getattr(config, "rope_scaling", None)
         if rope_scaling is not None and getattr(

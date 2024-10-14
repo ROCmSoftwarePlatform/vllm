@@ -15,17 +15,23 @@
   #include <hipcub/hipcub.hpp>
 #endif
 
-#ifndef USE_ROCM
+// For some unknown reason defined(__gfx1200__) doesn't work
+// so we have to set fp8 format to E4M3FN, which means this snippet works for cuda/navi only
 using FP8_TYPE = c10::Float8_e4m3fn;
 C10_HOST_DEVICE constexpr auto FP8_E4M3_MAX =
     std::numeric_limits<FP8_TYPE>::max();
-#else
-  #include "amd/hip_float8.h"
-using FP8_TYPE = c10::Float8_e4m3fnuz;
-// Using the default max value from pytorch (240.0) will cause accuracy
-// issue when running dynamic quantization. Here use 224.0f for rocm.
-constexpr auto FP8_E4M3_MAX = 224.0f;
-#endif
+
+//#ifndef USE_ROCM
+//using FP8_TYPE = c10::Float8_e4m3fn;
+//C10_HOST_DEVICE constexpr auto FP8_E4M3_MAX =
+    //std::numeric_limits<FP8_TYPE>::max();
+//#else
+  //#include "amd/hip_float8.h"
+//using FP8_TYPE = c10::Float8_e4m3fnuz;
+//// Using the default max value from pytorch (240.0) will cause accuracy
+//// issue when running dynamic quantization. Here use 224.0f for rocm.
+//constexpr auto FP8_E4M3_MAX = 224.0f;
+//#endif
 
 namespace vllm {
 
@@ -50,13 +56,15 @@ __device__ __forceinline__ FP8_TYPE scaled_fp8_conversion(float const val,
   }
 
   float r = fmax(-FP8_E4M3_MAX, fmin(x, FP8_E4M3_MAX));
-#ifndef USE_ROCM
+  // this works for cuda/navi only. Will find a better solution for this.
   return static_cast<c10::Float8_e4m3fn>(r);
-#else
-  // Use hardware cvt instruction for fp8 on rocm
-  return c10::Float8_e4m3fnuz(hip_fp8(r).data,
-                              c10::Float8_e4m3fnuz::from_bits());
-#endif
+//#ifndef USE_ROCM
+  //return static_cast<c10::Float8_e4m3fn>(r);
+//#else
+  //// Use hardware cvt instruction for fp8 on rocm
+  //return c10::Float8_e4m3fnuz(hip_fp8(r).data,
+                              //c10::Float8_e4m3fnuz::from_bits());
+//#endif
 }
 
 // Compute the absolute maximum m of the input tensor and store

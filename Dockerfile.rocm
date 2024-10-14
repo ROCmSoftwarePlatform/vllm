@@ -1,5 +1,5 @@
 # default base image
-ARG BASE_IMAGE="rocm/pytorch:rocm6.2_ubuntu20.04_py3.9_pytorch_release_2.3.0"
+ARG BASE_IMAGE="compute-artifactory.amd.com:5000/rocm-plus-docker/framework/compute-rocm-dkms-no-npi-hipclang:14874_ubuntu22.04_py3.10_pytorch_rocm6.3_internal_testing_a7f258b"
 
 ARG COMMON_WORKDIR=/app
 
@@ -23,7 +23,7 @@ USER root
 ARG BASE_IMAGE
 ARG COMMON_WORKDIR
 # Used as ARCHes for all components
-ARG ARG_PYTORCH_ROCM_ARCH="gfx90a;gfx942"
+ARG ARG_PYTORCH_ROCM_ARCH="gfx1200"
 ENV PYTORCH_ROCM_ARCH=${ARG_PYTORCH_ROCM_ARCH}
 
 # Install some basic utilities
@@ -88,7 +88,7 @@ FROM export_flash_attn_${BUILD_FA} AS export_flash_attn
 # -----------------------
 # Triton build stages
 FROM base AS build_triton
-ARG TRITON_BRANCH="e192dba"
+ARG TRITON_BRANCH="ca70f08835"
 ARG TRITON_REPO="https://github.com/triton-lang/triton.git"
 RUN python3 -m pip install ninja cmake wheel pybind11 && git clone ${TRITON_REPO} \
     && cd triton \
@@ -111,7 +111,7 @@ COPY --from=build_amdsmi /opt/rocm/share/amd_smi/dist/*.whl /
 FROM base as build_pytorch
 # A commit to fix the output scaling factor issue in _scaled_mm
 # Not yet in 2.5.0-rc1
-ARG PYTORCH_BRANCH="cedc116"
+ARG PYTORCH_BRANCH="56ec3c794"
 ARG PYTORCH_VISION_BRANCH="v0.19.1"
 ARG PYTORCH_REPO="https://github.com/ROCm/pytorch.git"
 ARG PYTORCH_VISION_REPO="https://github.com/pytorch/vision.git"
