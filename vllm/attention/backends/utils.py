@@ -326,9 +326,12 @@ class CommonAttentionState(AttentionState):
             # The encoder decoder model works only with XFormers backend.
             # Assert the same.
             if is_hip():
-                assert self.runner.attn_backend.get_name() == "rocm-flash-attn", \
-                f"Expected attn_backend name to be 'rocm-flash-attn', but "\
-                f" got '{self.runner.attn_backend.get_name()}'"
+                assert (
+                    self.runner.attn_backend.get_name() == "rocm-flash-attn"
+                ), (
+                    f"Expected attn_backend name to be 'rocm-flash-attn', but "
+                    f" got '{self.runner.attn_backend.get_name()}'"
+                )
                 self._update_captured_metadata_for_enc_dec_model(
                     batch_size=batch_size, attn_metadata=attn_metadata)
             else:
@@ -353,9 +356,12 @@ class CommonAttentionState(AttentionState):
             # The encoder decoder model works only with XFormers backend.
             # Assert the same.
             if is_hip():
-                assert self.runner.attn_backend.get_name() == "rocm-flash-attn", \
-                f"Expected attn_backend name to be 'rocm-flash-attn', but "\
-                f" got '{self.runner.attn_backend.get_name()}'"
+                assert (
+                    self.runner.attn_backend.get_name() == "rocm-flash-attn"
+                ), (
+                    f"Expected attn_backend name to be 'rocm-flash-attn', but "
+                    f" got '{self.runner.attn_backend.get_name()}'"
+                )
                 self._add_additonal_input_buffers_for_enc_dec_model(
                     attn_metadata=attn_metadata, input_buffers=input_buffers)
             else:
@@ -380,9 +386,12 @@ class CommonAttentionState(AttentionState):
             # Assert the same.
             
             if is_hip():
-                assert self.runner.attn_backend.get_name() == "rocm-flash-attn", \
-                f"Expected attn_backend name to be 'rocm-flash-attn', but "\
-                f" got '{self.runner.attn_backend.get_name()}'"
+                assert (
+                    self.runner.attn_backend.get_name() == "rocm-flash-attn"
+                ), (
+                    f"Expected attn_backend name to be 'rocm-flash-attn', but "
+                    f" got '{self.runner.attn_backend.get_name()}'"
+                )
                 self._prepare_input_buffers_for_enc_dec_model(
                     attn_metadata, input_buffers)
             else:
