@@ -229,7 +229,7 @@ class CommonMetadataBuilder(AttentionMetadataBuilder[TAttentionMetadata]):
                         # to lookahead slots of multi-step, however, they are
                         # not used anyway, so can be safely ignored.
                         input_block_tables[
-                                i, :max_blocks] = block_table[:max_blocks]
+                            i, :max_blocks] = block_table[:max_blocks]
             block_tables = torch.from_numpy(input_block_tables).to(
                 device, non_blocking=True)
         else:
