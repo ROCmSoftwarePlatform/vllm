@@ -170,6 +170,7 @@ if ls /install/*.whl; then \
 fi
 # Build vLLM
 RUN cd vllm \
+    && python3 -m pip install --upgrade numba scipy \
     && python3 -m pip install -r requirements-rocm.txt \
     && python3 setup.py clean --all  \
     && if [ ${USE_CYTHON} -eq "1" ]; then python3 setup_cython.py build_ext --inplace; fi \
@@ -246,7 +247,7 @@ RUN --mount=type=bind,from=export_pytorch,src=/,target=/install \
         && pip install /install/*.whl; \
     fi
 
-RUN python3 -m pip install --upgrade numba scipy huggingface-hub[cli]
+RUN python3 -m pip install --upgrade huggingface-hub[cli]
 
 RUN git clone -b nvtx_enabled https://github.com/ROCm/rocmProfileData.git \
     && cd rocmProfileData/rpd_tracer \
@@ -283,8 +284,4 @@ ENV TOKENIZERS_PARALLELISM=false
 ENV HIP_FORCE_DEV_KERNARG=1
 
 CMD ["/bin/bash"]
-
-# DONE
-
-
 
