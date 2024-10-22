@@ -623,13 +623,12 @@ class ROCmFlashAttentionImpl(AttentionImpl):
             output = torch.empty_like(query)
 
             # Prompt run.
-            # normal attention
-            if (kv_cache.numel() == 0 or prefill_meta.block_tables is None
-                or prefill_meta.block_tables.numel() == 0):
-                ( query_seq_start_loc, 
-                query_max_seq_len, 
+            # normal attention and DECODER
+            if attn_type == AttentionType.DECODER and (kv_cache.numel() == 0 or prefill_meta.block_tables is None or prefill_meta.block_tables.numel() == 0):
+                (query_seq_start_loc,
+                query_max_seq_len,
                 key_seq_start_loc,
-                key_max_seq_len, 
+                key_max_seq_len,
                 seq_lens,
                 causal_mask) = ( prefill_meta.seq_start_loc,
                 prefill_meta.max_prefill_seq_len,
@@ -637,15 +636,15 @@ class ROCmFlashAttentionImpl(AttentionImpl):
                 prefill_meta.max_prefill_seq_len,
                 attn_metadata.seq_lens,
                 True if attn_type == AttentionType.DECODER else False)
-            # prefix-enabled attention
+            # prefix-enabled attention and ENCODER/ENCODER_DECODER
             else:
-                (query_seq_start_loc, 
-                query_max_seq_len, 
+                (query_seq_start_loc,
+                query_max_seq_len,
                 key_seq_start_loc,
-                key_max_seq_len, 
+                key_max_seq_len,
                 seq_lens,
                 causal_mask) = _get_seq_len_block_table_args(
-                                 prefill_meta, 
+                                 prefill_meta,
                                  attn_type)
             # Prompt run.
             if kv_cache.numel() == 0 or prefill_meta.block_tables.numel() == 0:
