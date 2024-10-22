@@ -621,11 +621,6 @@ class ROCmFlashAttentionImpl(AttentionImpl):
             value = value[:num_prefill_tokens]
 
         if prefill_meta := attn_metadata.prefill_metadata:
-            (query_seq_start_loc, query_max_seq_len, key_seq_start_loc,
-             key_max_seq_len, seq_lens,
-             causal_mask) = _get_seq_len_block_table_args(
-                 prefill_meta, attn_type)
-
             # Prompt run.
             # normal attention and DECODER
             if attn_type == AttentionType.DECODER and (
