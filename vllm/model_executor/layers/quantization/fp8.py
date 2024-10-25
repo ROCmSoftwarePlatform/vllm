@@ -27,7 +27,7 @@ from vllm.model_executor.parameter import (ModelWeightParameter,
                                            PerTensorScaleParameter)
 from vllm.model_executor.utils import set_weight_attrs
 from vllm.platforms import current_platform
-from vllm.utils import is_hip, print_warning_once, is_navi4x
+from vllm.utils import is_hip, is_navi4x, print_warning_once
 
 ACTIVATION_SCHEMES = ["static", "dynamic"]
 
@@ -427,7 +427,8 @@ class Fp8MoEMethod(FusedMoEMethodBase):
                     layer.w13_input_scale.max(), requires_grad=False)
                 layer.w2_input_scale = torch.nn.Parameter(
                     layer.w2_input_scale.max(), requires_grad=False)
-            # If rocm (except Navi4x), normalize the weights and scales to e4m3fnuz
+            # If rocm (except Navi4x, which uses e4m3fn),
+            # normalize the weights and scales to e4m3fnuz
             if is_hip() and not is_navi4x():
                 # Normalize the weights and scales
                 w13_weight, w13_weight_scale, w13_input_scale = \

@@ -7,8 +7,8 @@ import gc
 import inspect
 import ipaddress
 import os
-import re
 import random
+import re
 import socket
 import subprocess
 import sys
@@ -426,8 +426,15 @@ def is_hip() -> bool:
     return torch.version.hip is not None
 
 
+@lru_cache(maxsize=None)
 def is_navi4x() -> bool:
-   return re.match("gfx12..", os.environ.get("PYTORCH_ROCM_ARCH", "")) is not None
+    if not torch.cuda.is_available():
+        return False
+    # All (visible) GPUs must be of the same type,
+    # otherwise FP8 results can't be guaranteed.
+    archName = torch.cuda.get_device_properties('cuda').gcnArchName
+    return (archName is not None) and \
+        (re.match("gfx12[0-9]{2}", archName) is not None)
 
 
 @lru_cache(maxsize=None)

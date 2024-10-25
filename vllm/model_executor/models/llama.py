@@ -87,15 +87,17 @@ class LlamaMLP(nn.Module):
             quant_config=quant_config,
             prefix=f"{prefix}.down_proj",
         )
-        self.use_fp8 = isinstance(quant_config, Fp8Config) if is_hip() and not is_navi4x() else False
+        self.use_fp8 = isinstance(quant_config, Fp8Config) \
+                       if is_hip() and not is_navi4x() else False
         if hidden_act != "silu":
             raise ValueError(f"Unsupported activation: {hidden_act}. "
                              "Only silu is supported for now.")
         self.act_fn = SiluAndMul()
 
     def forward(self, x):
-        # Navi4x is an exception among HIP devices -- it uses the same FP8 format with CUDA devices
-        if is_hip() and not is_navi4x() and x.shape[0] == 1 and x.shape[1] == 1:
+        # Navi4x is diff from other HIP devices by using e4m3fn fp8 format
+        if is_hip() and not is_navi4x() \
+            and x.shape[0] == 1 and x.shape[1] == 1:
             out = torch.empty(x.shape[0],
                               self.gate_up_proj.weight.shape[0] // 2,
                               dtype=x.dtype,
@@ -228,7 +230,8 @@ class LlamaDecoderLayer(nn.Module):
     ) -> None:
         super().__init__()
         self.hidden_size = config.hidden_size
-        self.use_fp8 = isinstance(quant_config, Fp8Config) if is_hip() and not is_navi4x() else False
+        self.use_fp8 = isinstance(quant_config, Fp8Config) \
+            if is_hip() and not is_navi4x() else False
         rope_theta = getattr(config, "rope_theta", 10000)
         rope_scaling = getattr(config, "rope_scaling", None)
         if rope_scaling is not None and getattr(
