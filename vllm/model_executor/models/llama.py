@@ -95,9 +95,7 @@ class LlamaMLP(nn.Module):
         self.act_fn = SiluAndMul()
 
     def forward(self, x):
-        # Navi4x is diff from other HIP devices by using e4m3fn fp8 format
-        if is_hip() and not is_navi4x() \
-            and x.shape[0] == 1 and x.shape[1] == 1:
+        if is_hip() and x.shape[0] == 1 and x.shape[1] == 1:
             out = torch.empty(x.shape[0],
                               self.gate_up_proj.weight.shape[0] // 2,
                               dtype=x.dtype,

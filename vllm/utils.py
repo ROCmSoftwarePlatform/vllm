@@ -428,7 +428,7 @@ def is_hip() -> bool:
 
 @lru_cache(maxsize=None)
 def is_navi4x() -> bool:
-    if not torch.cuda.is_available():
+    if not is_hip() or not torch.cuda.is_available():
         return False
     # All (visible) GPUs must be of the same type,
     # otherwise FP8 results can't be guaranteed.
