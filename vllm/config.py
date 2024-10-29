@@ -950,10 +950,10 @@ class ParallelConfig:
         self.rank: int = 0
 
         if is_mi250() and self.tensor_parallel_size > 1:
-            self.disable_custom_all_reduce = True  
+            self.disable_custom_all_reduce = True
             logger.info(
-                    "Disabled the custom all-reduce kernel because it is not "
-                    "working correctly on multi AMD MI250.")
+                "Disabled the custom all-reduce kernel because it is not "
+                "working correctly on multi AMD MI250.")
 
     @property
     def use_ray(self) -> bool:
