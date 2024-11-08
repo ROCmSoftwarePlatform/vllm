@@ -253,7 +253,7 @@ RUN --mount=type=bind,from=export_pytorch,src=/,target=/install \
     fi
 
 RUN python3 -m pip install --upgrade huggingface-hub[cli]
-
+ARG BUILD_RPD
 RUN if [ ${BUILD_RPD} -eq "1" ]; then \
     git clone -b nvtx_enabled https://github.com/ROCm/rocmProfileData.git \
     && cd rocmProfileData/rpd_tracer \
