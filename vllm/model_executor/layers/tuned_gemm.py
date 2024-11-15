@@ -4,14 +4,15 @@ from pathlib import Path
 import pandas as pd
 import torch
 import torch.nn.functional as F
-from hipbsolidxgemm import hipb_create_extension, hipb_mm
-from rocsolidxgemm import rocb_create_extension, rocb_mm
 
 from vllm import _custom_ops as ops
 from vllm.envs import VLLM_USE_ROCM_SKINNY_GEMM
 from vllm.platforms import current_platform
 from vllm.utils import is_navi
 
+if current_platform.is_rocm():
+    from hipbsolidxgemm import hipb_create_extension, hipb_mm
+    from rocsolidxgemm import rocb_create_extension, rocb_mm
 
 class TunedGemm:
 
@@ -26,8 +27,12 @@ class TunedGemm:
         self.bestsols = {}
         self.load_best_sols()
         self.create_ds()
-        self.cu_count = torch.cuda.get_device_properties(
-            device='cuda').multi_processor_count
+
+        if current_platform.is_rocm():
+            self.cu_count = torch.cuda.get_device_properties(
+                    device='cuda').multi_processor_count
+        else:
+            self.cu_count = -1
 
         self.use_skinny = (current_platform.is_rocm()
                            and VLLM_USE_ROCM_SKINNY_GEMM and not is_navi())
@@ -81,6 +86,9 @@ class TunedGemm:
             return None
 
     def mm(self, inp, weights, bias=None):
+        if not current_platform.is_rocm():
+            return F.linear(inp, weights, bias)
+
         # F.Linear can take a 3 dimensional input. vllm
         # uses this for linear units. However, sampler
         # will use torch.matmul with 2 dimensions only
@@ -94,9 +102,11 @@ class TunedGemm:
             inp_view = inp
             batched = False
         if self.extensions_created is False:
-            rocb_create_extension()
-            hipb_create_extension()
+            if current_platform.is_rocm():
+                rocb_create_extension()
+                hipb_create_extension()
             self.extensions_created = True
+
         m = weights.shape[0]
         n = inp_view.shape[0]
         k = inp_view.shape[1]
