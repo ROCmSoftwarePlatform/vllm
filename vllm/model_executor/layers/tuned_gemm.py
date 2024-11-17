@@ -24,6 +24,7 @@ def hipb_mm(inp, weights, solidx, bias=None):
 def rocb_mm(inp, weights, solidx):
     return torch.ops._gradlib_C.rocb_mm(inp, weights, solidx)
 
+
 class TunedGemm:
 
     def __init__(self):
@@ -35,12 +36,8 @@ class TunedGemm:
         self.bestsols = {}
         self.load_best_sols()
         self.create_ds()
-
-        if current_platform.is_rocm():
-            self.cu_count = torch.cuda.get_device_properties(
-                    device='cuda').multi_processor_count
-        else:
-            self.cu_count = -1
+        self.cu_count = torch.cuda.get_device_properties(
+            device='cuda').multi_processor_count
 
         self.use_skinny = (current_platform.is_rocm()
                            and VLLM_USE_ROCM_SKINNY_GEMM and not is_navi())
@@ -112,7 +109,6 @@ class TunedGemm:
             torch.ops._gradlib_C.rocb_create_extension()
             torch.ops._gradlib_C.hipb_create_extension()
             self.extensions_created = True
-
         m = weights.shape[0]
         n = inp_view.shape[0]
         k = inp_view.shape[1]
