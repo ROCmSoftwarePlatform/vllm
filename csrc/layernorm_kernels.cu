@@ -18,17 +18,16 @@
 
 #if defined(__HIPCC__) && (defined(__gfx90a__) || defined(__gfx940__) || \
                            defined(__gfx941__) || defined(__gfx942__))
-  #define __HIP__MI300_MI250__
+  #define __HIP__MI300_MI250__ 1
+#else
+  #define __HIP__MI300_MI250__ 0
 #endif
 
 namespace vllm {
 
-#ifdef __HIP__MI300_MI250__
-
-// TODO(woosuk): Further optimize this kernel.
 // TODO(woosuk): Further optimize this kernel.
 template <typename scalar_t, int width>
-__global__ std::enable_if_t<(width > 0) && _typeConvert<scalar_t>::exists>
+__global__ std::enable_if_t<(width > 0) && _typeConvert<scalar_t>::exists && __HIP__MI300_MI250__ == 1>
 rms_norm_kernel(scalar_t* __restrict__ out,           // [..., hidden_size]
                 const scalar_t* __restrict__ input,   // [..., hidden_size]
                 const scalar_t* __restrict__ weight,  // [hidden_size]
@@ -76,7 +75,7 @@ rms_norm_kernel(scalar_t* __restrict__ out,           // [..., hidden_size]
 }
 
 template <typename scalar_t, int width>
-__global__ std::enable_if_t<(width == 0) || !_typeConvert<scalar_t>::exists>
+__global__ std::enable_if_t<(width == 0) || !_typeConvert<scalar_t>::exists || __HIP__MI300_MI250__ == 0>
 rms_norm_kernel(scalar_t* __restrict__ out,           // [..., hidden_size]
                 const scalar_t* __restrict__ input,   // [..., hidden_size]
                 const scalar_t* __restrict__ weight,  // [hidden_size]
@@ -107,41 +106,6 @@ rms_norm_kernel(scalar_t* __restrict__ out,           // [..., hidden_size]
         ((scalar_t)(x * s_variance)) * weight[idx];
   }
 }
-
-#else
-
-// TODO(maleksan): Investigate why vectorization doesn't work for Navi.
-template <typename scalar_t>
-__global__ void rms_norm_kernel(
-    scalar_t* __restrict__ out,           // [..., hidden_size]
-    const scalar_t* __restrict__ input,   // [..., hidden_size]
-    const scalar_t* __restrict__ weight,  // [hidden_size]
-    const float epsilon, const int num_tokens, const int hidden_size) {
-  __shared__ float s_variance;
-  float variance = 0.0f;
-
-  for (int idx = threadIdx.x; idx < hidden_size; idx += blockDim.x) {
-    const float x = (float)input[blockIdx.x * hidden_size + idx];
-    variance += x * x;
-  }
-
-  using BlockReduce = cub::BlockReduce<float, 1024>;
-  __shared__ typename BlockReduce::TempStorage reduceStore;
-  variance = BlockReduce(reduceStore).Reduce(variance, cub::Sum{}, blockDim.x);
-
-  if (threadIdx.x == 0) {
-    s_variance = rsqrtf(variance / hidden_size + epsilon);
-  }
-  __syncthreads();
-
-  for (int idx = threadIdx.x; idx < hidden_size; idx += blockDim.x) {
-    float x = (float)input[blockIdx.x * hidden_size + idx];
-    out[blockIdx.x * hidden_size + idx] =
-        ((scalar_t)(x * s_variance)) * weight[idx];
-  }
-}
-
-#endif
 
 /* Function specialization in the case of FP16/BF16 tensors.
    Additional optimizations we can make in this case are
@@ -268,7 +232,6 @@ void rms_norm(torch::Tensor& out,     // [..., hidden_size]
               torch::Tensor& input,   // [..., hidden_size]
               torch::Tensor& weight,  // [hidden_size]
               double epsilon) {
-#ifdef __HIP__MI300_MI250__
   int hidden_size = input.size(-1);
   int num_tokens = input.numel() / hidden_size;
   int vec_size = 16 / input.element_size();
@@ -284,20 +247,6 @@ void rms_norm(torch::Tensor& out,     // [..., hidden_size]
   } else {
     LAUNCH_RMS_NORM(0);
   }
-#else
-  int hidden_size = input.size(-1);
-  int num_tokens = input.numel() / hidden_size;
-
-  dim3 grid(num_tokens);
-  dim3 block(std::min(hidden_size, 1024));
-  const at::cuda::OptionalCUDAGuard device_guard(device_of(input));
-  const cudaStream_t stream = at::cuda::getCurrentCUDAStream();
-  VLLM_DISPATCH_FLOATING_TYPES(input.scalar_type(), "rms_norm_kernel", [&] {
-    vllm::rms_norm_kernel<scalar_t><<<grid, block, 0, stream>>>(
-        out.data_ptr<scalar_t>(), input.data_ptr<scalar_t>(),
-        weight.data_ptr<scalar_t>(), epsilon, num_tokens, hidden_size);
-  });
-#endif
 }
 
 #define LAUNCH_FUSED_ADD_RMS_NORM(width)                                       \
