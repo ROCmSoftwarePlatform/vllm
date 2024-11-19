@@ -18,6 +18,7 @@ from vllm.model_executor.layers.linear import (ColumnParallelLinear,
                                                RowParallelLinear)
 from vllm.model_executor.layers.quantization.base_config import (
     QuantizationConfig)
+from vllm.utils import is_navi3
 
 
 class PatchEmbedding(nn.Module):
@@ -80,8 +81,7 @@ class Attention(nn.Module):
         self.output_dropout = torch.nn.Dropout(config.dropout_prob)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        _ON_NAVI3 = "gfx11" in torch.cuda.get_device_properties("cuda").gcnArchName
-        if _ON_NAVI3:
+        if is_navi3():
             try:
                 # git clone -b howiejay/navi_support https://github.com/ROCm/flash-attention.git
                 from flash_attn import flash_attn_func
