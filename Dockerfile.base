@@ -8,8 +8,8 @@ ENV PYTORCH_ROCM_ARCH=gfx942
 RUN mkdir -p /app
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y git python3.10-venv
-RUN pip install packaging cmake ninja wheel pybind11
+RUN apt-get update && apt-get install -y git python3.10-venv python-is-python3 less vim
+RUN pip install packaging cmake ninja wheel
 
 FROM base AS build_hipblaslt
 ARG HIPBLASLT_BRANCH="507a649"
@@ -19,8 +19,7 @@ RUN cd hipBLASLt \
     && ./install.sh -d --architecture ${PYTORCH_ROCM_ARCH} --legacy_hipblas_direct \
     && cd build/release \
     && make package
-RUN mkdir -p /app/install && cp /app/hipBLAS-common/build/*.deb /app/install \
-    && cp /app/hipBLASLt/build/release/*.deb /app/install
+RUN mkdir -p /app/install && cp /app/hipBLASLt/build/release/*.deb /app/install
 
 FROM base AS build_rccl
 ARG RCCL_BRANCH="dfe4a3e"
@@ -73,12 +72,16 @@ RUN mkdir -p /app/install && cp /app/pytorch/dist/*.whl /app/install \
 
 FROM base AS final
 RUN --mount=type=bind,from=build_hipblaslt,src=/app/install/,target=/install \
-    cd /install && dpkg -i ./*deb
+    dpkg -i /install/*deb \
+    && sed -i 's/, hipblaslt-dev \(.*\), hipcub-dev/, hipcub-dev/g' /var/lib/dpkg/status \
+    && sed -i 's/, hipblaslt \(.*\), hipfft/, hipfft/g' /var/lib/dpkg/status
 RUN --mount=type=bind,from=build_rccl,src=/app/install/,target=/install \
-    cd /install && dpkg -i ./*deb
+    dpkg -i /install/*deb \
+    && sed -i 's/, rccl-dev \(.*\), rocalution/, rocalution/g' /var/lib/dpkg/status \
+    && sed -i 's/, rccl \(.*\), rocalution/, rocalution/g' /var/lib/dpkg/status
 RUN --mount=type=bind,from=build_triton,src=/app/install/,target=/install \
-    cd /install && pip install ./*.whl
+    pip install /install/*.whl
 RUN --mount=type=bind,from=build_amdsmi,src=/app/install/,target=/install \
-    cd /install && pip install ./*.whl
+    pip install /install/*.whl
 RUN --mount=type=bind,from=build_pytorch,src=/app/install/,target=/install \
-    cd /install && pip install ./*.whl
+    pip install /install/*.whl
