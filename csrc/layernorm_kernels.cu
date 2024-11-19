@@ -16,9 +16,10 @@
   #include "quantization/fp8/nvidia/quant_utils.cuh"
 #endif
 
-#if defined(__HIPCC__) && (defined(__gfx90a__) || defined(__gfx940__) || \
-                           defined(__gfx941__) || defined(__gfx942__))
-  #define __HIP__MI300_MI250__
+#if defined(__HIPCC__) &&                                                 \
+    (defined(__gfx90a__) || defined(__gfx940__) || defined(__gfx941__) || \
+     defined(__gfx942__) || defined(__gfx1100__))
+  #define __HIP__MI300_MI250_Navi31__
 #endif
 
 namespace vllm {
@@ -61,7 +62,7 @@ struct __align__(16) vec8_t {
   __device__ scalar_t sum() const { return x + y + z + w + u + v + s + t; }
 };
 
-#ifdef __HIP__MI300_MI250__
+#ifdef __HIP__MI300_MI250_Navi31__
 
 // TODO(woosuk): Further optimize this kernel.
 template <typename scalar_t>
