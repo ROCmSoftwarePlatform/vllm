@@ -12,23 +12,26 @@ RUN apt-get update && apt-get install -y git python3.10-venv
 RUN pip install packaging cmake ninja wheel pybind11
 
 FROM base AS build_hipblaslt
+ARG HIPBLASLT_BRANCH="507a649"
 RUN git clone https://github.com/ROCm/hipBLASLt
 RUN cd hipBLASLt \
-    && ./install.sh -d --architecture gfx942 --legacy_hipblas_direct \
+    && git checkout ${HIPBLASLT_BRANCH} \
+    && ./install.sh -d --architecture ${PYTORCH_ROCM_ARCH} --legacy_hipblas_direct \
     && cd build/release \
     && make package
 RUN mkdir -p /app/install && cp /app/hipBLAS-common/build/*.deb /app/install \
     && cp /app/hipBLASLt/build/release/*.deb /app/install
 
 FROM base AS build_rccl
+ARG RCCL_BRANCH="dfe4a3e"
 RUN git clone https://github.com/ROCm/rccl
 RUN cd rccl \
-    && git checkout develop \
-    && ./install.sh -p --amdgpu_targets gfx942
+    && git checkout ${RCCL_BRANCH} \
+    && ./install.sh -p --amdgpu_targets ${PYTORCH_ROCM_ARCH}
 RUN mkdir -p /app/install && cp /app/rccl/build/release/*.deb /app/install
 
 FROM base AS build_triton
-ARG TRITON_BRANCH="e192dba"
+ARG TRITON_BRANCH="release/3.1.x"
 ARG TRITON_REPO="https://github.com/triton-lang/triton.git"
 RUN git clone ${TRITON_REPO}
 RUN cd triton \
@@ -43,11 +46,11 @@ RUN cd /opt/rocm/share/amd_smi \
 RUN mkdir -p /app/install && cp /opt/rocm/share/amd_smi/dist/*.whl /app/install
 
 FROM base as build_pytorch
-ARG PYTORCH_BRANCH="cedc116"
+ARG PYTORCH_BRANCH="8bc4033"
 ARG PYTORCH_VISION_BRANCH="v0.19.1"
-ARG PYTORCH_REPO="https://github.com/ROCm/pytorch.git"
+ARG PYTORCH_REPO="https://github.com/pytorch/pytorch.git"
 ARG PYTORCH_VISION_REPO="https://github.com/pytorch/vision.git"
-ARG FA_BRANCH="3cea2fb"
+ARG FA_BRANCH="c555642"
 ARG FA_REPO="https://github.com/ROCm/flash-attention.git"
 RUN git clone ${PYTORCH_REPO} pytorch
 RUN cd pytorch && git checkout ${PYTORCH_BRANCH} && \
