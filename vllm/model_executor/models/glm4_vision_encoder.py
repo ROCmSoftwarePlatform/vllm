@@ -89,11 +89,11 @@ class Attention(nn.Module):
                 q, k, v = qkv.chunk(3, dim=-1)
 
                 q = q.reshape(B, L, self.num_heads_per_rank,
-                              self.head_dim) # B, L, H, D
+                              self.head_dim)  # B, L, H, D
                 k = k.reshape(B, L, self.num_heads_per_rank,
-                              self.head_dim) # B, L, H, D
+                              self.head_dim)  # B, L, H, D
                 v = v.reshape(B, L, self.num_heads_per_rank,
-                              self.head_dim) # B, L, H, D
+                              self.head_dim)  # B, L, H, D
 
                 out = flash_attn_func(q, k, v)
 

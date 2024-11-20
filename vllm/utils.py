@@ -1641,6 +1641,7 @@ def is_navi() -> bool:
     archName = torch.cuda.get_device_properties('cuda').gcnArchName
     return archName is not None and "gfx1" in archName
 
+
 @lru_cache(maxsize=None)
 def is_navi3() -> bool:
     if not current_platform.is_rocm() or not torch.cuda.is_available():
@@ -1649,6 +1650,7 @@ def is_navi3() -> bool:
     # otherwise FP8 results can't be guaranteed.
     archName = torch.cuda.get_device_properties('cuda').gcnArchName
     return archName is not None and "gfx11" in archName
+
 
 def weak_ref_tensors(
     tensors: Union[torch.Tensor, List[torch.Tensor], Tuple[torch.Tensor]]
