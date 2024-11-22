@@ -3,7 +3,7 @@ FROM ${BASE_IMAGE} AS base
 
 ENV PATH=/opt/rocm/llvm/bin:$PATH
 ENV ROCM_PATH=/opt/rocm
-ENV LD_LIBRARY_PATH /opt/rocm/lib:/usr/local/lib:
+ENV LD_LIBRARY_PATH=/opt/rocm/lib:/usr/local/lib:
 ARG PYTORCH_ROCM_ARCH=gfx90a;gfx942
 ENV PYTORCH_ROCM_ARCH=${PYTORCH_ROCM_ARCH}
 
@@ -15,32 +15,35 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 # Install Python and other dependencies
 RUN apt-get update -y \
-    && apt-get install -y software-properties-common git curl sudo \
+    && apt-get install -y software-properties-common git curl sudo vim less \
     && add-apt-repository ppa:deadsnakes/ppa \
     && apt-get update -y \
     && apt-get install -y python${PYTHON_VERSION} python${PYTHON_VERSION}-dev python${PYTHON_VERSION}-venv \
+       python${PYTHON_VERSION}-lib2to3 python-is-python3  \
     && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python${PYTHON_VERSION} 1 \
     && update-alternatives --set python3 /usr/bin/python${PYTHON_VERSION} \
     && ln -sf /usr/bin/python${PYTHON_VERSION}-config /usr/bin/python3-config \
     && curl -sS https://bootstrap.pypa.io/get-pip.py | python${PYTHON_VERSION} \
     && python3 --version && python3 -m pip --version
 
-RUN pip install packaging cmake ninja wheel setuptools
+RUN pip install -U packaging cmake ninja wheel setuptools Cython
 
-RUN pip install --upgrade setuptools
 FROM base AS build_hipblaslt
 ARG HIPBLASLT_BRANCH="507a649"
+# Unset the following on ROCm6.3+
+ARG LEGACY_HIPBLASLT_OPTION="--legacy_hipblas_direct"
 RUN git clone https://github.com/ROCm/hipBLASLt
 RUN cd hipBLASLt \
     && git checkout ${HIPBLASLT_BRANCH} \
-    && ./install.sh -d --architecture ${PYTORCH_ROCM_ARCH} --legacy_hipblas_direct \
+    && ./install.sh -d --architecture ${PYTORCH_ROCM_ARCH} ${LEGACY_HIPBLASLT_OPTION} \
     && cd build/release \
     && make package
 RUN mkdir -p /app/install && cp /app/hipBLASLt/build/release/*.deb /app/install
 
 FROM base AS build_rccl
 ARG RCCL_BRANCH="dfe4a3e"
-RUN git clone https://github.com/ROCm/rccl
+ARG RCCL_REPO="https://github.com/ROCm/rccl"
+RUN git clone ${RCCL_REPO}
 RUN cd rccl \
     && git checkout ${RCCL_BRANCH} \
     && ./install.sh -p --amdgpu_targets ${PYTORCH_ROCM_ARCH}
@@ -61,7 +64,7 @@ RUN cd /opt/rocm/share/amd_smi \
     && pip wheel . --wheel-dir=dist
 RUN mkdir -p /app/install && cp /opt/rocm/share/amd_smi/dist/*.whl /app/install
 
-FROM base as build_pytorch
+FROM base AS build_pytorch
 ARG PYTORCH_BRANCH="8bc4033"
 ARG PYTORCH_VISION_BRANCH="v0.19.1"
 ARG PYTORCH_REPO="https://github.com/pytorch/pytorch.git"
