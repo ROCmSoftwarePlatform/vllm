@@ -197,8 +197,7 @@ def main(args: argparse.Namespace):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description='Benchmark the latency of processing a single batch of '
-        'requests till completion.')
+        description='Measure the PPPL (P3L) score of a given model.')
     parser.add_argument(
         '--data',
         type=str,
