@@ -562,7 +562,7 @@ def get_default_config(
         'BLOCK_SIZE_K': 128 if dtype is None else 256,
         'GROUP_SIZE_M': 1,
         "num_warps": 8 if dtype is None else 4,
-        "num_stages": 0,
+        "num_stages": 2,
         "waves_per_eu": 0,
         "kpack": 2,                # garbage w/o this
         "matrix_instr_nonkdim": 16 # force 16 mfma even for block_m=32
@@ -575,7 +575,7 @@ def get_default_config(
             'BLOCK_SIZE_K': 128 if dtype is None else 256,
             'GROUP_SIZE_M': 1,
             "num_warps": 8 if dtype is None else 4,
-            "num_stages": 0,
+            "num_stages": 2,
             "waves_per_eu": 0,
             "kpack": 2,                # garbage w/o this
             "matrix_instr_nonkdim": 16 # force 16 mfma even for block_m=32
