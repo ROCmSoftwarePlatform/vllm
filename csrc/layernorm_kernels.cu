@@ -26,7 +26,7 @@ rms_norm_kernel(scalar_t* __restrict__ out,           // [..., hidden_size]
                 const scalar_t* __restrict__ input,   // [..., hidden_size]
                 const scalar_t* __restrict__ weight,  // [hidden_size]
                 const float epsilon, const int num_tokens,
-                const int hidden_size, const int vec_hidden_size) {
+                const size_t hidden_size, const size_t vec_hidden_size) {
   __shared__ float s_variance;
   float v8_variance_sum = 0.0f;
 
@@ -42,7 +42,7 @@ rms_norm_kernel(scalar_t* __restrict__ out,           // [..., hidden_size]
       reinterpret_cast<const _f16Vec<scalar_t, width>*>(weight);
 
   // Compute variance. Be careful, hidden_size should multiple of 4.
-  for (int idx = tx; idx < vec_hidden_size; idx += num_threads) {
+  for (size_t idx = tx; idx < vec_hidden_size; idx += num_threads) {
     _f16Vec<scalar_t, width> temp = input_v[idx];
     v8_variance_sum += temp.sum_squares();
   }
@@ -60,7 +60,7 @@ rms_norm_kernel(scalar_t* __restrict__ out,           // [..., hidden_size]
 
   variance = s_variance;
 
-  for (int idx = tx; idx < vec_hidden_size; idx += num_threads) {
+  for (size_t idx = tx; idx < vec_hidden_size; idx += num_threads) {
     _f16Vec<scalar_t, width> temp = input_v[idx];
     temp *= variance;
     temp *= weight_v[idx];
@@ -75,11 +75,11 @@ rms_norm_kernel(scalar_t* __restrict__ out,           // [..., hidden_size]
                 const scalar_t* __restrict__ input,   // [..., hidden_size]
                 const scalar_t* __restrict__ weight,  // [hidden_size]
                 const float epsilon, const int num_tokens,
-                const int hidden_size, const int) {
+                const size_t hidden_size, const size_t) {
   __shared__ float s_variance;
   float variance = 0.0f;
 
-  for (int idx = threadIdx.x; idx < hidden_size; idx += blockDim.x) {
+  for (size_t idx = threadIdx.x; idx < hidden_size; idx += blockDim.x) {
     const float x = (float)input[blockIdx.x * hidden_size + idx];
     variance += x * x;
   }
@@ -93,7 +93,7 @@ rms_norm_kernel(scalar_t* __restrict__ out,           // [..., hidden_size]
   }
   __syncthreads();
 
-  for (int idx = threadIdx.x; idx < hidden_size; idx += blockDim.x) {
+  for (size_t idx = threadIdx.x; idx < hidden_size; idx += blockDim.x) {
     float x = (float)input[blockIdx.x * hidden_size + idx];
     out[blockIdx.x * hidden_size + idx] =
         ((scalar_t)(x * s_variance)) * weight[idx];
