@@ -155,7 +155,7 @@ rms_norm_kernel(scalar_t* __restrict__ out,           // [..., hidden_size]
 }
 #else
 template <typename scalar_t, int width>
-__global__ rms_norm_kernel(
+__global__ void rms_norm_kernel(
     scalar_t* __restrict__ out,           // [..., hidden_size]
     const scalar_t* __restrict__ input,   // [..., hidden_size]
     const scalar_t* __restrict__ weight,  // [hidden_size]
