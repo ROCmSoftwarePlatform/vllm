@@ -70,12 +70,12 @@ rms_norm_kernel(scalar_t* __restrict__ out,           // [..., hidden_size]
 
 // Non vectorized kernel for unusual shapes/types without conversion
 template <typename scalar_t, int width>
-__global__ std::enable_if_t<(width == 0) || !_typeConvert<scalar_t>::exists> rms_norm_kernel(
-    scalar_t* __restrict__ out,           // [..., hidden_size]
-    const scalar_t* __restrict__ input,   // [..., hidden_size]
-    const scalar_t* __restrict__ weight,  // [hidden_size]
-    const float epsilon, const int num_tokens, const int hidden_size,
-    const int) {
+__global__ std::enable_if_t<(width == 0) || !_typeConvert<scalar_t>::exists>
+rms_norm_kernel(scalar_t* __restrict__ out,           // [..., hidden_size]
+                const scalar_t* __restrict__ input,   // [..., hidden_size]
+                const scalar_t* __restrict__ weight,  // [hidden_size]
+                const float epsilon, const int num_tokens,
+                const int hidden_size, const int) {
   __shared__ float s_variance;
   float variance = 0.0f;
 
