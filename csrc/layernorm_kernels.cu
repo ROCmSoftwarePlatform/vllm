@@ -106,9 +106,8 @@ struct __align__(16) vec8_t {
   __device__ scalar_t sum() const { return x + y + z + w + u + v + s + t; }
 };
 
-
-// A specialized vectorized kernel for the case where no conversion to/from float exists
-// Only supports 8-way vectorization
+// A specialized vectorized kernel for the case where no conversion to/from
+// float exists Only supports 8-way vectorization
 template <typename scalar_t, int width>
 __global__ std::enable_if_t<(width == 8) && !_typeConvert<scalar_t>::exists>
 rms_norm_kernel(scalar_t* __restrict__ out,           // [..., hidden_size]
