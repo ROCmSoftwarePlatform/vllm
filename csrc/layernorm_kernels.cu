@@ -23,6 +23,7 @@
 
 namespace vllm {
 
+#ifdef __HIP__MI300_MI250__
 // TODO(woosuk): Further optimize this kernel.
 template <typename scalar_t, int width>
 __global__ std::enable_if_t<(width > 0) && _typeConvert<scalar_t>::exists>
@@ -72,7 +73,6 @@ rms_norm_kernel(scalar_t* __restrict__ out,           // [..., hidden_size]
   }
 }
 
-#ifdef __HIP__MI300_MI250__
 template <typename scalar_t>
 struct __align__(16) vec8_t {
   scalar_t x, y, z, w, u, v, s, t;
@@ -155,12 +155,12 @@ rms_norm_kernel(scalar_t* __restrict__ out,           // [..., hidden_size]
 }
 #else
 template <typename scalar_t, int width>
-__global__ std::enable_if_t<(width == 0) || !_typeConvert<scalar_t>::exists>
-rms_norm_kernel(scalar_t* __restrict__ out,           // [..., hidden_size]
-                const scalar_t* __restrict__ input,   // [..., hidden_size]
-                const scalar_t* __restrict__ weight,  // [hidden_size]
-                const float epsilon, const int num_tokens,
-                const int hidden_size, const int vec_hidden_size) {
+__global__ rms_norm_kernel(
+    scalar_t* __restrict__ out,           // [..., hidden_size]
+    const scalar_t* __restrict__ input,   // [..., hidden_size]
+    const scalar_t* __restrict__ weight,  // [hidden_size]
+    const float epsilon, const int num_tokens, const int hidden_size,
+    const int vec_hidden_size) {
   __shared__ float s_variance;
   float variance = 0.0f;
 
