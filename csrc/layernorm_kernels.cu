@@ -16,45 +16,10 @@
   #include "quantization/fp8/nvidia/quant_utils.cuh"
 #endif
 
-#if defined(__HIPCC__) && (defined(__gfx90a__) || defined(__gfx940__) || \
-                           defined(__gfx941__) || defined(__gfx942__))
-  #define __HIP__MI300_MI250__
-#endif
-
 namespace vllm {
-template <typename scalar_t>
-__device__ void rms_norm_kernel_navi(
-    scalar_t* __restrict__ out,           // [..., hidden_size]
-    const scalar_t* __restrict__ input,   // [..., hidden_size]
-    const scalar_t* __restrict__ weight,  // [hidden_size]
-    const float epsilon, const int num_tokens, const int hidden_size) {
-  __shared__ float s_variance;
-  float variance = 0.0f;
 
-  for (int idx = threadIdx.x; idx < hidden_size; idx += blockDim.x) {
-    const float x =
-        (float)input[blockIdx.x * static_cast<int64_t>(hidden_size) + idx];
-    variance += x * x;
-  }
-
-  using BlockReduce = cub::BlockReduce<float, 1024>;
-  __shared__ typename BlockReduce::TempStorage reduceStore;
-  variance = BlockReduce(reduceStore).Reduce(variance, cub::Sum{}, blockDim.x);
-
-  if (threadIdx.x == 0) {
-    s_variance = rsqrtf(variance / hidden_size + epsilon);
-  }
-  __syncthreads();
-
-  for (int idx = threadIdx.x; idx < hidden_size; idx += blockDim.x) {
-    float x =
-        (float)input[blockIdx.x * static_cast<int64_t>(hidden_size) + idx];
-    out[blockIdx.x * static_cast<int64_t>(hidden_size) + idx] =
-        ((scalar_t)(x * s_variance)) * weight[idx];
-  }
-}
-
-// TODO(woosuk): Further optimize this kernel.
+// This kernel uses the _f16Vec to represent vectorized data.
+// A conversion to/from float should exist
 template <typename scalar_t, int width>
 __global__ std::enable_if_t<(width > 0) && _typeConvert<scalar_t>::exists>
 rms_norm_kernel(scalar_t* __restrict__ out,           // [..., hidden_size]
@@ -62,7 +27,6 @@ rms_norm_kernel(scalar_t* __restrict__ out,           // [..., hidden_size]
                 const scalar_t* __restrict__ weight,  // [hidden_size]
                 const float epsilon, const int num_tokens,
                 const int hidden_size, const int vec_hidden_size) {
-#ifdef __HIP__MI300_MI250__
   __shared__ float s_variance;
   float v8_variance_sum = 0.0f;
 
@@ -102,9 +66,6 @@ rms_norm_kernel(scalar_t* __restrict__ out,           // [..., hidden_size]
     temp *= weight_v[idx];
     out_v[bx * static_cast<int64_t>(vec_hidden_size) + idx] = temp;
   }
-#else
-  rms_norm_kernel_navi(out, input, weight, epsilon, num_tokens, hidden_size);
-#endif
 }
 
 template <typename scalar_t>
@@ -145,14 +106,16 @@ struct __align__(16) vec8_t {
   __device__ scalar_t sum() const { return x + y + z + w + u + v + s + t; }
 };
 
+
+// A specialized vectorized kernel for the case where no conversion to/from float exists
+// Only supports 8-way vectorization
 template <typename scalar_t, int width>
-__global__ std::enable_if_t<(width == 0) || !_typeConvert<scalar_t>::exists>
+__global__ std::enable_if_t<(width == 8) && !_typeConvert<scalar_t>::exists>
 rms_norm_kernel(scalar_t* __restrict__ out,           // [..., hidden_size]
                 const scalar_t* __restrict__ input,   // [..., hidden_size]
                 const scalar_t* __restrict__ weight,  // [hidden_size]
                 const float epsilon, const int num_tokens,
                 const int hidden_size, const int) {
-#ifdef __HIP__MI300_MI250__
   __shared__ float s_variance;
 
   vec8_t<scalar_t> v8_variance = {0, 0, 0, 0, 0, 0, 0, 0};
@@ -187,9 +150,38 @@ rms_norm_kernel(scalar_t* __restrict__ out,           // [..., hidden_size]
     vectorized_out[blockIdx.x * vec_hidden_size + idx] =
         v8_in * s_variance * v8_w;
   }
-#else
-  rms_norm_kernel_navi(out, input, weight, epsilon, num_tokens, hidden_size);
-#endif
+}
+
+// Non vectorized kernel for unusual shapes
+template <typename scalar_t, int width>
+__global__ std::enable_if_t<(width == 0)> rms_norm_kernel(
+    scalar_t* __restrict__ out,           // [..., hidden_size]
+    const scalar_t* __restrict__ input,   // [..., hidden_size]
+    const scalar_t* __restrict__ weight,  // [hidden_size]
+    const float epsilon, const int num_tokens, const int hidden_size,
+    const int) {
+  __shared__ float s_variance;
+  float variance = 0.0f;
+
+  for (int idx = threadIdx.x; idx < hidden_size; idx += blockDim.x) {
+    const float x = (float)input[blockIdx.x * hidden_size + idx];
+    variance += x * x;
+  }
+
+  using BlockReduce = cub::BlockReduce<float, 1024>;
+  __shared__ typename BlockReduce::TempStorage reduceStore;
+  variance = BlockReduce(reduceStore).Reduce(variance, cub::Sum{}, blockDim.x);
+
+  if (threadIdx.x == 0) {
+    s_variance = rsqrtf(variance / hidden_size + epsilon);
+  }
+  __syncthreads();
+
+  for (int idx = threadIdx.x; idx < hidden_size; idx += blockDim.x) {
+    float x = (float)input[blockIdx.x * hidden_size + idx];
+    out[blockIdx.x * hidden_size + idx] =
+        ((scalar_t)(x * s_variance)) * weight[idx];
+  }
 }
 
 /* Function specialization in the case of FP16/BF16 tensors.
