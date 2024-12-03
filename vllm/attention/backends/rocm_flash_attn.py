@@ -218,6 +218,12 @@ class ROCmFlashAttentionMetadata(AttentionMetadata, PagedAttentionMetadata):
             max_encoder_seq_len=self.max_encoder_seq_len,
             cross_slot_mapping=self.cross_slot_mapping,
             cross_block_tables=self.cross_block_tables)
+        # Batch may be composed of prefill|decodes, adjust query start indices
+        # to refer to the start of decodes when the two are split apart.
+        # E.g. in tokens:[3 prefills|6 decodes], query_start_loc=[3,9] => [0,6].
+        if self._cached_decode_metadata.query_start_loc is not None:
+            qs = self._cached_decode_metadata.query_start_loc
+            self._cached_decode_metadata.query_start_loc = qs - qs[0]
         return self._cached_decode_metadata
 
     def advance_step(self,
@@ -323,7 +329,7 @@ def _make_alibi_bias(alibi_slopes: torch.Tensor,
 
 def _get_seq_len_block_table_args(
     attn_metadata: ROCmFlashAttentionMetadata,
-    attn_type: AttentionType,
+    attn_type: str,
 ) -> tuple:
     '''
     The particular choice of sequence-length
@@ -525,7 +531,8 @@ class ROCmFlashAttentionImpl(AttentionImpl):
         attn_metadata: ROCmFlashAttentionMetadata,
         k_scale: float = 1.0,
         v_scale: float = 1.0,
-        attn_type: AttentionType = AttentionType.DECODER,
+        attn_type: str = AttentionType.DECODER,
+        output: Optional[torch.Tensor] = None,
         fp8_out_scale: torch.Tensor = None,
     ) -> torch.Tensor:
         """Forward pass with FlashAttention and PagedAttention.
