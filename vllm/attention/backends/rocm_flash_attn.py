@@ -462,7 +462,7 @@ class ROCmFlashAttentionImpl(AttentionImpl):
 
         if logits_soft_cap is None:
             # In flash-attn, setting logits_soft_cap as 0 means no soft cap.
-            self.logits_soft_cap = 0
+            self.logits_soft_cap = 0.0
         else:
             self.logits_soft_cap = logits_soft_cap
 
