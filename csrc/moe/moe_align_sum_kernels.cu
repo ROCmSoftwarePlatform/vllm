@@ -84,8 +84,7 @@ __global__ void moe_align_block_size_kernel(scalar_t* __restrict__ topk_ids,
    * blocks and stores the corresponding expert_id for each block.
    */
   for (int eid = threadIdx.x; eid < num_experts; eid += blockDim.x) {
-    for (int i = cumsum[eid]; i < cumsum[eid + 1];
-         i += block_size) {
+    for (int i = cumsum[eid]; i < cumsum[eid + 1]; i += block_size) {
       expert_ids[i / block_size] = eid;
     }
   }
