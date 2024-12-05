@@ -11,3 +11,4 @@ peft
 pytest-asyncio
 tensorizer>=2.9.0
 setuptools-scm>=8
+natsort
