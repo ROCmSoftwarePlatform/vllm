@@ -82,6 +82,7 @@ if TYPE_CHECKING:
     VLLM_SYNC_SERVER_ENGINE_STEPS_BETWEEN_POLLS: int = 1
     VLLM_MOE_PADDING: bool = False
     VLLM_FP8_PADDING: bool = True
+    VLLM_FUSED_ROPE_W_KV_CACHE: bool = False
 
 
 def get_default_cache_root():
@@ -535,6 +536,10 @@ environment_variables: Dict[str, Callable[[], Any]] = {
     # Pad the weight for moe kernel or not
     "VLLM_FP8_PADDING":
     lambda: bool(int(os.getenv("VLLM_FP8_PADDING", "1"))),
+
+    # version of ROPE that places output to KV cache
+    "VLLM_FUSED_ROPE_W_KV_CACHE":
+    lambda: bool(int(os.getenv("VLLM_FUSED_ROPE_W_KV_CACHE", "0"))),
 }
 
 # end-env-vars-definition

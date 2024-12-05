@@ -496,6 +496,7 @@ if(VLLM_GPU_LANG STREQUAL "HIP")
     "csrc/rocm/attention.cu"
     "csrc/rocm/custom_kernels.cu"
     "csrc/rocm/fused_kernels.cu"
+    "csrc/rocm/fused_rope_and_reshape_cache.cu"
     "csrc/rocm/custom.cu")
 
   define_gpu_extension_target(

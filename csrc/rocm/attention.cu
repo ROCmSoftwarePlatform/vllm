@@ -1266,29 +1266,29 @@ void paged_attention(
     const std::string& kv_cache_dtype, double k_scale, double v_scale,
     const c10::optional<torch::Tensor>& fp8_out_scale, int64_t partition_size) {
   const int head_size = query.size(2);
-  if (kv_cache_dtype == "auto") {
-    if (query.dtype() == at::ScalarType::Half) {
-      CALL_CUSTOM_LAUNCHER_BLK_HEAD(_Float16, _Float16,
-                                    vllm::Fp8KVCacheDataType::kAuto);
-    } else if (query.dtype() == at::ScalarType::BFloat16) {
-      CALL_CUSTOM_LAUNCHER_BLK_HEAD(__hip_bfloat16, __hip_bfloat16,
-                                    vllm::Fp8KVCacheDataType::kAuto);
-    } else {
-      TORCH_CHECK(false, "Unsupported data type: ", query.dtype());
-    }
-  } else if (kv_cache_dtype == "fp8" || kv_cache_dtype == "fp8_e4m3") {
-    if (query.dtype() == at::ScalarType::Half) {
-      CALL_CUSTOM_LAUNCHER_BLK_HEAD(_Float16, uint8_t,
-                                    vllm::Fp8KVCacheDataType::kFp8E4M3);
-    } else if (query.dtype() == at::ScalarType::BFloat16) {
-      CALL_CUSTOM_LAUNCHER_BLK_HEAD(__hip_bfloat16, uint8_t,
-                                    vllm::Fp8KVCacheDataType::kFp8E4M3);
-    } else {
-      TORCH_CHECK(false, "Unsupported data type: ", query.dtype());
-    }
-  } else {
-    TORCH_CHECK(false, "Unsupported KV cache dtype: ", kv_cache_dtype);
-  }
+  // if (kv_cache_dtype == "auto") {
+  //   if (query.dtype() == at::ScalarType::Half) {
+  //     CALL_CUSTOM_LAUNCHER_BLK_HEAD(_Float16, _Float16,
+  //                                   vllm::Fp8KVCacheDataType::kAuto);
+  //   } else if (query.dtype() == at::ScalarType::BFloat16) {
+  //     CALL_CUSTOM_LAUNCHER_BLK_HEAD(__hip_bfloat16, __hip_bfloat16,
+  //                                   vllm::Fp8KVCacheDataType::kAuto);
+  //   } else {
+  //     TORCH_CHECK(false, "Unsupported data type: ", query.dtype());
+  //   }
+  // } else if (kv_cache_dtype == "fp8" || kv_cache_dtype == "fp8_e4m3") {
+  //   if (query.dtype() == at::ScalarType::Half) {
+  //     CALL_CUSTOM_LAUNCHER_BLK_HEAD(_Float16, uint8_t,
+  //                                   vllm::Fp8KVCacheDataType::kFp8E4M3);
+  //   } else if (query.dtype() == at::ScalarType::BFloat16) {
+  //     CALL_CUSTOM_LAUNCHER_BLK_HEAD(__hip_bfloat16, uint8_t,
+  //                                   vllm::Fp8KVCacheDataType::kFp8E4M3);
+  //   } else {
+  //     TORCH_CHECK(false, "Unsupported data type: ", query.dtype());
+  //   }
+  // } else {
+  //   TORCH_CHECK(false, "Unsupported KV cache dtype: ", kv_cache_dtype);
+  // }
 }
 
 #undef WARP_SIZE

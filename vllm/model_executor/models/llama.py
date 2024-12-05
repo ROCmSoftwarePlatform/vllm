@@ -27,9 +27,9 @@ import torch
 from torch import nn
 from transformers import LlamaConfig
 
-import vllm.envs as envs
-from vllm import _custom_ops as ops
+from vllm import _custom_ops as ops, envs
 from vllm.attention import Attention, AttentionMetadata
+from vllm.attention.ops.paged_attn import PagedAttention
 from vllm.compilation.decorators import support_torch_compile
 from vllm.config import CacheConfig, LoRAConfig, PoolerConfig
 from vllm.distributed import (get_pp_group, get_tensor_model_parallel_rank,
@@ -184,6 +184,8 @@ class LlamaAttention(nn.Module):
             base=rope_theta,
             rope_scaling=rope_scaling,
             is_neox_style=is_neox_style,
+            fused_with_kv_cache_op=envs.VLLM_FUSED_ROPE_W_KV_CACHE,
+            cache_config = cache_config,
         )
         self.attn = Attention(
             self.num_heads,
@@ -208,7 +210,20 @@ class LlamaAttention(nn.Module):
     ) -> torch.Tensor:
         qkv, _ = self.qkv_proj(hidden_states)
         q, k, v = qkv.split([self.q_size, self.kv_size, self.kv_size], dim=-1)
-        q, k = self.rotary_emb(positions, q, k)
+        
+        if envs.VLLM_FUSED_ROPE_W_KV_CACHE:
+            key_cache, value_cache = torch.empty(0, 0, 0, 0, 0), torch.empty(0, 0, 0, 0)
+            if kv_cache is not None and kv_cache.numel() > 0:
+                key_cache, value_cache =PagedAttention.split_kv_cache(
+                        kv_cache, self.num_kv_heads, self.head_dim)
+
+            self.rotary_emb(positions, q, k, v,
+                            key_cache, value_cache,
+                            attn_metadata.slot_mapping,
+                            self.attn._k_scale, self.attn._v_scale)
+        else:
+            q, k = self.rotary_emb(positions, q, k)
+
         attn_output = self.attn(q,
                                 k,
                                 v,

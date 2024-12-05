@@ -27,7 +27,10 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import torch
 import torch.nn as nn
 
+from vllm import _custom_ops as ops
+from vllm.config import CacheConfig
 from vllm.model_executor.custom_op import CustomOp
+
 
 
 def _rotate_neox(x: torch.Tensor) -> torch.Tensor:
@@ -713,6 +716,48 @@ class Llama3RotaryEmbedding(RotaryEmbedding):
         return new_freqs
 
 
+
+class FusedLlama3RotaryEmbedding(Llama3RotaryEmbedding):
+
+    def __init__(
+        self,
+        head_size: int,
+        rotary_dim: int,
+        max_position_embeddings: int,
+        base: int,
+        is_neox_style: bool,
+        dtype: torch.dtype,
+        scaling_factor: float,
+        low_freq_factor: float,
+        high_freq_factor: float,
+        orig_max_position: int,
+        cache_config: Optional[CacheConfig] = None,
+    ) -> None:
+        super().__init__(head_size, rotary_dim, max_position_embeddings, base, 
+            is_neox_style, dtype, scaling_factor, low_freq_factor, high_freq_factor,
+            orig_max_position)
+        self.kv_cache_dtype = "auto" if cache_config is None else cache_config.cache_dtype
+        
+    def forward(
+        self,
+        positions: torch.Tensor,
+        query: torch.Tensor,
+        key: torch.Tensor,
+        value: torch.Tensor,
+        key_cache: torch.Tensor, 
+        value_cache: torch.Tensor,
+        slot_mapping: torch.Tensor,
+        key_scale: float,
+        value_scale: float,
+    ) -> None:
+        # print(f"{self.cos_sin_cache[1, 0:64].view(-1, 8)=}")
+        # print(f"{self.cos_sin_cache[1, 64:128].view(-1, 8)=}")
+        # print(f"{query[0, 0, :].view(-1, 128)[0, :].view(-1, 8)=}")
+        torch.ops._rocm_C.fused_rotary_embedding_and_reshape_cache(
+            positions, query, key,  value, key_cache, value_cache,
+            self.kv_cache_dtype, self.cos_sin_cache, slot_mapping,
+            self.head_size, key_scale, value_scale, self.is_neox_style)
+
 class MRotaryEmbedding(RotaryEmbedding):
     """Rotary Embedding with Multimodal Sections."""
 
@@ -898,6 +943,8 @@ def get_rope(
     rope_scaling: Optional[Dict[str, Any]] = None,
     dtype: Optional[torch.dtype] = None,
     partial_rotary_factor: float = 1.0,
+    fused_with_kv_cache_op: Optional[bool] = False,
+    cache_config: Optional[CacheConfig] = None,
 ) -> RotaryEmbedding:
     if dtype is None:
         dtype = torch.get_default_dtype()
@@ -929,12 +976,17 @@ def get_rope(
             high_freq_factor = rope_scaling["high_freq_factor"]
             original_max_position = rope_scaling[
                 "original_max_position_embeddings"]
-            rotary_emb = Llama3RotaryEmbedding(head_size, rotary_dim,
-                                               max_position, base,
-                                               is_neox_style, dtype,
-                                               scaling_factor, low_freq_factor,
-                                               high_freq_factor,
-                                               original_max_position)
+            if fused_with_kv_cache_op:
+                rotary_emb = FusedLlama3RotaryEmbedding(head_size, rotary_dim,
+                                max_position, base, is_neox_style, dtype,
+                                scaling_factor, low_freq_factor,
+                                high_freq_factor, original_max_position,
+                                cache_config = cache_config)
+            else:
+                rotary_emb = Llama3RotaryEmbedding(head_size, rotary_dim,
+                                max_position, base, is_neox_style, dtype,
+                                scaling_factor, low_freq_factor,
+                                high_freq_factor, original_max_position)
         elif scaling_type == "default":
             if "mrope_section" in rope_scaling:
                 rotary_emb = MRotaryEmbedding(
