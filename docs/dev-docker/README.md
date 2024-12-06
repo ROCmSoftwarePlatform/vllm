@@ -47,6 +47,7 @@ You can pull the image with `docker pull rocm/vllm-dev:main`
 
    - MoE optimizations for Mixtral 8x22B, FP16
    - Llama 3.2 stability improvements
+   - Llama 3.3 support
       
      
 Gemms are tuned using PyTorch's Tunable Ops  feature (https://github.com/pytorch/pytorch/blob/main/aten/src/ATen/cuda/tunable/README.md)
@@ -294,7 +295,7 @@ For more information about the parameters, please run
 
     /app/vllm/benchmarks/benchmark_throughput.py -h
 
-Tensor parallism (TP) parameters depends on the model size. For Llama 3.1 70B and 8B model, TP 1 can be used as well for MI300X. In general, TP 8 and 1 is recommended to achieve the optimum performance. 
+Tensor parallelism (TP) parameters depends on the model size. For Llama 3.1 70B and 8B model, TP 1 can be used as well for MI300X. In general, TP 8 and 1 is recommended to achieve the optimum performance. 
 
 ##### Online Server Benchmark
  
