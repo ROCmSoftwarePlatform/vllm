@@ -7,7 +7,7 @@ import torch  # isort: split
 import pandas as pd
 
 import vllm._gradlib_C  # noqa: F401
-from gradlib.GemmTuner import GemmTuner
+from GemmTuner import GemmTuner
 
 torch.ops._gradlib_C.rocb_create_extension()
 torch.ops._gradlib_C.hipb_create_extension()
