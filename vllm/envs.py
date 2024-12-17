@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     VLLM_USE_TRITON_FLASH_ATTN: bool = True
     VLLM_USE_ROCM_SKINNY_GEMM: bool = True
     VLLM_USE_ROCM_CUSTOM_PAGED_ATTN: bool = True
-    VLLM_USE_ROCM_CUSTOM_PAGED_ATTN_FP8_OUT: bool = False
+    VLLM_USE_ROCM_CUSTOM_PAGED_ATTN_FP8_OUT: bool = True
     RANK: int = 0
     LOCAL_RANK: int = 0
     CUDA_VISIBLE_DEVICES: Optional[str] = None
@@ -537,12 +537,12 @@ environment_variables: Dict[str, Callable[[], Any]] = {
     # Divisor for dynamic value scale factor calculation for FP8 KV Cache
     "V_SCALE_CONSTANT":
     lambda: int(os.getenv("V_SCALE_CONSTANT", "100")),
-    "VLLM_LOG_BATCHSIZE_INTERVAL":
-    lambda: float(os.getenv("VLLM_LOG_BATCHSIZE_INTERVAL", "-1")),
 
     # If set, enable multiprocessing in LLM for the V1 code path.
     "VLLM_ENABLE_V1_MULTIPROCESSING":
     lambda: bool(int(os.getenv("VLLM_ENABLE_V1_MULTIPROCESSING", "1"))),
+    "VLLM_LOG_BATCHSIZE_INTERVAL":
+    lambda: float(os.getenv("VLLM_LOG_BATCHSIZE_INTERVAL", "-1")),
 }
 
 # end-env-vars-definition
