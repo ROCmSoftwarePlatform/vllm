@@ -124,8 +124,8 @@ class Attention(nn.Module):
         compilation_config.static_forward_context[prefix] = self
         self.layer_name = prefix
 
-        self.k_range = envs.K_SCALE_CONSTANT
-        self.v_range = envs.V_SCALE_CONSTANT
+        self.k_range = torch.tensor(envs.K_SCALE_CONSTANT, dtype=torch.float32)
+        self.v_range = torch.tensor(envs.V_SCALE_CONSTANT, dtype=torch.float32)
 
     def forward(
         self,
@@ -175,7 +175,7 @@ class Attention(nn.Module):
     def calc_kv_scales(self, key, value):
         self._k_scale.copy_(torch.abs(key).max() / self.k_range)
         self._v_scale.copy_(torch.abs(value).max() / self.v_range)
-        #We only calculate the scales once
+        # We only calculate the scales once
         self.calculate_kv_scales = False
 
     def extra_repr(self) -> str:

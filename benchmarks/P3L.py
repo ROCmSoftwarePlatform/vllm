@@ -42,6 +42,7 @@ should result in PPL ~ PPL=3.8968611189957523
 """
 
 import argparse
+import dataclasses
 import datetime
 import json
 import math
@@ -71,18 +72,8 @@ def get_wikitext2_text(tokenizer):
 
 
 def vllm_init(args):
-
-    llm = LLM(
-        model=args.model,
-        tensor_parallel_size=args.tensor_parallel_size,
-        trust_remote_code=args.trust_remote_code,
-        dtype=args.dtype,
-        quantization=args.quantization,
-        kv_cache_dtype=args.kv_cache_dtype,
-        calculate_kv_scales=True,
-        #   quantization_param_path=args.kv_cache_scales_path
-        #   if args.kv_cache_scales_path != '' else None,
-        enforce_eager=args.enforce_eager)
+    engine_args = EngineArgs.from_cli_args(args)
+    llm = LLM(**dataclasses.asdict(engine_args))
 
     sampling_params = SamplingParams(n=1,
                                      temperature=0.0,

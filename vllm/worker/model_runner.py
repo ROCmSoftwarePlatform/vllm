@@ -3,7 +3,6 @@ import gc
 import inspect
 import itertools
 import time
-import warnings
 import weakref
 from dataclasses import dataclass
 from typing import (TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set,
@@ -38,7 +37,6 @@ from vllm.model_executor.models.utils import set_cpu_offload_max_bytes
 from vllm.multimodal import (MULTIMODAL_REGISTRY, BatchedTensorInputs,
                              MultiModalKwargs, MultiModalPlaceholderMap,
                              MultiModalRegistry)
-from vllm.platforms import current_platform
 from vllm.prompt_adapter.layers import PromptAdapterMapping
 from vllm.prompt_adapter.request import PromptAdapterRequest
 from vllm.prompt_adapter.worker_manager import (
@@ -1135,33 +1133,6 @@ class GPUModelRunnerBase(ModelRunnerBase[TModelInputForGPU]):
             self.model = (
                 self.prompt_adapter_manager.create_prompt_adapter_manager(
                     self.model))
-
-        if self.kv_cache_dtype == "fp8" and current_platform.is_rocm():
-            # Currently only ROCm accepts kv-cache scaling factors
-            # via quantization_param_path and this will be deprecated
-            # in the future.
-            if self.model_config.quantization_param_path is not None:
-                if callable(getattr(self.model, "load_kv_cache_scales", None)):
-                    warnings.warn(
-                        "Loading kv cache scaling factor from JSON is "
-                        "deprecated and will be removed. Please include "
-                        "kv cache scaling factors in the model checkpoint.",
-                        FutureWarning,
-                        stacklevel=2)
-                    self.model.load_kv_cache_scales(
-                        self.model_config.quantization_param_path)
-                    logger.info("Loaded KV cache scaling factors from %s",
-                                self.model_config.quantization_param_path)
-                else:
-                    raise RuntimeError(
-                        "Using FP8 KV cache and scaling factors provided but "
-                        "model %s does not support loading scaling factors.",
-                        self.model.__class__)
-            else:
-                logger.warning(
-                    "Using FP8 KV cache but no scaling factors "
-                    "provided. Defaulting to scaling factors of 1.0. "
-                    "This may lead to less accurate results!")
 
         if self.vllm_config.compilation_config.level ==\
             CompilationLevel.DYNAMO_AS_IS and supports_dynamo():

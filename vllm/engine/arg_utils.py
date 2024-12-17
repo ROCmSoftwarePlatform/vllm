@@ -348,17 +348,6 @@ class EngineArgs:
             help='Data type for kv cache storage. If "auto", will use model '
             'data type. CUDA 11.8+ supports fp8 (=fp8_e4m3) and fp8_e5m2. '
             'ROCm (AMD GPU) supports fp8 (=fp8_e4m3)')
-        parser.add_argument(
-            '--quantization-param-path',
-            type=nullable_str,
-            default=None,
-            help='Path to the JSON file containing the KV cache '
-            'scaling factors. This should generally be supplied, when '
-            'KV cache dtype is FP8. Otherwise, KV cache scaling factors '
-            'default to 1.0, which may cause accuracy issues. '
-            'FP8_E5M2 (without scaling) is only supported on cuda version '
-            'greater than 11.8. On ROCm (AMD GPU), FP8_E4M3 is instead '
-            'supported for common inference criteria.')
         parser.add_argument('--max-model-len',
                             type=int,
                             default=EngineArgs.max_model_len,
