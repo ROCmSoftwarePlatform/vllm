@@ -829,7 +829,7 @@ class MllamaTextCrossAttention(nn.Module):
     ) -> torch.Tensor:
         # Skip writing kv-cache for the initial profiling run.
         if len(kv_cache.shape) > 1:
-            i = torch.ones(dtype=torch.float32)
+            i = torch.ones(1, dtype=torch.float32)
             if current_platform.is_rocm():
                 key_cache, value_cache = PagedAttention.split_kv_cache(
                     kv_cache, self.num_local_key_value_heads, self.head_dim)
