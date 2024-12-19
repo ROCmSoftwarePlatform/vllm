@@ -143,8 +143,7 @@ class Attention(nn.Module):
     ) -> torch.Tensor:
         if self.calculate_kv_scales and \
             attn_metadata.enable_kv_scales_calculation:
-            self.calc_kv_scales(key, value)
-
+            self.calc_kv_scales(query, key, value)
         if self.use_direct_call:
             return self.impl.forward(query,
                                      key,
@@ -176,7 +175,8 @@ class Attention(nn.Module):
                                                     kv_cache, attn_type,
                                                     self.layer_name)
 
-    def calc_kv_scales(self, key, value):
+    def calc_kv_scales(self, query, key, value):
+        self._q_scale.copy_(torch.abs(query).max() / self.k_range)
         self._k_scale.copy_(torch.abs(key).max() / self.k_range)
         self._v_scale.copy_(torch.abs(value).max() / self.v_range)
         # We only calculate the scales once

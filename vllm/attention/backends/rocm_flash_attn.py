@@ -686,7 +686,7 @@ class ROCmFlashAttentionImpl(AttentionImpl):
                     full_scales = (
                         1.0 / q_scale.item(), 1.0 / k_scale.item(),
                         1.0 / v_scale.item(), 1.0 / prob_scale.item(),
-                        fp8_out_scale.item()) if fp8_comp_scales else None
+                        fp8_out_scale.item()) if fp8_out_scale else None
                     out, _ = self.attn_func(
                         query,
                         key,

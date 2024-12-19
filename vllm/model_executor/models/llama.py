@@ -201,9 +201,7 @@ class LlamaAttention(nn.Module):
         self.attn_fp8 = envs.VLLM_USE_ROCM_FP8_ATTN \
                         and current_platform.is_rocm() \
                         and not is_navi() \
-                        and isinstance(quant_config, Fp8Config) \
-                        and hasattr(self.o_proj, "input_scale") \
-                        and self.o_proj.input_scale is not None
+                        and isinstance(quant_config, Fp8Config) 
 
         self.attn = Attention(
             self.num_heads,
