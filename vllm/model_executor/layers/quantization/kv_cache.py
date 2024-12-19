@@ -89,6 +89,7 @@ class BaseKVCacheMethod(QuantizeMethodBase):
             q_scale = layer.q_scale.to("cpu").tolist()
             if current_platform.is_rocm() and not is_navi():
                 q_scale *= 2
+            layer.calculate_kv_scales = False
         else:
             q_scale = 1.0
         if layer.prob_scale > 0.0:
