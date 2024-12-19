@@ -534,11 +534,13 @@ environment_variables: Dict[str, Callable[[], Any]] = {
     "Q_SCALE_CONSTANT":
     lambda: int(os.getenv("Q_SCALE_CONSTANT", "20")),
 
-    # Divisor for dynamic key scale factor calculation for FP8 KV Cache and attention
+    # Divisor for dynamic key scale factor calculation
+    # for FP8 KV Cache and attention
     "K_SCALE_CONSTANT":
     lambda: int(os.getenv("K_SCALE_CONSTANT", "20")),
 
-    # Divisor for dynamic value scale factor calculation for FP8 KV Cache and attention
+    # Divisor for dynamic value scale factor calculation
+    # for FP8 KV Cache and attention
     "V_SCALE_CONSTANT":
     lambda: int(os.getenv("V_SCALE_CONSTANT", "10")),
 
