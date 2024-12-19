@@ -1,5 +1,6 @@
 import torch
 
+import vllm.envs as envs
 from vllm.model_executor.layers.quantization.base_config import (
     QuantizationConfig, QuantizeMethodBase)
 from vllm.platforms import current_platform
@@ -76,18 +77,18 @@ class BaseKVCacheMethod(QuantizeMethodBase):
         layer._k_scale.copy_(k_scale)
         layer._v_scale.copy_(v_scale)
         if (k_scale == 1.0 and v_scale == 1.0
-                and (layer.kv_cache_dtype != "auto" or layer.use_fp8)
+                and (layer.kv_cache_dtype != "auto"
+                     or envs.VLLM_USE_ROCM_FP8_FLASH_ATTN)
                 and "e5m2" not in layer.kv_cache_dtype):
             print_warning_once(
                 "Using KV cache scaling factor 1.0 for fp8_e4m3. This "
                 "may cause accuracy issues. Please make sure k/v_scale "
                 "scaling factors are available in the fp8 checkpoint.")
 
-        if layer.q_scale > 0.0 and layer.prob_scale > 0.0:
+        if layer.q_scale > 0.0:
             q_scale = layer.q_scale.to("cpu").tolist()
             if current_platform.is_rocm() and not is_navi():
                 q_scale *= 2
-            layer.calculate_kv_scales = False
         else:
             q_scale = 1.0
         if layer.prob_scale > 0.0:
@@ -104,7 +105,8 @@ class BaseKVCacheMethod(QuantizeMethodBase):
         # These are used in the final Attention.forward()
         layer._q_scale.copy_(q_scale)
         layer._prob_scale.copy_(prob_scale)
-        if (q_scale == 1.0 or prob_scale == 1.0) and layer.use_fp8:
+        if (q_scale == 1.0
+                or prob_scale == 1.0) and envs.VLLM_USE_ROCM_FP8_FLASH_ATTN:
             print_warning_once(
                 f"Using Q scale {q_scale} and prob scale {prob_scale} "
                 "with fp8 attention. This may cause accuracy issues. "

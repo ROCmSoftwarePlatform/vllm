@@ -42,7 +42,6 @@ class Attention(nn.Module):
         logits_soft_cap: Optional[float] = None,
         per_layer_sliding_window: Optional[int] = None,
         prefix: str = "",
-        use_fp8: bool = False,
     ) -> None:
         super().__init__()
         if per_layer_sliding_window is not None:
@@ -74,7 +73,6 @@ class Attention(nn.Module):
         # with the model weights.
         self.kv_cache_dtype = kv_cache_dtype
         self.calculate_kv_scales = calculate_kv_scales
-        self.use_fp8 = use_fp8
         self._k_scale = torch.tensor(1.0, dtype=torch.float32)
         self._v_scale = torch.tensor(1.0, dtype=torch.float32)
         self._q_scale = torch.tensor(1.0, dtype=torch.float32)

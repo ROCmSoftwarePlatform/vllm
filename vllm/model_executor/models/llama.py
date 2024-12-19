@@ -198,7 +198,7 @@ class LlamaAttention(nn.Module):
             sliding_window = None
 
         # For CUDA devices and Navi4x, attn_fp8 will be set to false.
-        self.attn_fp8 = envs.VLLM_USE_ROCM_FP8_ATTN \
+        self.attn_fp8_out = envs.VLLM_USE_ROCM_CUSTOM_PAGED_ATTN_FP8_OUT \
                         and current_platform.is_rocm() \
                         and not is_navi() \
                         and isinstance(quant_config, Fp8Config)
@@ -212,7 +212,6 @@ class LlamaAttention(nn.Module):
             quant_config=quant_config,
             per_layer_sliding_window=sliding_window,
             prefix=f"{prefix}.attn",
-            use_fp8=self.attn_fp8,
         )
 
     def forward(
@@ -232,8 +231,8 @@ class LlamaAttention(nn.Module):
                                 attn_metadata,
                                 fp8_comp_scales=(self.attn._q_scale,
                                                  self.attn._prob_scale,
-                                                 self.o_proj.input_scale)
-                                if self.attn_fp8 else None)
+                                                 self.o_proj.input_scale
+                                                 if self.attn_fp8_out else None))
         output, _ = self.o_proj(attn_output)
         return output
 
