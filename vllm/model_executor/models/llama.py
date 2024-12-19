@@ -231,8 +231,8 @@ class LlamaAttention(nn.Module):
                                 attn_metadata,
                                 fp8_comp_scales=(self.attn._q_scale,
                                                  self.attn._prob_scale,
-                                                 self.o_proj.input_scale
-                                                 if self.attn_fp8_out else None))
+                                                 self.o_proj.input_scale if
+                                                 self.attn_fp8_out else None))
         output, _ = self.o_proj(attn_output)
         return output
 
