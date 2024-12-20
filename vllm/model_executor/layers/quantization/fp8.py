@@ -423,6 +423,26 @@ class Fp8MoEMethod(FusedMoEMethodBase):
                                                   requires_grad=False)
             layer.w2_weight = torch.nn.Parameter(w2_weight,
                                                  requires_grad=False)
+
+            if envs.VLLM_MOE_SHUFFLE:
+                layer.w13_weight.data = permute_weight_fp8(layer.w13_weight.data)
+                layer.w2_weight.data = permute_weight_fp8(layer.w2_weight.data)
+
+            if envs.VLLM_MOE_PADDING:
+                pad_size = 256
+                layer.w13_weight = torch.nn.Parameter(
+                    F.pad(layer.w13_weight.data, (0, pad_size), "constant",
+                          0)[..., :-pad_size],
+                    requires_grad=False,
+                )
+                torch.cuda.empty_cache()
+                layer.w2_weight = torch.nn.Parameter(
+                    F.pad(layer.w2_weight.data, (0, pad_size), "constant",
+                          0)[..., :-pad_size],
+                    requires_grad=False,
+                )
+                torch.cuda.empty_cache()
+
             return
 
         # If checkpoint is fp8, we need to handle that the
