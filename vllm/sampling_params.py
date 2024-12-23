@@ -195,7 +195,7 @@ class SamplingParams(
     # NOTE: This parameter is only exposed at the engine level for now.
     # It is not exposed in the OpenAI API server, as the OpenAI API does
     # not support returning only a list of token IDs.
-    detokenize: bool = True
+    detokenize: bool = False
     skip_special_tokens: bool = True
     spaces_between_special_tokens: bool = True
     # Optional[List[LogitsProcessor]] type. We use Any here because
