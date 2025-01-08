@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from typing import Optional, Union
 
 # ===================== import region =====================
@@ -212,3 +213,19 @@ class PyNcclCommunicator:
         self.nccl.ncclBroadcast(sendbuff, recvbuff, tensor.numel(),
                                 ncclDataTypeEnum.from_torch(tensor.dtype), src,
                                 self.comm, cudaStream_t(stream.cuda_stream))
+
+    @contextmanager
+    def change_state(self, enable: Optional[bool] = None):
+        """
+        A context manager to change the state of the communicator.
+        """
+        if enable is None:
+            # guess a default value when not specified
+            enable = self.available
+
+        old_disable = self.disabled
+
+        self.disabled = not enable
+        yield
+
+        self.disabled = old_disable
