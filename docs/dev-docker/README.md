@@ -24,12 +24,12 @@ The performance data below was measured on a server with MI300X accelerators wit
 |---|---|
 | BKC | 24.13 |
 | ROCm | version ROCm 6.3 |
-| amdgpu | build 2009461 |
+| amdgpu | build 2041575 |
 | OS | Ubuntu 22.04 |
-| Linux Kernel | 5.15.0-117-generic |
-| BMCVersion | C2789.BC.0809.00 |
-| BiosVersion | C2789.5.BS.1C11.AG.1 |
-| CpldVersion | 02.02.00 |
+| Linux Kernel | 5.15.0-70-generic |
+| BMCVersion | C2789.BC.0811.00 |
+| BiosVersion | C2789.5.BS.1C17.GN.1 |
+| CpldVersion | 02.03.00 |
 | DCSCMCpldVersion | 02.02.00 |
 | CX7 | FW 28.40.1000 |
 | RAM | 1 TB |
@@ -261,7 +261,7 @@ Benchmark Meta-Llama-3.1-405B FP8 with input 128 tokens, output 128 tokens and t
     --num-scheduler-steps 10 \
     --tensor-parallel-size 8 \
     --input-len 128 \
-    --output-len 128 
+    --output-len 128
 
 If you want to run Meta-Llama-3.1-405B FP16, please run
 
@@ -277,10 +277,7 @@ If you want to run Meta-Llama-3.1-405B FP16, please run
     --output-len 128 \
     --swap-space 16 \
     --max-model-len 8192 \
-    --max-num-batched-tokens 65536 \
-    --swap-space
-    --max-model-len
-    --gpu-memory-utilization 0.99
+    --max-num-batched-tokens 65536
 
 For fp8 quantized Llama3.18B/70B models:
 
@@ -420,6 +417,6 @@ To reproduce the release docker:
 ```
 git clone https://github.com/ROCm/vllm.git
 cd vllm
-git checkout 2c60adc83981ada77a77b2adda78ef109d2e2e2b
-docker build -f Dockerfile.rocm -t <your_tag> --build-arg BUILD_HIPBLASLT=1 --build-arg USE_CYTHON=1 .
+git checkout 14b11f5ad74e04aee9f85f5f591a1f85fad6025d
+docker build -f Dockerfile.rocm -t <your_tag> .
 ```
