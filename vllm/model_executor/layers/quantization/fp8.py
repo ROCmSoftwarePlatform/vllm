@@ -197,7 +197,7 @@ class Fp8LinearMethod(LinearMethodBase):
         layer.orig_dtype = params_dtype
 
         # WEIGHT
-        weight_dtype = (torch.float8_e4m3fn
+        weight_dtype = (torch.float8_e4m3fnuz
                         if self.quant_config.is_checkpoint_fp8_serialized else
                         params_dtype)
 
@@ -398,7 +398,7 @@ class Fp8MoEMethod(FusedMoEMethodBase):
                        **extra_weight_attrs):
 
         if self.quant_config.is_checkpoint_fp8_serialized:
-            params_dtype = torch.float8_e4m3fn
+            params_dtype = torch.float8_e4m3fnuz
         if self.block_quant:
             assert self.quant_config.weight_block_size is not None
             tp_size = get_tensor_model_parallel_world_size()

@@ -34,7 +34,7 @@ def apply_w8a8_block_fp8_linear(
 
 def input_to_float8(
     x: torch.Tensor,
-    dtype: torch.dtype = torch.float8_e4m3fn
+    dtype: torch.dtype = torch.float8_e4m3fnuz
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """This function quantizes input values to float8 values "
     "with tensor-wise quantization."""
@@ -125,7 +125,7 @@ def per_token_group_quant_fp8(
     x: torch.Tensor,
     group_size: int,
     eps: float = 1e-10,
-    dtype: torch.dtype = torch.float8_e4m3fn,
+    dtype: torch.dtype = torch.float8_e4m3fnuz,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """Function to perform per-token-group quantization on an input tensor `x`.
     It converts the tensor values into signed float8 values and returns the
