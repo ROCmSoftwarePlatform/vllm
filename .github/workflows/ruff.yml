@@ -7,6 +7,7 @@ on:
     branches:
       - main
       - develop
+      - llama_fp8_12062024
     paths:
       - "**/*.py"
       - pyproject.toml

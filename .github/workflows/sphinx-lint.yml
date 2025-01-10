@@ -4,11 +4,13 @@ on:
   push:
     branches:
       - main
+      - llama_fp8_12062024
     paths:
       - "docs/**"
   pull_request:
     branches:
       - main
+      - llama_fp8_12062024
     paths:
       - "docs/**"
 

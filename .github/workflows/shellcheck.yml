@@ -4,6 +4,7 @@ on:
     branches:
       - "main"
       - "develop"
+      - "llama_fp8_12062024"
     paths:
       - '**/*.sh'
       - '.github/workflows/shellcheck.yml'
@@ -11,6 +12,7 @@ on:
     branches:
       - "main"
       - "develop"
+      - "llama_fp8_12062024"
     paths:
       - '**/*.sh'
       - '.github/workflows/shellcheck.yml'

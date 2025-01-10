@@ -4,6 +4,7 @@ on:
     branches:
       - "main"
       - "develop"
+      - "llama_fp8_12062024"
     paths:
       - '.github/workflows/*.ya?ml'
       - '.github/workflows/actionlint.*'
@@ -11,6 +12,7 @@ on:
   pull_request:
     branches:
       - "main"
+      - "llama_fp8_12062024"
     paths:
       - '.github/workflows/*.ya?ml'
       - '.github/workflows/actionlint.*'

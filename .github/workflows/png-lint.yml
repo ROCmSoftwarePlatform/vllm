@@ -3,12 +3,14 @@ on:
   push:
     branches:
       - "main"
+      - "llama_fp8_12062024"
     paths:
       - '*.excalidraw.png'
       - '.github/workflows/png-lint.yml'
   pull_request:
     branches:
       - "main"
+      - "llama_fp8_12062024"
     paths:
       - '*.excalidraw.png'
       - '.github/workflows/png-lint.yml'
