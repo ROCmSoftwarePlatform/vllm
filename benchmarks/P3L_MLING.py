@@ -73,19 +73,21 @@ def get_wikitext2_text(tokenizer):
 
     return test_enc, test_text
 
-def get_flores_plus_text(tokenizer,lng_scrpt):
+
+def get_flores_plus_text(tokenizer, lng_scrpt):
     hf_hub_download(repo_id='alexei-v-ivanov-amd/flores_plus',
                     repo_type="dataset",
-                    filename=lng_scrpt+'.parquet',
+                    filename=lng_scrpt + '.parquet',
                     local_dir='./')
-    
-    df = pandas.read_parquet('./'+lng_scrpt+'.parquet')
+
+    df = pandas.read_parquet('./' + lng_scrpt + '.parquet')
     test_text = "\n\n".join(line.strip() for line in df['text'])
     test_enc = tokenizer(test_text)
-    
-    os.remove('./'+lng_scrpt+'.parquet')
+
+    os.remove('./' + lng_scrpt + '.parquet')
 
     return test_enc, test_text
+
 
 def vllm_init(args):
     engine_args = EngineArgs.from_cli_args(args)
@@ -137,9 +139,8 @@ def main(args: argparse.Namespace):
         print(MESSAGE)
         return
 
-    my_test_enc, my_test_text = get_flores_plus_text(
-            my_tokenizer,
-            my_lang_script)
+    my_test_enc, my_test_text = get_flores_plus_text(my_tokenizer,
+                                                     my_lang_script)
 
     logger.info("Loaded the test data.")
 
