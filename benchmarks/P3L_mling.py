@@ -22,7 +22,7 @@ Quick correctness validation tips:
 
 Running DeepSeek-V2 model 
 ( 
-    ./vllm/examples/P3L_MLING.py 
+    ./vllm/examples/P3L_mling.py 
     --model=meta-llama/Llama-2-7b-chat-hf 
     --context-size=1024 
     --sample-size=512
@@ -32,7 +32,7 @@ should result in PPL ~ 8.42927
 
 Running DeepSeek-V2 model 
 ( 
-    ./vllm/examples/P3L.py 
+    ./vllm/examples/P3L_mling.py 
     --model=meta-llama/Llama-2-7b-chat-hf 
     --context-size=1024 
     --sample-size=512
