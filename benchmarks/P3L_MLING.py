@@ -41,7 +41,7 @@ Running DeepSeek-V2 model
 )
 should result in PPL ~ 2.67962
 
-The multi-linguality is implemented trough the additional
+The multi-linguality is implemented through the additional
 key "--lang-script", which defaults to English in Latin 
 scripture ("eng_Latn").
 
