@@ -41,6 +41,17 @@ Running DeepSeek-V2 model
 )
 should result in PPL ~ 2.67962
 
+The multi-linguality is implemented trough the additional
+key "--lang-script", which defaults to English in Latin 
+scripture ("eng_Latn").
+
+Please refer to 
+
+https://confluence.amd.com/display/MLSE/Multi-Lingual+P3L+Test
+
+for the complete set of possible language-scripture choices.
+
+
 """
 
 import argparse
@@ -49,8 +60,8 @@ import datetime
 import json
 import math
 import os
-import pandas
 
+import pandas
 from huggingface_hub import hf_hub_download
 
 from vllm import LLM, SamplingParams
