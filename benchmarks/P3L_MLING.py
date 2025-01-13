@@ -137,8 +137,10 @@ def main(args: argparse.Namespace):
         print(MESSAGE)
         return
 
-    #my_test_enc, my_test_text = get_wikitext2_text(my_tokenizer)
-    my_test_enc, my_test_text = get_flores_plus_text(my_tokenizer,my_lang_script)
+    my_test_enc, my_test_text = get_flores_plus_text(
+            my_tokenizer,
+            my_lang_script)
+
     logger.info("Loaded the test data.")
 
     my_n_patches = math.ceil(
