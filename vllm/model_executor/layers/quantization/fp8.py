@@ -196,8 +196,10 @@ class Fp8LinearMethod(LinearMethodBase):
         layer.output_size_per_partition = output_size_per_partition
         layer.orig_dtype = params_dtype
 
+        fp8_dtype = (torch.float8_e4m3fnuz if current_platform.is_rocm()
+                     and not is_navi() else torch.float8_e4m3fn)
         # WEIGHT
-        weight_dtype = (torch.float8_e4m3fnuz
+        weight_dtype = (fp8_dtype
                         if self.quant_config.is_checkpoint_fp8_serialized else
                         params_dtype)
 
@@ -397,8 +399,11 @@ class Fp8MoEMethod(FusedMoEMethodBase):
                        intermediate_size: int, params_dtype: torch.dtype,
                        **extra_weight_attrs):
 
+        fp8_dtype = (torch.float8_e4m3fnuz if current_platform.is_rocm()
+                     and not is_navi() else torch.float8_e4m3fn)
+
         if self.quant_config.is_checkpoint_fp8_serialized:
-            params_dtype = torch.float8_e4m3fnuz
+            params_dtype = fp8_dtype
         if self.block_quant:
             assert self.quant_config.weight_block_size is not None
             tp_size = get_tensor_model_parallel_world_size()
