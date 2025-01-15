@@ -43,9 +43,9 @@ def benchmark_config(
     x = torch.randn(num_tokens, hidden_size, dtype=dtype)
     padding_size = 0
     if envs.VLLM_MOE_PADDING and not (use_fp8_w8a8 or use_int8_w8a16):
-        padding_size = 128 # fp16 padding size
+        padding_size = 128  # fp16 padding size
     if envs.VLLM_FP8_PADDING and use_fp8_w8a8:
-        padding_size = 256 # fp8 padding size. Ignoring int8 for now
+        padding_size = 256  # fp8 padding size. Ignoring int8 for now
 
     if use_int8_w8a16:
         w1 = torch.randint(-127,

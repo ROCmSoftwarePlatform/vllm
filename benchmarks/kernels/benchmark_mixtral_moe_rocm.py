@@ -9,7 +9,6 @@ import triton
 import triton.language as tl
 from tqdm import tqdm
 
-import vllm._moe_C as moe_kernels
 from vllm import _custom_ops as ops
 from vllm.model_executor.layers.fused_moe import (get_config_file_name,
                                                   invoke_fused_moe_kernel,
@@ -225,7 +224,7 @@ def run_timing(
     )
 
     w1 = torch.rand(
-        (num_total_experts, 2 * shard_intermediate_size, d_model+128),
+        (num_total_experts, 2 * shard_intermediate_size, d_model + 128),
         device=hidden_states.device,
         dtype=hidden_states.dtype,
     )
@@ -326,8 +325,7 @@ def run_timing(
             compute_type=(tl.bfloat16 if hidden_states.dtype == torch.bfloat16
                           else tl.float16),
             use_fp8_w8a8=False,
-            use_int8_w8a16=False
-        )
+            use_int8_w8a16=False)
 
         ops.silu_and_mul(intermediate_cache2, intermediate_cache1.view(-1, N))
 
@@ -348,8 +346,7 @@ def run_timing(
             compute_type=(tl.bfloat16 if hidden_states.dtype == torch.bfloat16
                           else tl.float16),
             use_fp8_w8a8=False,
-            use_int8_w8a16=False
-        )
+            use_int8_w8a16=False)
 
     end_event.record()
     end_event.synchronize()

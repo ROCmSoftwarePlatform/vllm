@@ -375,20 +375,21 @@ class Fp8LinearMethod(LinearMethodBase):
             cutlass_fp8_supported=self.cutlass_fp8_supported,
             use_per_token_if_dynamic=False)
 
+
 def permute_weight_fp8(x: torch.Tensor) -> torch.Tensor:
     ## Hardcode BLOCK_K and BLOCK_N
     BK = 256
-    BN = 64 #256 #128
+    BN = 64  #256 #128
     x_ = x
 
-    x_ = x_.view(x.shape[0],
-                 x.shape[1]//BN, BN//16, 16,
-                 x.shape[2]//BK, BK//(4 * 16), 4, 16)
+    x_ = x_.view(x.shape[0], x.shape[1] // BN, BN // 16, 16, x.shape[2] // BK,
+                 BK // (4 * 16), 4, 16)
 
-    x_ = x_.permute(0,1,5,2,6,4,3,7)
+    x_ = x_.permute(0, 1, 5, 2, 6, 4, 3, 7)
     x_ = x_.contiguous()
     x_ = x_.view(x.shape[0], x.shape[1], x.shape[2])
     return x_
+
 
 class Fp8MoEMethod(FusedMoEMethodBase):
     """MoE method for FP8.
@@ -556,7 +557,8 @@ class Fp8MoEMethod(FusedMoEMethodBase):
                                                  requires_grad=False)
 
             if envs.VLLM_MOE_SHUFFLE:
-                layer.w13_weight.data = permute_weight_fp8(layer.w13_weight.data)
+                layer.w13_weight.data = permute_weight_fp8(
+                    layer.w13_weight.data)
                 layer.w2_weight.data = permute_weight_fp8(layer.w2_weight.data)
 
             if envs.VLLM_MOE_PADDING:
@@ -647,7 +649,8 @@ class Fp8MoEMethod(FusedMoEMethodBase):
                                                         requires_grad=False)
 
             if envs.VLLM_MOE_SHUFFLE:
-                layer.w13_weight.data = permute_weight_fp8(layer.w13_weight.data)
+                layer.w13_weight.data = permute_weight_fp8(
+                    layer.w13_weight.data)
                 layer.w2_weight.data = permute_weight_fp8(layer.w2_weight.data)
 
             if envs.VLLM_MOE_PADDING:
@@ -666,6 +669,7 @@ class Fp8MoEMethod(FusedMoEMethodBase):
                 torch.cuda.empty_cache()
 
             return
+
     def apply(
         self,
         layer: torch.nn.Module,

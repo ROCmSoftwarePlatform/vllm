@@ -540,7 +540,7 @@ environment_variables: Dict[str, Callable[[], Any]] = {
     # Pad the weight for moe kernel or not
     "VLLM_FP8_PADDING":
     lambda: bool(int(os.getenv("VLLM_FP8_PADDING", "1"))),
-        
+
     # shuffle the weight for moe kernel or not
     "VLLM_MOE_SHUFFLE":
     lambda: bool(int(os.getenv("VLLM_MOE_SHUFFLE", "0"))),
