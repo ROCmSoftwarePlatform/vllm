@@ -14,6 +14,7 @@ on:
     branches:
       - main
       - develop
+      - llama_fp8_12062024
 
 jobs:
   yapf:
