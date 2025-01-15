@@ -229,7 +229,7 @@ void moe_align_block_size(torch::Tensor topk_ids, int64_t num_experts,
   // TODO(simon): the right solution should be calculating the exact right
   // amount of shared memory and use that. The num_experts >= 256 is just a
   // temporary solution to unblock Deepseek V3.
-  if (num_experts >= 256) {
+  if (num_experts >= 96) {
     VLLM_DISPATCH_INTEGRAL_TYPES(
         topk_ids.scalar_type(), "moe_align_block_size_global_mem_kernel", [&] {
           // calc needed amount of shared mem for `tokens_cnts` and `cumsum`
