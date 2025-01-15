@@ -31,8 +31,7 @@ from vllm import _custom_ops as ops
 from vllm.attention import Attention, AttentionMetadata
 from vllm.compilation.decorators import support_torch_compile
 from vllm.config import CacheConfig, VllmConfig
-from vllm.distributed import (get_pp_group, get_tensor_model_parallel_rank,
-                              get_tensor_model_parallel_world_size)
+from vllm.distributed import get_pp_group, get_tensor_model_parallel_world_size
 from vllm.model_executor.layers.activation import SiluAndMul
 from vllm.model_executor.layers.layernorm import RMSNorm
 from vllm.model_executor.layers.linear import (MergedColumnParallelLinear,
@@ -48,7 +47,7 @@ from vllm.model_executor.layers.sampler import SamplerOutput, get_sampler
 from vllm.model_executor.layers.vocab_parallel_embedding import (
     DEFAULT_VOCAB_PADDING_SIZE, ParallelLMHead, VocabParallelEmbedding)
 from vllm.model_executor.model_loader.weight_utils import (
-    default_weight_loader, kv_cache_scales_loader, maybe_remap_kv_scale_name)
+    default_weight_loader, maybe_remap_kv_scale_name)
 from vllm.model_executor.sampling_metadata import SamplingMetadata
 from vllm.platforms import current_platform
 from vllm.sequence import IntermediateTensors
@@ -186,15 +185,23 @@ class LlamaAttention(nn.Module):
         )
 
         if hasattr(config, "interleaved_sliding_window"):
-            if isinstance(config.interleaved_sliding_window, int):
-                sliding_window = config.interleaved_sliding_window
-            elif isinstance(config.interleaved_sliding_window, list):
-                sw_idx = layer_idx % len(config.interleaved_sliding_window)
-                sliding_window = config.interleaved_sliding_window[sw_idx]
+            interleaved_sliding_window = config.interleaved_sliding_window
+            if isinstance(interleaved_sliding_window, int):
+                sliding_window = interleaved_sliding_window
+            elif isinstance(interleaved_sliding_window, list):
+                sw_idx = layer_idx % len(interleaved_sliding_window)
+                sliding_window = interleaved_sliding_window[sw_idx]
             else:
-                raise ValueError(f"{type(sliding_window)} is not supported.")
+                raise ValueError(
+                    f"{type(interleaved_sliding_window)} is not supported.")
         else:
             sliding_window = None
+
+        # For CUDA devices and Navi4x, attn_fp8 will be set to false.
+        self.attn_fp8_out = envs.VLLM_USE_ROCM_CUSTOM_PAGED_ATTN_FP8_OUT \
+                        and current_platform.is_rocm() \
+                        and not is_navi() \
+                        and isinstance(quant_config, Fp8Config)
 
         self.attn = Attention(
             self.num_heads,
@@ -206,11 +213,6 @@ class LlamaAttention(nn.Module):
             per_layer_sliding_window=sliding_window,
             prefix=f"{prefix}.attn",
         )
-        # For CUDA devices and Navi4x, attn_fp8_out will be set to false.
-        self.attn_fp8_out = envs.VLLM_USE_ROCM_CUSTOM_PAGED_ATTN_FP8_OUT \
-                            and current_platform.is_rocm() \
-                            and not is_navi() \
-                            and isinstance(quant_config, Fp8Config)
 
     def forward(
         self,
@@ -227,8 +229,10 @@ class LlamaAttention(nn.Module):
                                 v,
                                 kv_cache,
                                 attn_metadata,
-                                fp8_out_scale=self.o_proj.input_scale
-                                if self.attn_fp8_out else None)
+                                fp8_comp_scales=(self.attn._q_scale,
+                                                 self.attn._prob_scale,
+                                                 self.o_proj.input_scale if
+                                                 self.attn_fp8_out else None))
         output, _ = self.o_proj(attn_output)
         return output
 
@@ -427,7 +431,9 @@ class LlamaModel(nn.Module):
                 param = params_dict[scale_name]
                 weight_loader = getattr(param, "weight_loader",
                                         default_weight_loader)
-                loaded_weight = loaded_weight[0]
+                if loaded_weight.shape:
+                    # scalar shape is torch.Size([1]), not torch.Size([])
+                    loaded_weight = loaded_weight[0]
                 weight_loader(param, loaded_weight)
                 loaded_params.add(scale_name)
                 continue
@@ -464,32 +470,6 @@ class LlamaModel(nn.Module):
                 weight_loader(param, loaded_weight)
             loaded_params.add(name)
         return loaded_params
-
-    # If this function is called, it should always initialize KV cache scale
-    # factors (or else raise an exception). Thus, handled exceptions should
-    # make sure to leave KV cache scale factors in a known good (dummy) state
-    def load_kv_cache_scales(self, quantization_param_path: str) -> None:
-        tp_size = get_tensor_model_parallel_world_size()
-        tp_rank = get_tensor_model_parallel_rank()
-        for layer_idx, scaling_factor in kv_cache_scales_loader(
-                quantization_param_path, tp_rank, tp_size,
-                self.config.num_hidden_layers,
-                self.config.__class__.model_type):
-            if not isinstance(self.layers[layer_idx], nn.Identity):
-                layer_self_attn = self.layers[layer_idx].self_attn
-
-            # Navi4x quantization should be treated as CUDA devices.
-            if current_platform.is_rocm() and not is_navi():
-                # The scaling factor convention we are assuming is
-                # quantized_value * scaling_factor ~= true_value
-                # which is consistent with the practice of setting
-                # scaling_factor = tensor_amax / FPtype_max
-                scaling_factor *= 2
-            if hasattr(layer_self_attn, "kv_scale"):
-                layer_self_attn.attn._kv_scale = scaling_factor
-            else:
-                raise RuntimeError("Self attention has no KV cache scaling "
-                                   "factor attribute!")
 
 
 class LlamaForCausalLM(nn.Module, SupportsLoRA, SupportsPP):
@@ -575,9 +555,10 @@ class LlamaForCausalLM(nn.Module, SupportsLoRA, SupportsPP):
             self.logits_processor = LogitsProcessor(self.unpadded_vocab_size,
                                                     config.vocab_size,
                                                     logit_scale)
-            self.sampler = get_sampler()
         else:
             self.lm_head = PPMissingLayer()
+
+        self.sampler = get_sampler()
 
         self.make_empty_intermediate_tensors = (
             self.model.make_empty_intermediate_tensors)
@@ -626,9 +607,6 @@ class LlamaForCausalLM(nn.Module, SupportsLoRA, SupportsPP):
         return loader.load_weights(
             self.maybe_remap_mistral(name, loaded_weight)
             for name, loaded_weight in weights)
-
-    def load_kv_cache_scales(self, quantization_param_path: str) -> None:
-        self.model.load_kv_cache_scales(quantization_param_path)
 
     # This function is used to remap the mistral format as
     # used by Mistral and Llama <=2

@@ -8,7 +8,6 @@ if TYPE_CHECKING:
     VLLM_RPC_BASE_PATH: str = tempfile.gettempdir()
     VLLM_USE_MODELSCOPE: bool = False
     VLLM_RINGBUFFER_WARNING_INTERVAL: int = 60
-    VLLM_INSTANCE_ID: Optional[str] = None
     VLLM_NCCL_SO_PATH: Optional[str] = None
     LD_LIBRARY_PATH: Optional[str] = None
     VLLM_ROCM_PREFER_TORCH: bool = False
@@ -18,6 +17,7 @@ if TYPE_CHECKING:
     VLLM_USE_ROCM_SKINNY_GEMM: bool = True
     VLLM_USE_ROCM_CUSTOM_PAGED_ATTN: bool = True
     VLLM_USE_ROCM_CUSTOM_PAGED_ATTN_FP8_OUT: bool = True
+    VLLM_USE_ROCM_FP8_FLASH_ATTN: bool = False
     RANK: int = 0
     LOCAL_RANK: int = 0
     CUDA_VISIBLE_DEVICES: Optional[str] = None
@@ -38,7 +38,7 @@ if TYPE_CHECKING:
     VLLM_LOGGING_CONFIG_PATH: Optional[str] = None
     VLLM_TRACE_FUNCTION: int = 0
     VLLM_ATTENTION_BACKEND: Optional[str] = None
-    VLLM_USE_FLASHINFER_SAMPLER: bool = False
+    VLLM_USE_FLASHINFER_SAMPLER: Optional[bool] = None
     VLLM_USE_FLASHINFER_REJECTION_SAMPLER: bool = False
     VLLM_FLASHINFER_FORCE_TENSOR_CORES: bool = False
     VLLM_PP_LAYER_PARTITION: Optional[str] = None
@@ -53,6 +53,7 @@ if TYPE_CHECKING:
     VLLM_USE_RAY_SPMD_WORKER: bool = False
     VLLM_USE_RAY_COMPILED_DAG: bool = False
     VLLM_USE_RAY_COMPILED_DAG_NCCL_CHANNEL: bool = True
+    VLLM_USE_RAY_COMPILED_DAG_OVERLAP_COMM: bool = True
     VLLM_WORKER_MULTIPROC_METHOD: str = "fork"
     VLLM_ASSETS_CACHE: str = os.path.join(VLLM_CACHE_ROOT, "assets")
     VLLM_IMAGE_FETCH_TIMEOUT: int = 5
@@ -83,7 +84,12 @@ if TYPE_CHECKING:
     VLLM_FP8_PADDING: bool = True
     VLLM_MOE_SHUFFLE: bool = False
     FUSED_MOE_PERSISTENT: bool = False
-    VLLM_ENABLE_V1_MULTIPROCESSING: bool = False
+    VLLM_ENABLE_V1_MULTIPROCESSING: bool = True
+    VLLM_LOG_BATCHSIZE_INTERVAL: float = -1
+    VLLM_DISABLE_COMPILE_CACHE: bool = False
+    Q_SCALE_CONSTANT: int = 20
+    K_SCALE_CONSTANT: int = 20
+    V_SCALE_CONSTANT: int = 10
 
 
 def get_default_cache_root():
@@ -127,7 +133,8 @@ environment_variables: Dict[str, Callable[[], Any]] = {
 
     # If set, vllm will use precompiled binaries (*.so)
     "VLLM_USE_PRECOMPILED":
-    lambda: bool(os.environ.get("VLLM_USE_PRECOMPILED")),
+    lambda: bool(os.environ.get("VLLM_USE_PRECOMPILED")) or bool(
+        os.environ.get("VLLM_PRECOMPILED_WHEEL_LOCATION")),
 
     # CMake build type
     # If not set, defaults to "Debug" or "RelWithDebInfo"
@@ -188,11 +195,6 @@ environment_variables: Dict[str, Callable[[], Any]] = {
     "VLLM_USE_MODELSCOPE":
     lambda: os.environ.get("VLLM_USE_MODELSCOPE", "False").lower() == "true",
 
-    # Instance id represents an instance of the VLLM. All processes in the same
-    # instance should have the same instance id.
-    "VLLM_INSTANCE_ID":
-    lambda: os.environ.get("VLLM_INSTANCE_ID", None),
-
     # Interval in seconds to log a warning message when the ring buffer is full
     "VLLM_RINGBUFFER_WARNING_INTERVAL":
     lambda: int(os.environ.get("VLLM_RINGBUFFER_WARNING_INTERVAL", "60")),
@@ -245,13 +247,18 @@ environment_variables: Dict[str, Callable[[], Any]] = {
     # custom paged attention implemented for MI3* cards
     "VLLM_USE_ROCM_CUSTOM_PAGED_ATTN":
     lambda: (os.getenv("VLLM_USE_ROCM_CUSTOM_PAGED_ATTN", "True").lower() in
-             ("true", "1") != "0"),
+             ("true", "1")),
 
     # have custom paged attention implemented for MI3* cards write out fp8
     "VLLM_USE_ROCM_CUSTOM_PAGED_ATTN_FP8_OUT":
     lambda:
     (os.getenv("VLLM_USE_ROCM_CUSTOM_PAGED_ATTN_FP8_OUT", "True").lower() in
-     ("true", "1") != "0"),
+     ("true", "1")),
+
+    # use quantized q,k,v,softmax(qk^T), attn output during prefill
+    "VLLM_USE_ROCM_FP8_FLASH_ATTN":
+    lambda: (os.getenv("VLLM_USE_ROCM_FP8_FLASH_ATTN", "False").lower() in
+             ("true", "1")),
 
     # rank of the process in the distributed setting, used to determine
     # the driver worker
@@ -329,7 +336,8 @@ environment_variables: Dict[str, Callable[[], Any]] = {
 
     # If set, vllm will use flashinfer sampler
     "VLLM_USE_FLASHINFER_SAMPLER":
-    lambda: bool(int(os.getenv("VLLM_USE_FLASHINFER_SAMPLER", "0"))),
+    lambda: bool(int(os.environ["VLLM_USE_FLASHINFER_SAMPLER"]))
+    if "VLLM_USE_FLASHINFER_SAMPLER" in os.environ else None,
 
     # If set, vllm will force flashinfer to use tensor cores;
     # otherwise will use heuristic based on model architecture.
@@ -389,6 +397,13 @@ environment_variables: Dict[str, Callable[[], Any]] = {
     # VLLM_USE_RAY_COMPILED_DAG is not set.
     "VLLM_USE_RAY_COMPILED_DAG_NCCL_CHANNEL":
     lambda: bool(int(os.getenv("VLLM_USE_RAY_COMPILED_DAG_NCCL_CHANNEL", "1"))
+                 ),
+
+    # If the env var is set, it enables GPU communication overlap in
+    # Ray's compiled DAG. This flag is ignored if
+    # VLLM_USE_RAY_COMPILED_DAG is not set.
+    "VLLM_USE_RAY_COMPILED_DAG_OVERLAP_COMM":
+    lambda: bool(int(os.getenv("VLLM_USE_RAY_COMPILED_DAG_OVERLAP_COMM", "1"))
                  ),
 
     # Use dedicated multiprocess context for workers.
@@ -534,9 +549,27 @@ environment_variables: Dict[str, Callable[[], Any]] = {
     "FUSED_MOE_PERSISTENT":
     lambda: bool(int(os.getenv("FUSED_MOE_PERSISTENT", "0"))),
 
+    # Divisor for dynamic query scale factor calculation for FP8 attention
+    "Q_SCALE_CONSTANT":
+    lambda: int(os.getenv("Q_SCALE_CONSTANT", "20")),
+
+    # Divisor for dynamic key scale factor calculation
+    # for FP8 KV Cache and attention
+    "K_SCALE_CONSTANT":
+    lambda: int(os.getenv("K_SCALE_CONSTANT", "20")),
+
+    # Divisor for dynamic value scale factor calculation
+    # for FP8 KV Cache and attention
+    "V_SCALE_CONSTANT":
+    lambda: int(os.getenv("V_SCALE_CONSTANT", "10")),
+
     # If set, enable multiprocessing in LLM for the V1 code path.
     "VLLM_ENABLE_V1_MULTIPROCESSING":
-    lambda: bool(int(os.getenv("VLLM_ENABLE_V1_MULTIPROCESSING", "0"))),
+    lambda: bool(int(os.getenv("VLLM_ENABLE_V1_MULTIPROCESSING", "1"))),
+    "VLLM_LOG_BATCHSIZE_INTERVAL":
+    lambda: float(os.getenv("VLLM_LOG_BATCHSIZE_INTERVAL", "-1")),
+    "VLLM_DISABLE_COMPILE_CACHE":
+    lambda: bool(int(os.getenv("VLLM_DISABLE_COMPILE_CACHE", "0"))),
 }
 
 # end-env-vars-definition

@@ -126,8 +126,10 @@ class TPUModelRunner(ModelRunnerBase[ModelInputForTPU]):
             logger.warning(
                 "The max_model_len (%d) is too large. This may degrade the "
                 "performance due to the insufficient smem size. Consider "
-                "setting --max-model-len to a smaller value.",
-                self.model_config.max_model_len)
+                "setting --max-model-len to a smaller value, like %d.",
+                self.model_config.max_model_len,
+                self.model_config.max_model_len /
+                (block_table_size / smem_size))
 
     def load_model(self) -> None:
         self.device = self.device_config.device
@@ -184,6 +186,7 @@ class TPUModelRunner(ModelRunnerBase[ModelInputForTPU]):
                     num_decode_tokens=0,
                     slot_mapping=slot_mapping,
                     multi_modal_placeholder_index_maps=None,
+                    enable_kv_scales_calculation=False,
                     block_tables=None,
                     context_lens=None,
                     effective_query_lens=None,
@@ -202,6 +205,7 @@ class TPUModelRunner(ModelRunnerBase[ModelInputForTPU]):
                     num_decode_tokens=0,
                     slot_mapping=slot_mapping,
                     multi_modal_placeholder_index_maps=None,
+                    enable_kv_scales_calculation=False,
                     block_tables=block_tables,
                     context_lens=context_lens,
                     effective_query_lens=effective_query_lens,
@@ -233,6 +237,7 @@ class TPUModelRunner(ModelRunnerBase[ModelInputForTPU]):
                 num_decode_tokens=batch_size * seq_len,
                 slot_mapping=slot_mapping,
                 multi_modal_placeholder_index_maps=None,
+                enable_kv_scales_calculation=False,
                 block_tables=block_tables,
                 context_lens=context_lens,
             )
@@ -418,6 +423,7 @@ class TPUModelRunner(ModelRunnerBase[ModelInputForTPU]):
             num_decode_tokens=0,
             slot_mapping=slot_mapping,
             multi_modal_placeholder_index_maps=None,
+            enable_kv_scales_calculation=False,
             block_tables=block_tables,
             context_lens=context_lens,
             effective_query_lens=prompt_lens,
@@ -489,6 +495,7 @@ class TPUModelRunner(ModelRunnerBase[ModelInputForTPU]):
             num_decode_tokens=batch_size,
             slot_mapping=slot_mapping,
             multi_modal_placeholder_index_maps=None,
+            enable_kv_scales_calculation=False,
             block_tables=block_tables,
             context_lens=context_lens,
         )

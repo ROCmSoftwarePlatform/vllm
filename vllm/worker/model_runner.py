@@ -3,7 +3,6 @@ import gc
 import inspect
 import itertools
 import time
-import warnings
 import weakref
 from dataclasses import dataclass
 from typing import (TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set,
@@ -13,16 +12,17 @@ import numpy as np
 import torch
 import torch.distributed
 import torch.nn as nn
+from tqdm import tqdm
 
 import vllm.envs as envs
 from vllm.attention import AttentionMetadata, get_attn_backend
 from vllm.attention.backends.abstract import AttentionState
 from vllm.attention.backends.utils import CommonAttentionState
-from vllm.compilation.compile_context import set_compile_context
 from vllm.config import CompilationLevel, VllmConfig
 from vllm.core.scheduler import SchedulerOutputs
 from vllm.distributed import get_kv_transfer_group, get_pp_group
-from vllm.distributed.parallel_state import graph_capture
+from vllm.distributed.parallel_state import (get_tensor_model_parallel_rank,
+                                             graph_capture)
 from vllm.forward_context import set_forward_context
 from vllm.inputs import INPUT_REGISTRY, InputRegistry
 from vllm.logger import init_logger
@@ -39,7 +39,6 @@ from vllm.model_executor.models.utils import set_cpu_offload_max_bytes
 from vllm.multimodal import (MULTIMODAL_REGISTRY, BatchedTensorInputs,
                              MultiModalKwargs, MultiModalPlaceholderMap,
                              MultiModalRegistry)
-from vllm.platforms import current_platform
 from vllm.prompt_adapter.layers import PromptAdapterMapping
 from vllm.prompt_adapter.request import PromptAdapterRequest
 from vllm.prompt_adapter.worker_manager import (
@@ -63,16 +62,7 @@ if TYPE_CHECKING:
 logger = init_logger(__name__)
 
 LORA_WARMUP_RANK = 8
-_BATCH_SIZE_ALIGNMENT = 8
-# all the token sizes that **can** be captured by cudagraph.
-# they can be arbitrarily large.
-# currently it includes: 1, 2, 4, 8, 16, 24, 32, 40, ..., 8192.
-# the actual sizes to capture will be determined by the model,
-# depending on the model's max_num_seqs.
-# NOTE: _get_graph_batch_size needs to be updated if this list is changed.
-_BATCH_SIZES_TO_CAPTURE = [1, 2, 4] + [
-    _BATCH_SIZE_ALIGNMENT * i for i in range(1, 1025)
-]
+
 _NUM_WARMUP_ITERS = 2
 
 TModelInputForGPU = TypeVar('TModelInputForGPU', bound="ModelInputForGPU")
@@ -632,11 +622,13 @@ class ModelInputForGPUBuilder(ModelRunnerInputBuilderBase[ModelInputForGPU]):
             inter_data.lora_requests.add(seq_group_metadata.lora_request)
         query_len = inter_data.query_lens[seq_idx]
         inter_data.lora_index_mapping.append([lora_id] * query_len)
-        inter_data.lora_prompt_mapping.append(
-            [lora_id] *
-            (query_len if seq_group_metadata.sampling_params
-             and seq_group_metadata.sampling_params.prompt_logprobs is not None
-             else 1))
+        sampling_params = seq_group_metadata.sampling_params
+        if sampling_params and sampling_params.prompt_logprobs is not None:
+            inter_data.lora_prompt_mapping.append([lora_id] * query_len)
+        elif not self.chunked_prefill_enabled or seq_group_metadata.do_sample:
+            inter_data.lora_prompt_mapping.append([lora_id])
+        else:
+            inter_data.lora_prompt_mapping.append([])
 
     def _compute_prompt_adapter_input(
             self, inter_data: InterDataForSeqGroup,
@@ -763,7 +755,6 @@ class ModelInputForGPUBuilder(ModelRunnerInputBuilderBase[ModelInputForGPU]):
                             max_decode_seq_len: int,
                             max_encoder_seq_len: int = 0) -> bool:
         return (decode_only and not self.runner.model_config.enforce_eager
-                and batch_size <= _BATCH_SIZES_TO_CAPTURE[-1]
                 and max_decode_seq_len <= self.runner.max_seq_len_to_capture
                 and max_encoder_seq_len <= self.runner.max_seq_len_to_capture
                 and batch_size <= self.runner.max_batchsize_to_capture)
@@ -811,7 +802,8 @@ class ModelInputForGPUBuilder(ModelRunnerInputBuilderBase[ModelInputForGPU]):
                                         max_encoder_seq_len):
             return -1
 
-        graph_batch_size = _get_graph_batch_size(batch_size)
+        graph_batch_size = self.runner.vllm_config.pad_for_cudagraph(
+            batch_size)
         assert graph_batch_size >= batch_size
         return graph_batch_size - batch_size
 
@@ -1023,8 +1015,8 @@ class GPUModelRunnerBase(ModelRunnerBase[TModelInputForGPU]):
         self.sliding_window = model_config.get_sliding_window()
         self.block_size = cache_config.block_size
         self.max_seq_len_to_capture = self.model_config.max_seq_len_to_capture
-        self.max_batchsize_to_capture = _get_max_graph_batch_size(
-            self.scheduler_config.max_num_seqs)
+        self.max_batchsize_to_capture = \
+            self.vllm_config.compilation_config.max_capture_size
 
         self.graph_runners: List[Dict[int, CUDAGraphRunner]] = [
             {} for _ in range(self.parallel_config.pipeline_parallel_size)
@@ -1142,36 +1134,10 @@ class GPUModelRunnerBase(ModelRunnerBase[TModelInputForGPU]):
                 self.prompt_adapter_manager.create_prompt_adapter_manager(
                     self.model))
 
-        if self.kv_cache_dtype == "fp8" and current_platform.is_rocm():
-            # Currently only ROCm accepts kv-cache scaling factors
-            # via quantization_param_path and this will be deprecated
-            # in the future.
-            if self.model_config.quantization_param_path is not None:
-                if callable(getattr(self.model, "load_kv_cache_scales", None)):
-                    warnings.warn(
-                        "Loading kv cache scaling factor from JSON is "
-                        "deprecated and will be removed. Please include "
-                        "kv cache scaling factors in the model checkpoint.",
-                        FutureWarning,
-                        stacklevel=2)
-                    self.model.load_kv_cache_scales(
-                        self.model_config.quantization_param_path)
-                    logger.info("Loaded KV cache scaling factors from %s",
-                                self.model_config.quantization_param_path)
-                else:
-                    raise RuntimeError(
-                        "Using FP8 KV cache and scaling factors provided but "
-                        "model %s does not support loading scaling factors.",
-                        self.model.__class__)
-            else:
-                logger.warning(
-                    "Using FP8 KV cache but no scaling factors "
-                    "provided. Defaulting to scaling factors of 1.0. "
-                    "This may lead to less accurate results!")
-
         if self.vllm_config.compilation_config.level ==\
             CompilationLevel.DYNAMO_AS_IS and supports_dynamo():
-            backend = self.vllm_config.compilation_config.init_backend()
+            backend = self.vllm_config.compilation_config.init_backend(
+                self.vllm_config)
             self.model = torch.compile(
                 self.model,
                 fullgraph=envs.VLLM_TEST_DYNAMO_FULLGRAPH_CAPTURE,
@@ -1333,14 +1299,11 @@ class GPUModelRunnerBase(ModelRunnerBase[TModelInputForGPU]):
                 dtype=self.model_config.dtype,
                 device=self.device)
 
-        graph_batch_size = self.max_batchsize_to_capture
-        batch_size_capture_list = [
-            bs for bs in _BATCH_SIZES_TO_CAPTURE if bs <= graph_batch_size
-        ]
-        if self.model_config.enforce_eager:
-            batch_size_capture_list = []
-        with set_compile_context(batch_size_capture_list):
-            self.execute_model(model_input, kv_caches, intermediate_tensors)
+        # Disable KV Scale Calculation for dummy data during profile run
+        if model_input.attn_metadata is not None:
+            model_input.attn_metadata.enable_kv_scales_calculation = False
+
+        self.execute_model(model_input, kv_caches, intermediate_tensors)
         torch.cuda.synchronize()
         return
 
@@ -1427,8 +1390,8 @@ class GPUModelRunnerBase(ModelRunnerBase[TModelInputForGPU]):
         logger.info("Capturing cudagraphs for decoding. This may lead to "
                     "unexpected consequences if the model is not static. To "
                     "run the model in eager mode, set 'enforce_eager=True' or "
-                    "use '--enforce-eager' in the CLI.")
-        logger.info("If out-of-memory error occurs during cudagraph capture,"
+                    "use '--enforce-eager' in the CLI. "
+                    "If out-of-memory error occurs during cudagraph capture,"
                     " consider decreasing `gpu_memory_utilization` or "
                     "switching to eager mode. You can also reduce the "
                     "`max_num_seqs` as needed to decrease memory usage.")
@@ -1437,10 +1400,15 @@ class GPUModelRunnerBase(ModelRunnerBase[TModelInputForGPU]):
 
         # Prepare dummy inputs. These will be reused for all batch sizes.
         max_batch_size = self.max_batchsize_to_capture
-        input_tokens = torch.zeros(max_batch_size, dtype=torch.long).cuda()
-        input_positions = torch.zeros(max_batch_size, dtype=torch.long).cuda()
+        input_tokens = torch.zeros(max_batch_size,
+                                   dtype=torch.long,
+                                   device=self.device)
+        input_positions = torch.zeros(max_batch_size,
+                                      dtype=torch.long,
+                                      device=self.device)
         if self.model_config.uses_mrope:
-            input_positions = torch.tile(input_positions, (3, 1))
+            input_positions = torch.tile(input_positions,
+                                         (3, 1)).cuda(device=self.device)
         # Prepare dummy previous_hidden_states only if needed by the model.
         # This is used by draft models such as EAGLE.
         previous_hidden_states = None
@@ -1459,24 +1427,27 @@ class GPUModelRunnerBase(ModelRunnerBase[TModelInputForGPU]):
                 dtype=self.model_config.dtype,
                 device=self.device)
 
-        graph_batch_size = self.max_batchsize_to_capture
-        batch_size_capture_list = [
-            bs for bs in _BATCH_SIZES_TO_CAPTURE if bs <= graph_batch_size
-        ]
-
-        with self.attn_state.graph_capture(
-                max_batch_size), graph_capture() as graph_capture_context:
+        with self.attn_state.graph_capture(max_batch_size), graph_capture(
+                self.device) as graph_capture_context:
             # NOTE: Capturing the largest batch size first may help reduce the
             # memory usage of CUDA graph.
             for virtual_engine in range(
                     self.parallel_config.pipeline_parallel_size):
-                for batch_size in reversed(batch_size_capture_list):
+                # Only rank 0 should print progress bar during capture
+                capture_sizes = (
+                    tqdm(
+                        self.vllm_config.compilation_config.capture_sizes,
+                        desc="Capturing CUDA graph shapes",
+                    ) if get_tensor_model_parallel_rank() == 0 else
+                    self.vllm_config.compilation_config.capture_sizes)
+                for batch_size in capture_sizes:
                     attn_metadata = (
                         self.attn_state.graph_capture_get_metadata_for_batch(
                             batch_size,
                             is_encoder_decoder_model=self.model_config.
                             is_encoder_decoder))
-
+                    # Disable KV Scale Calculation for graph capture
+                    attn_metadata.enable_kv_scales_calculation = False
                     if self.lora_config:
                         lora_mapping = LoRAMapping(
                             **dict(index_mapping=[0] * batch_size,
@@ -1558,10 +1529,12 @@ class GPUModelRunnerBase(ModelRunnerBase[TModelInputForGPU]):
         """
         # During the decode phase encoder_input_ids and encoder_positions are
         # unset. Do the same thing for graph capture.
-        capture_inputs["encoder_input_ids"] = torch.tensor(
-            [], dtype=torch.long).cuda()
-        capture_inputs["encoder_positions"] = torch.tensor(
-            [], dtype=torch.long).cuda()
+        capture_inputs["encoder_input_ids"] = torch.tensor([],
+                                                           dtype=torch.long,
+                                                           device=self.device)
+        capture_inputs["encoder_positions"] = torch.tensor([],
+                                                           dtype=torch.long,
+                                                           device=self.device)
 
     @property
     def vocab_size(self) -> int:
@@ -1805,15 +1778,15 @@ class ModelRunner(GPUModelRunnerBase[ModelInputForGPUWithSamplingMetadata]):
             kv_caches: vLLM's paged memory
         """
 
+        if self.vllm_config.kv_transfer_config is None:
+            return False
+
         prefill_meta = model_input.attn_metadata.prefill_metadata
 
         # check if the current run is profiling
         is_profile_run = (kv_caches[0].numel() == 0)
         # check if the current run is prefill
         is_prefill_run = prefill_meta is not None
-
-        if self.vllm_config.kv_transfer_config is None:
-            return False
 
         return self.vllm_config.kv_transfer_config.is_kv_consumer and (
             not is_profile_run) and is_prefill_run
@@ -1830,15 +1803,15 @@ class ModelRunner(GPUModelRunnerBase[ModelInputForGPUWithSamplingMetadata]):
             kv_caches: vLLM's paged memory
         """
 
+        if self.vllm_config.kv_transfer_config is None:
+            return False
+
         prefill_meta = model_input.attn_metadata.prefill_metadata
 
         # check if the current run is profiling
         is_profile_run = (kv_caches[0].numel() == 0)
         # check if the current run is prefill
         is_prefill_run = prefill_meta is not None
-
-        if self.vllm_config.kv_transfer_config is None:
-            return False
 
         return self.vllm_config.kv_transfer_config.is_kv_producer and (
             not is_profile_run) and is_prefill_run
@@ -1994,37 +1967,3 @@ class CUDAGraphRunner(nn.Module):
             return self.output_buffers["hidden_states"]
 
         return self.output_buffers
-
-
-def _get_graph_batch_size(batch_size: int) -> int:
-    """Returns the padded batch size given actual batch size.
-
-    Batch sizes are 1, 2, 4, _BATCH_SIZE_ALIGNMENT,
-    2*_BATCH_SIZE_ALIGNMENT, 3*_BATCH_SIZE_ALIGNMENT...
-    """
-    if batch_size <= 2:
-        return batch_size
-    elif batch_size <= 4:
-        return 4
-    else:
-        return ((batch_size + _BATCH_SIZE_ALIGNMENT - 1) //
-                _BATCH_SIZE_ALIGNMENT * _BATCH_SIZE_ALIGNMENT)
-
-
-def _get_max_graph_batch_size(max_num_seqs: int) -> int:
-    """
-    max_num_seqs: Maximum number of sequences in a batch.
-    _BATCH_SIZES_TO_CAPTURE: all the sizes that we want to capture.
-
-    pad the max_num_seqs if necessary by calling _get_graph_batch_size,
-    which will deal with some edge cases like 1, 2, 4.
-
-    if the padded size is in _BATCH_SIZES_TO_CAPTURE, return the padded size.
-    if not, it means the padded size is larger than the largest size in
-    _BATCH_SIZES_TO_CAPTURE, return the largest size in _BATCH_SIZES_TO_CAPTURE.
-    """
-    padded_size = _get_graph_batch_size(max_num_seqs)
-    if padded_size in _BATCH_SIZES_TO_CAPTURE:
-        return padded_size
-    assert padded_size > _BATCH_SIZES_TO_CAPTURE[-1]
-    return _BATCH_SIZES_TO_CAPTURE[-1]

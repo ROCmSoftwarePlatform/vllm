@@ -1,9 +1,11 @@
 """Attention layer."""
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
+import vllm.envs as envs
 from vllm.attention import AttentionMetadata, AttentionType
 from vllm.attention.selector import backend_name_to_enum, get_attn_backend
 from vllm.config import CacheConfig, get_current_vllm_config
@@ -55,10 +57,12 @@ class Attention(nn.Module):
             kv_cache_dtype = cache_config.cache_dtype
             block_size = cache_config.block_size
             is_attention_free = cache_config.is_attention_free
+            calculate_kv_scales = cache_config.calculate_kv_scales
         else:
             kv_cache_dtype = "auto"
             block_size = 16
             is_attention_free = False
+            calculate_kv_scales = False
         if num_kv_heads is None:
             num_kv_heads = num_heads
 
@@ -68,8 +72,11 @@ class Attention(nn.Module):
         # expect the pre-quantized k/v_scale to be loaded along
         # with the model weights.
         self.kv_cache_dtype = kv_cache_dtype
-        self._k_scale = 1.0
-        self._v_scale = 1.0
+        self.calculate_kv_scales = calculate_kv_scales
+        self._k_scale = torch.tensor(1.0, dtype=torch.float32)
+        self._v_scale = torch.tensor(1.0, dtype=torch.float32)
+        self._q_scale = torch.tensor(1.0, dtype=torch.float32)
+        self._prob_scale = torch.tensor(1.0, dtype=torch.float32)
         quant_method = quant_config.get_quant_method(
             self, prefix=prefix) if quant_config else None
         if quant_method is not None:
@@ -101,11 +108,11 @@ class Attention(nn.Module):
         self.num_kv_heads = num_kv_heads
         self.backend = backend_name_to_enum(attn_backend.get_name())
 
-        # For cuda-alike (CUDA and ROCM) and cpu platforms, we control how
+        # For cuda and cpu platforms, we control how
         # torch.compile works by registering the attention as one giant
         # opaque custom op. For other platforms, we directly call them
         # and let torch.compile handle them.
-        self.use_direct_call = not current_platform.is_cuda_alike(
+        self.use_direct_call = not current_platform.is_cuda(
         ) and not current_platform.is_cpu()
 
         # For some attention backends, we allocate an output tensor before
@@ -119,6 +126,10 @@ class Attention(nn.Module):
         compilation_config.static_forward_context[prefix] = self
         self.layer_name = prefix
 
+        self.q_range = torch.tensor(envs.Q_SCALE_CONSTANT, dtype=torch.float32)
+        self.k_range = torch.tensor(envs.K_SCALE_CONSTANT, dtype=torch.float32)
+        self.v_range = torch.tensor(envs.V_SCALE_CONSTANT, dtype=torch.float32)
+
     def forward(
         self,
         query: torch.Tensor,
@@ -127,8 +138,11 @@ class Attention(nn.Module):
         kv_cache: torch.Tensor,
         attn_metadata: AttentionMetadata,
         attn_type: str = AttentionType.DECODER,
-        fp8_out_scale: Optional[torch.Tensor] = None,
+        fp8_comp_scales: Optional[Tuple[torch.Tensor, ...]] = None,
     ) -> torch.Tensor:
+        if self.calculate_kv_scales and \
+            attn_metadata.enable_kv_scales_calculation:
+            self.calc_kv_scales(query, key, value)
         if self.use_direct_call:
             return self.impl.forward(query,
                                      key,
@@ -138,7 +152,7 @@ class Attention(nn.Module):
                                      self._k_scale,
                                      self._v_scale,
                                      attn_type=attn_type,
-                                     fp8_out_scale=fp8_out_scale)
+                                     fp8_comp_scales=fp8_comp_scales)
         elif self.use_output:
             output = torch.empty_like(query)
             hidden_size = query.size(-1)
@@ -160,6 +174,13 @@ class Attention(nn.Module):
                                                     kv_cache, attn_type,
                                                     self.layer_name)
 
+    def calc_kv_scales(self, query, key, value):
+        self._q_scale.copy_(torch.abs(query).max() / self.q_range)
+        self._k_scale.copy_(torch.abs(key).max() / self.k_range)
+        self._v_scale.copy_(torch.abs(value).max() / self.v_range)
+        # We only calculate the scales once
+        self.calculate_kv_scales = False
+
     def extra_repr(self) -> str:
         s = f"head_size={self.impl.head_size}"  # type: ignore
         s += f", num_heads={self.impl.num_heads}"  # type: ignore
@@ -167,6 +188,69 @@ class Attention(nn.Module):
         s += f", scale={self.impl.scale}"  # type: ignore
         s += f", backend={self.impl.__class__.__name__}"
         return s
+
+
+class MultiHeadAttention(nn.Module):
+    """Multi-headed attention without any cache, used for ViT."""
+
+    def __init__(
+        self,
+        num_heads: int,
+        head_size: int,
+        scale: float,
+        num_kv_heads: Optional[int] = None,
+    ):
+        super().__init__()
+        self.num_heads = num_heads
+        self.head_size = head_size
+        self.scale = scale
+        self.num_kv_heads = num_heads if num_kv_heads is None else num_kv_heads
+
+        dtype = torch.get_default_dtype()
+        attn_backend = get_attn_backend(head_size,
+                                        dtype,
+                                        kv_cache_dtype=None,
+                                        block_size=16,
+                                        is_attention_free=False)
+        attn_backend = backend_name_to_enum(attn_backend.get_name())
+        if attn_backend in {_Backend.FLASH_ATTN, _Backend.FLASH_ATTN_VLLM_V1}:
+            attn_backend = _Backend.XFORMERS
+
+        self.attn_backend = attn_backend if attn_backend in {
+            _Backend.TORCH_SDPA, _Backend.XFORMERS
+        } else _Backend.TORCH_SDPA
+
+    def forward(
+        self,
+        query: torch.Tensor,
+        key: torch.Tensor,
+        value: torch.Tensor,
+    ) -> torch.Tensor:
+        """Input shape: batch_size x seq_len x hidden_size"""
+        # TODO(Isotr0py): Use existing backend implementations and support FA2
+        bsz, q_len, _ = query.size()
+        kv_len = key.size(1)
+
+        query = query.view(bsz, q_len, self.num_heads, self.head_size)
+        key = key.view(bsz, kv_len, self.num_kv_heads, self.head_size)
+        value = value.view(bsz, kv_len, self.num_kv_heads, self.head_size)
+
+        if self.attn_backend == _Backend.XFORMERS:
+            from xformers import ops as xops
+
+            out = xops.memory_efficient_attention_forward(query,
+                                                          key,
+                                                          value,
+                                                          scale=self.scale)
+        elif self.attn_backend == _Backend.TORCH_SDPA:
+            query, key, value = (x.transpose(1, 2)
+                                 for x in (query, key, value))
+            out = F.scaled_dot_product_attention(query,
+                                                 key,
+                                                 value,
+                                                 scale=self.scale)
+            out = out.transpose(1, 2)
+        return out.view(bsz, q_len, -1)
 
 
 def unified_attention(

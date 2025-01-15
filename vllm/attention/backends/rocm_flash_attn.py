@@ -165,6 +165,7 @@ class ROCmFlashAttentionMetadata(AttentionMetadata, PagedAttentionMetadata):
             slot_mapping=self.slot_mapping[:self.num_prefill_tokens],
             multi_modal_placeholder_index_maps=self.
             multi_modal_placeholder_index_maps,
+            enable_kv_scales_calculation=self.enable_kv_scales_calculation,
             seq_lens=self.seq_lens[:self.num_prefills],
             seq_lens_tensor=self.seq_lens_tensor[:self.num_prefills],
             max_query_len=self.max_query_len,
@@ -202,6 +203,7 @@ class ROCmFlashAttentionMetadata(AttentionMetadata, PagedAttentionMetadata):
             num_decode_tokens=self.num_decode_tokens,
             slot_mapping=self.slot_mapping[self.num_prefill_tokens:],
             multi_modal_placeholder_index_maps=None,
+            enable_kv_scales_calculation=True,
             seq_lens=None,
             seq_lens_tensor=self.seq_lens_tensor[self.num_prefills:],
             max_query_len=None,
@@ -545,11 +547,11 @@ class ROCmFlashAttentionImpl(AttentionImpl):
         value: torch.Tensor,
         kv_cache: torch.Tensor,
         attn_metadata: ROCmFlashAttentionMetadata,
-        k_scale: float = 1.0,
-        v_scale: float = 1.0,
+        k_scale: torch.Tensor,
+        v_scale: torch.Tensor,
         attn_type: str = AttentionType.DECODER,
         output: Optional[torch.Tensor] = None,
-        fp8_out_scale: torch.Tensor = None,
+        fp8_comp_scales: Optional[Tuple[torch.Tensor, ...]] = None,
     ) -> torch.Tensor:
         """Forward pass with FlashAttention and PagedAttention.
 
@@ -599,6 +601,8 @@ class ROCmFlashAttentionImpl(AttentionImpl):
         Returns:
             shape = [num_tokens, num_heads * head_size]
         """
+        q_scale, prob_scale, fp8_out_scale = fp8_comp_scales or (None, None,
+                                                                 None)
 
         query = query.view(-1, self.num_heads, self.head_size)
         if key is not None:
@@ -679,6 +683,12 @@ class ROCmFlashAttentionImpl(AttentionImpl):
                             query.dtype,
                             seq_lens,
                             make_attn_mask=False)  # type: ignore
+                    full_scales = (
+                        1.0 / q_scale.item(), 1.0 / k_scale.item(),
+                        1.0 / v_scale.item(), 1.0 / prob_scale.item(),
+                        fp8_out_scale.item()) if (
+                            fp8_out_scale
+                            and envs.VLLM_USE_ROCM_FP8_FLASH_ATTN) else None
                     out, _ = self.attn_func(
                         query,
                         key,
@@ -692,7 +702,7 @@ class ROCmFlashAttentionImpl(AttentionImpl):
                         self.scale,
                         attn_masks[0][None]
                         if attn_masks is not None else None,
-                        None,
+                        full_scales,
                     )
                 elif self.use_naive_attn:
                     if self.num_kv_heads != self.num_heads:

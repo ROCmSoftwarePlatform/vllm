@@ -5,8 +5,8 @@ Run `pytest tests/models/test_mamba.py`.
 import pytest
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+from vllm.engine.arg_utils import EngineArgs
 from vllm.sampling_params import SamplingParams
-from vllm.worker.model_runner import _get_graph_batch_size
 
 from ...utils import check_outputs_equal
 
@@ -200,7 +200,9 @@ def test_mamba_cache_cg_padding(
     # This test is for verifying that mamba cache is padded to CG captured
     # batch size. If it's not, a torch RuntimeError will be raised because
     # tensor dimensions aren't compatible
-    while len(example_prompts) == _get_graph_batch_size(len(example_prompts)):
+    vllm_config = EngineArgs(model=model).create_engine_config()
+    while len(example_prompts) == vllm_config.pad_for_cudagraph(
+            len(example_prompts)):
         example_prompts.append(example_prompts[0])
 
     try:

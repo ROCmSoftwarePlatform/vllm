@@ -17,9 +17,7 @@ from vllm.attention.backends.utils import (
     is_all_cross_attn_metadata_set, is_all_encoder_attn_metadata_set)
 from vllm.attention.ops.paged_attn import (PagedAttention,
                                            PagedAttentionMetadata)
-from vllm.logger import init_logger
-
-logger = init_logger(__name__)
+from vllm.utils import print_warning_once
 
 
 class XFormersBackend(AttentionBackend):
@@ -217,6 +215,7 @@ class XFormersMetadata(AttentionMetadata, PagedAttentionMetadata):
             slot_mapping=slot_mapping,
             multi_modal_placeholder_index_maps=self.
             multi_modal_placeholder_index_maps,
+            enable_kv_scales_calculation=self.enable_kv_scales_calculation,
             seq_lens=seq_lens,
             seq_lens_tensor=seq_lens_tensor,
             max_query_len=self.max_query_len,
@@ -261,6 +260,7 @@ class XFormersMetadata(AttentionMetadata, PagedAttentionMetadata):
             num_decode_tokens=self.num_decode_tokens,
             slot_mapping=slot_mapping,
             multi_modal_placeholder_index_maps=None,
+            enable_kv_scales_calculation=True,
             seq_lens_tensor=seq_lens_tensor,
             max_prefill_seq_len=0,
             max_decode_seq_len=self.max_decode_seq_len,
@@ -386,8 +386,8 @@ class XFormersImpl(AttentionImpl[XFormersMetadata]):
             raise ValueError(
                 "XFormers does not support block-sparse attention.")
         if logits_soft_cap is not None:
-            raise ValueError(
-                "XFormers does not support attention logits soft capping.")
+            print_warning_once("XFormers does not support logits soft cap. "
+                               "Outputs may be slightly off.")
         self.num_heads = num_heads
         self.head_size = head_size
         self.scale = float(scale)
@@ -418,7 +418,7 @@ class XFormersImpl(AttentionImpl[XFormersMetadata]):
         v_scale: float = 1.0,
         attn_type: str = AttentionType.DECODER,
         output: Optional[torch.Tensor] = None,
-        fp8_out_scale: Optional[torch.Tensor] = None,
+        fp8_comp_scales: Optional[Tuple[torch.Tensor, ...]] = None,
     ) -> torch.Tensor:
         """Forward pass with xFormers and PagedAttention.
 

@@ -394,7 +394,6 @@ autotune_configs, autotune_keys = get_autotune_configs()
 @triton.autotune(
     configs=autotune_configs,
     key=autotune_keys,
-    use_cuda_graph=True,
 )
 @triton.jit
 def attn_fwd(
@@ -743,7 +742,7 @@ def attn_fwd(
             mask_m_offsets = start_m_idx + tl.arange(0, BLOCK_M)
             out_ptrs_mask = (mask_m_offsets[:, None] >=
                              out_mask_boundary[None, :])
-            z = 0.0
+            z = tl.zeros((1, ), tl.float32)
             acc = tl.where(out_ptrs_mask, acc, z.to(acc.type.element_ty))
     # write back LSE
     # l_ptrs = L + off_z * HQ * MAX_SEQLENS_Q + off_h_q * MAX_SEQLENS_Q + offs_m
@@ -912,9 +911,8 @@ class _attention(torch.autograd.Function):
         p_descale = 1.0 / p_scale
         o_descale = 1.0 / o_scale
 
-        if is_navi():
-            max_seqlens_q = 0
-            max_seqlens_k = 0
+        arg_max_seqlens_q = 0 if is_navi() else max_seqlens_q
+        arg_max_seqlens_k = 0 if is_navi() else max_seqlens_k
 
         attn_fwd[grid](
             q,
@@ -944,8 +942,8 @@ class _attention(torch.autograd.Function):
             HQ=nheads_q,
             HK=nheads_k,
             ACTUAL_BLOCK_DMODEL=head_size,
-            MAX_SEQLENS_Q=max_seqlens_q,
-            MAX_SEQLENS_K=max_seqlens_k,
+            MAX_SEQLENS_Q=arg_max_seqlens_q,
+            MAX_SEQLENS_K=arg_max_seqlens_k,
             IS_CAUSAL=causal,
             VARLEN=True,
             BLOCK_DMODEL=padded_d_model,

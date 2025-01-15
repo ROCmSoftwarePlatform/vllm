@@ -37,10 +37,6 @@ if TYPE_CHECKING:
 logger = init_logger(__name__)
 
 _PAD_SLOT_ID = -1
-_BATCH_SIZE_ALIGNMENT = 8
-_BATCH_SIZES_TO_CAPTURE = [1, 2, 4] + [
-    _BATCH_SIZE_ALIGNMENT * i for i in range(1, 33)
-]
 
 TModelInputForXPU = TypeVar('TModelInputForXPU', bound="ModelInputForXPU")
 
@@ -261,6 +257,7 @@ class ModelInputForXPUBuilder(ModelRunnerInputBuilderBase[ModelInputForXPU]):
             is_prompt=True,
             slot_mapping=slot_mapping,
             multi_modal_placeholder_index_maps=placeholder_index_maps,
+            enable_kv_scales_calculation=False,
             seq_lens=seq_lens,
             seqlen_q=seqlen_q,
             max_seqlen=max_seqlen,
@@ -345,6 +342,7 @@ class ModelInputForXPUBuilder(ModelRunnerInputBuilderBase[ModelInputForXPU]):
             is_prompt=False,
             slot_mapping=slot_mapping,
             multi_modal_placeholder_index_maps=None,
+            enable_kv_scales_calculation=False,
             seq_lens=seq_lens,
             seqlen_q=torch.tensor([]),
             max_seqlen=0,

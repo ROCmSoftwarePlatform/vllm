@@ -13,7 +13,7 @@ from vllm.attention.backends.abstract import (AttentionBackend, AttentionImpl,
 from vllm.attention.backends.utils import CommonAttentionState
 from vllm.attention.ops.ipex_attn import PagedAttention
 from vllm.attention.ops.paged_attn import PagedAttentionMetadata
-from vllm.utils import make_tensor_with_pad
+from vllm.utils import make_tensor_with_pad, print_warning_once
 from vllm.worker.cpu_model_runner import ModelInputForCPUBuilder
 
 
@@ -372,6 +372,7 @@ class TorchSDPAMetadataBuilder(AttentionMetadataBuilder[TorchSDPAMetadata]):
             prefill_block_tables=prefill_block_tables,
             slot_mapping=slot_mapping,
             multi_modal_placeholder_index_maps=placeholder_index_maps,
+            enable_kv_scales_calculation=False,
         )
 
         return attn_metadata
@@ -395,7 +396,8 @@ class TorchSDPABackendImpl(AttentionImpl[TorchSDPAMetadata]):
             raise ValueError(
                 "Torch SPDA does not support block-sparse attention.")
         if logits_soft_cap is not None:
-            raise ValueError("Torch SPDA does not support logits soft cap.")
+            print_warning_once("Torch SPDA does not support logits soft cap. "
+                               "Outputs may be slightly off.")
         self.num_heads = num_heads
         self.head_size = head_size
         self.scale = float(scale)
@@ -432,7 +434,7 @@ class TorchSDPABackendImpl(AttentionImpl[TorchSDPAMetadata]):
         v_scale: float = 1.0,
         attn_type: str = AttentionType.DECODER,
         output: Optional[torch.Tensor] = None,
-        fp8_out_scale: Optional[torch.Tensor] = None,
+        fp8_comp_scales: Optional[Tuple[torch.Tensor, ...]] = None,
     ) -> torch.Tensor:
         """Forward pass with torch SDPA and PagedAttention.
 
@@ -620,7 +622,7 @@ class TorchSDPABackendImpl(AttentionImpl[TorchSDPAMetadata]):
                 value[None, :, start_kv:end_kv, :],
                 attn_mask=mask,
                 dropout_p=0.0,
-                is_causal=causal_attn and not self.need_mask,
+                is_causal=causal_attn and mask is None,
                 scale=self.scale).squeeze(0).movedim(query.dim() - 2, 0)
             output[start_q:end_q, :, :] = sub_out
             start_q, start_kv = end_q, end_kv

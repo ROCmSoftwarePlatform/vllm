@@ -6,19 +6,19 @@ import fnmatch
 import glob
 import inspect
 import itertools
-import json
 import math
 import os
 import warnings
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
-from typing import Any, Dict, Generator, Iterable, List, Optional, Tuple, cast
+from typing import (Any, Callable, Dict, Generator, Iterable, List, Optional,
+                    Tuple, cast)
 
 import gguf
 import huggingface_hub
 import numpy as np
 import torch
-from huggingface_hub import HfApi, hf_hub_download
+from huggingface_hub import HfApi
 from torch import nn
 from transformers import AutoModelForCausalLM
 from transformers.utils import SAFE_WEIGHTS_INDEX_NAME
@@ -46,9 +46,11 @@ from vllm.model_executor.model_loader.weight_utils import (
     filter_duplicate_safetensors_files, filter_files_not_needed_for_inference,
     get_gguf_extra_tensor_names, gguf_quant_weights_iterator,
     initialize_dummy_weights, np_cache_weights_iterator, pt_weights_iterator,
-    safetensors_weights_iterator)
+    runai_safetensors_weights_iterator, safetensors_weights_iterator)
 from vllm.model_executor.utils import set_weight_attrs
 from vllm.platforms import current_platform
+from vllm.transformers_utils.s3_utils import glob as s3_glob
+from vllm.transformers_utils.utils import is_s3
 from vllm.utils import is_pin_memory_available
 
 
@@ -102,12 +104,10 @@ def _initialize_model(
     vllm_config: VllmConfig,
     *,
     prefix: str = "",
-    architectures: Optional[list[str]] = None,
 ) -> nn.Module:
     """Initialize a model with the given configurations."""
     model_config = vllm_config.model_config
-    model_class, _ = get_model_architecture(model_config,
-                                            architectures=architectures)
+    model_class, _ = get_model_architecture(model_config)
 
     signatures = inspect.signature(model_class.__init__)
     all_params = [param.name for param in signatures.parameters.values()]
@@ -704,51 +704,11 @@ class BitsAndBytesModelLoader(BaseModelLoader):
         self.unsharded_weights_modules: List[str] = []
         # Save the module names that are sharded by column.
         self.column_sharded_weights_modules: List[str] = []
-        # we don't need to quantize the whole model, only the target modules
-        # that are specified in the adapter config file. If the adapter config
-        # file is not provided, we will quantize the default modules.
-        if (not load_config.model_loader_extra_config
-                or "qlora_adapter_name_or_path"
-                not in load_config.model_loader_extra_config):
-            self.target_modules = []
-            return
-
-        qlora_adapter = load_config.model_loader_extra_config[
-            "qlora_adapter_name_or_path"]
-
-        config_file_path = self._get_config_file(qlora_adapter)
-
-        with open(config_file_path) as f:
-            config = json.load(f)
-            self.target_modules = config["target_modules"]
-            # TODO: target_modules could be either a list or a regex string.
-            # We need to handle both cases.
-            assert isinstance(self.target_modules,
-                              list), "Unsupported target_modules: "
-            f"{self.target_modules}"
-
-    def _get_config_file(self, qlora_adapter: str) -> str:
-        is_local = os.path.isdir(qlora_adapter)
-        config_file_path = None
-        if is_local:
-            for file in self.possible_config_file_names:
-                config_file_path = os.path.join(qlora_adapter, file)
-                if os.path.exists(config_file_path):
-                    break
-        else:
-            hf_api = HfApi()
-            repo_files = hf_api.list_repo_files(repo_id=qlora_adapter)
-            for file in self.possible_config_file_names:
-                if file in repo_files:
-                    config_file_path = hf_hub_download(repo_id=qlora_adapter,
-                                                       filename=file)
-                    break
-
-        if not config_file_path:
-            raise ValueError(
-                f"Cannot find adapter config file in {qlora_adapter}")
-
-        return config_file_path
+        # Store all module names (from transformers) that support
+        # BNB quantization.
+        self.target_modules: List[str] = []
+        # mapping weight names from transformers to vllm.
+        self.weight_mapper: Callable = lambda name: name
 
     def _get_weight_files(
         self,
@@ -806,9 +766,12 @@ class BitsAndBytesModelLoader(BaseModelLoader):
 
     def _hf_weight_iter(self, hf_weights_files, use_safetensors: bool):
         if use_safetensors:
-            return safetensors_weights_iterator(hf_weights_files)
+            iterator = safetensors_weights_iterator(hf_weights_files)
         else:
-            return pt_weights_iterator(hf_weights_files)
+            iterator = pt_weights_iterator(hf_weights_files)
+        for name, param in iterator:
+            # mapping weight names from transformers to vllm.
+            yield self.weight_mapper(name), param
 
     def _get_quantized_weights_iterator(
         self,
@@ -825,12 +788,12 @@ class BitsAndBytesModelLoader(BaseModelLoader):
         try:
             import bitsandbytes
 
-            if bitsandbytes.__version__ < "0.44.0":
+            if bitsandbytes.__version__ < "0.45.0":
                 raise ImportError("bitsandbytes version is wrong. Please "
-                                  "install bitsandbytes>=0.44.0.")
+                                  "install bitsandbytes>=0.45.0.")
         except ImportError as err:
-            raise ImportError("Please install bitsandbytes>=0.44.0 via "
-                              "`pip install bitsandbytes>=0.44.0` to use "
+            raise ImportError("Please install bitsandbytes>=0.45.0 via "
+                              "`pip install bitsandbytes>=0.45.0` to use "
                               "bitsandbytes quantizer.") from err
 
         hf_weights_files, use_safetensors = self._prepare_weights(
@@ -1030,25 +993,19 @@ class BitsAndBytesModelLoader(BaseModelLoader):
                 inverse_stacked_mapping[packed] = []
             inverse_stacked_mapping[packed].insert(idx, orig)
 
-        linear_module_lst = []
         for name, module in model.named_modules():
             if isinstance(module, (LinearBase, )):
                 last_name = name.split(".")[-1]
                 if sub_modules := inverse_stacked_mapping.get(last_name, []):
-                    # Map vllm's names to transformers' names.
+                    # Map vllm's names to transformers's names.
                     for sub_name in sub_modules:
-                        linear_module_lst.append(
+                        self.target_modules.append(
                             name.replace(last_name, sub_name))
-                else:
-                    linear_module_lst.append(name)
-        if self.target_modules:
-            # Update self.target_modules
-            self.target_modules = [
-                qual_name for qual_name in linear_module_lst
-                if any(t in qual_name for t in self.target_modules)
-            ]
-        else:
-            self.target_modules = linear_module_lst
+                # Add original module name even if the module has stacked map,
+                # in case model has a mixture of disk-merged and disk-splitted
+                # weights with same last name.
+                self.target_modules.append(name)
+
         assert (self.target_modules
                 ), "vllm currently does not support BNB quantization for"
         f" {type(model).__name__}"
@@ -1065,6 +1022,10 @@ class BitsAndBytesModelLoader(BaseModelLoader):
                 f"Model {type(model).__name__} does not support BitsAndBytes "
                 "quantization yet.")
 
+        # For some models like Molmo, we need to use hf_to_vllm_mapper
+        # to ensure correct loading of weights.
+        if hf_to_vllm_mapper := getattr(model, "hf_to_vllm_mapper", None):
+            self.weight_mapper = lambda name: hf_to_vllm_mapper._map_name(name)
         # Modules whose weights might have fused on disk
         # we need their output_sizes to make shard in flight correctly with TP
         self.maybe_fused_weights_modules: Dict[str, List[int]] = {}
@@ -1120,7 +1081,14 @@ class BitsAndBytesModelLoader(BaseModelLoader):
                                                  model_config.revision,
                                                  pre_quant, load_8bit))
 
-        model.load_weights(qweight_iterator)
+        weights_to_load = {name for name, _ in model.named_parameters()}
+        loaded_weights = model.load_weights(qweight_iterator)
+        # Some models may have weights loading tracker unimplemented.
+        if loaded_weights is not None:
+            weights_not_loaded = weights_to_load - loaded_weights
+            if weights_not_loaded:
+                raise ValueError("Following weights were not initialized from "
+                                 f"checkpoint: {weights_not_loaded}")
 
         torch.cuda.empty_cache()
 
@@ -1152,9 +1120,10 @@ class BitsAndBytesModelLoader(BaseModelLoader):
                         shard_name, weight_name)
                     break
 
+            # Models like Clip/Siglip may skip some layers in initialization,
+            # causing unused quant_param_name in state_dict.
             if quant_param_name not in param_dict:
-                raise ValueError(
-                    f"Parameter {quant_param_name} not found in the model.")
+                continue
 
             if quant_param_name not in stacked_quant_state_dict:
                 stacked_quant_state_dict[quant_param_name] = {}
@@ -1280,6 +1249,108 @@ class GGUFModelLoader(BaseModelLoader):
         return model
 
 
+class RunaiModelStreamerLoader(BaseModelLoader):
+    """
+        Model loader that can load safetensors 
+        files from local FS or S3 bucket.
+    """
+
+    def __init__(self, load_config: LoadConfig):
+        super().__init__(load_config)
+        if load_config.model_loader_extra_config:
+            extra_config = load_config.model_loader_extra_config
+
+            if ("concurrency" in extra_config
+                    and isinstance(extra_config.get("concurrency"), int)):
+                os.environ["RUNAI_STREAMER_CONCURRENCY"] = str(
+                    extra_config.get("concurrency"))
+
+            if ("memory_limit" in extra_config
+                    and isinstance(extra_config.get("memory_limit"), int)):
+                os.environ["RUNAI_STREAMER_MEMORY_LIMIT"] = str(
+                    extra_config.get("memory_limit"))
+
+            runai_streamer_s3_endpoint = os.getenv(
+                'RUNAI_STREAMER_S3_ENDPOINT')
+            aws_endpoint_url = os.getenv('AWS_ENDPOINT_URL')
+            if (runai_streamer_s3_endpoint is None
+                    and aws_endpoint_url is not None):
+                os.environ["RUNAI_STREAMER_S3_ENDPOINT"] = aws_endpoint_url
+
+    def _prepare_weights(self, model_name_or_path: str,
+                         revision: Optional[str]) -> List[str]:
+        """Prepare weights for the model.
+
+        If the model is not local, it will be downloaded."""
+        is_s3_path = is_s3(model_name_or_path)
+        is_local = os.path.isdir(model_name_or_path)
+        safetensors_pattern = "*.safetensors"
+        index_file = SAFE_WEIGHTS_INDEX_NAME
+
+        hf_folder = (model_name_or_path if
+                     (is_local or is_s3_path) else download_weights_from_hf(
+                         model_name_or_path,
+                         self.load_config.download_dir,
+                         [safetensors_pattern],
+                         revision,
+                         ignore_patterns=self.load_config.ignore_patterns,
+                     ))
+
+        if is_s3_path:
+            hf_weights_files = s3_glob(path=hf_folder,
+                                       allow_pattern=[safetensors_pattern])
+        else:
+            hf_weights_files = glob.glob(
+                os.path.join(hf_folder, safetensors_pattern))
+
+        if not is_local and not is_s3_path:
+            download_safetensors_index_file_from_hf(
+                model_name_or_path, index_file, self.load_config.download_dir,
+                revision)
+
+        if not hf_weights_files:
+            raise RuntimeError(
+                f"Cannot find any safetensors model weights with "
+                f"`{model_name_or_path}`")
+
+        return hf_weights_files
+
+    def _get_weights_iterator(
+            self, model_or_path: str,
+            revision: str) -> Generator[Tuple[str, torch.Tensor], None, None]:
+        """Get an iterator for the model weights based on the load format."""
+        hf_weights_files = self._prepare_weights(model_or_path, revision)
+        return runai_safetensors_weights_iterator(hf_weights_files)
+
+    def download_model(self, model_config: ModelConfig) -> None:
+        """Download model if necessary"""
+        self._prepare_weights(model_config.model, model_config.revision)
+
+    def load_model(self, vllm_config: VllmConfig) -> nn.Module:
+        """Perform streaming of the model to destination"""
+        device_config = vllm_config.device_config
+        model_config = vllm_config.model_config
+
+        target_device = torch.device(device_config.device)
+        with set_default_torch_dtype(model_config.dtype):
+            with target_device:
+                model = _initialize_model(vllm_config=vllm_config)
+
+            model_weights = model_config.model
+            if hasattr(model_config, "model_weights"):
+                model_weights = model_config.model_weights
+            model.load_weights(
+                self._get_weights_iterator(model_weights,
+                                           model_config.revision))
+
+            for _, module in model.named_modules():
+                quant_method = getattr(module, "quant_method", None)
+                if quant_method is not None:
+                    with device_loading_context(module, target_device):
+                        quant_method.process_weights_after_loading(module)
+        return model.eval()
+
+
 def get_model_loader(load_config: LoadConfig) -> BaseModelLoader:
     """Get a model loader based on the load format."""
 
@@ -1300,5 +1371,8 @@ def get_model_loader(load_config: LoadConfig) -> BaseModelLoader:
 
     if load_config.load_format == LoadFormat.GGUF:
         return GGUFModelLoader(load_config)
+
+    if load_config.load_format == LoadFormat.RUNAI_STREAMER:
+        return RunaiModelStreamerLoader(load_config)
 
     return DefaultModelLoader(load_config)
