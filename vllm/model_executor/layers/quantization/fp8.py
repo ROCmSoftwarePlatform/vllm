@@ -196,8 +196,7 @@ class Fp8LinearMethod(LinearMethodBase):
         layer.output_size_per_partition = output_size_per_partition
         layer.orig_dtype = params_dtype
 
-        fp8_dtype = (torch.float8_e4m3fnuz if current_platform.is_rocm()
-                     and not is_navi() else torch.float8_e4m3fn)
+        fp8_dtype = torch.float8_e4m3fn
         # WEIGHT
         weight_dtype = (fp8_dtype
                         if self.quant_config.is_checkpoint_fp8_serialized else
@@ -254,6 +253,14 @@ class Fp8LinearMethod(LinearMethodBase):
     def process_weights_after_loading(self, layer: Module) -> None:
         # Block quant doesn't need to process weights after loading
         if self.block_quant:
+            
+            weight, weight_scale, input_scale = \
+                normalize_e4m3fn_to_e4m3fnuz(
+                    weight=layer.weight,
+                    weight_scale=layer.weight_scale_inv,
+                    input_scale=layer.input_scale)
+            layer.weight = Parameter(weight, requires_grad=False)
+            layer.weight_scale_inv = Parameter(weight_scale, requires_grad=False)            
             return
         layer.weight = torch.nn.Parameter(layer.weight.data,
                                           requires_grad=False)
