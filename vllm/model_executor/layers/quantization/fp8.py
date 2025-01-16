@@ -166,7 +166,8 @@ class Fp8LinearMethod(LinearMethodBase):
         weight_loader = extra_weight_attrs.get("weight_loader")
 
         if self.block_quant:
-            assert not envs.VLLM_FP8_PADDING, "FP8 weight padding is not supported in block quantization."
+            assert not envs.VLLM_FP8_PADDING, (
+                "FP8 weight padding is not supported in block quantization.")
             tp_size = get_tensor_model_parallel_world_size()
             assert self.quant_config.weight_block_size is not None
             block_n, block_k = (
@@ -254,14 +255,15 @@ class Fp8LinearMethod(LinearMethodBase):
     def process_weights_after_loading(self, layer: Module) -> None:
         # Block quant doesn't need to process weights after loading
         if self.block_quant:
-            if current_platform.is_rocm() and not is_navi():            
+            if current_platform.is_rocm() and not is_navi():
                 weight, weight_scale, _ = \
                     normalize_e4m3fn_to_e4m3fnuz(
                         weight=layer.weight,
                         weight_scale=layer.weight_scale_inv,
                         input_scale=layer.input_scale)
                 layer.weight = Parameter(weight, requires_grad=False)
-                layer.weight_scale_inv = Parameter(weight_scale, requires_grad=False)            
+                layer.weight_scale_inv = Parameter(weight_scale,
+                                                   requires_grad=False)
             return
         layer.weight = torch.nn.Parameter(layer.weight.data,
                                           requires_grad=False)
@@ -533,16 +535,16 @@ class Fp8MoEMethod(FusedMoEMethodBase):
                         layer.w2_input_scale)
                 # Reset the parameter
                 layer.w13_weight = torch.nn.Parameter(w13_weight,
-                                                        requires_grad=False)
+                                                      requires_grad=False)
                 layer.w13_weight_scale_inv = torch.nn.Parameter(
                     w13_weight_scale_inv, requires_grad=False)
                 if w13_input_scale is not None:
                     layer.w13_input_scale = torch.nn.Parameter(
                         w13_input_scale, requires_grad=False)
                 layer.w2_weight = torch.nn.Parameter(w2_weight,
-                                                        requires_grad=False)
-                layer.w2_weight_scale_inv = torch.nn.Parameter(w2_weight_scale_inv,
-                                                            requires_grad=False)
+                                                     requires_grad=False)
+                layer.w2_weight_scale_inv = torch.nn.Parameter(
+                    w2_weight_scale_inv, requires_grad=False)
                 if w2_input_scale is not None:
                     layer.w2_input_scale = torch.nn.Parameter(
                         w2_input_scale, requires_grad=False)
