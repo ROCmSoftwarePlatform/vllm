@@ -16,7 +16,9 @@ class NeuronPlatform(Platform):
     _enum = PlatformEnum.NEURON
     device_name: str = "neuron"
     device_type: str = "neuron"
+    ray_device_key: str = "neuron_cores"
     supported_quantization: list[str] = ["neuron_quant"]
+    device_control_env_var: str = "NEURON_RT_VISIBLE_CORES"
 
     @classmethod
     def get_device_name(cls, device_id: int = 0) -> str:
@@ -32,6 +34,12 @@ class NeuronPlatform(Platform):
         if parallel_config.worker_cls == "auto":
             parallel_config.worker_cls = \
                 "vllm.worker.neuron_worker.NeuronWorker"
+
+        cache_config = vllm_config.cache_config
+        if cache_config:
+            # neuron needs block_size = max_model_len
+            vllm_config.cache_config.block_size = \
+                vllm_config.model_config.max_model_len
 
     @classmethod
     def is_pin_memory_available(cls) -> bool:

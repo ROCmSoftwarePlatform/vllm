@@ -45,7 +45,8 @@ from vllm.model_executor.layers.rotary_embedding import get_rope
 from vllm.model_executor.layers.sampler import SamplerOutput, get_sampler
 from vllm.model_executor.layers.vocab_parallel_embedding import (
     ParallelLMHead, VocabParallelEmbedding)
-from vllm.model_executor.model_loader.weight_utils import default_weight_loader
+from vllm.model_executor.model_loader.weight_utils import (
+    default_weight_loader, maybe_remap_kv_scale_name)
 from vllm.model_executor.sampling_metadata import SamplingMetadata
 from vllm.sequence import IntermediateTensors
 
@@ -147,11 +148,11 @@ class DeepseekV2MoE(nn.Module):
             shared_output = self.shared_experts(hidden_states)
         # router_logits: (num_tokens, n_experts)
         router_logits, _ = self.gate(hidden_states)
-        final_hidden_states = self.experts(
-            hidden_states=hidden_states,
-            router_logits=router_logits) * self.routed_scaling_factor
+        final_hidden_states = self.experts(hidden_states=hidden_states,
+                                           router_logits=router_logits)
         if shared_output is not None:
-            final_hidden_states = final_hidden_states + shared_output
+            final_hidden_states = final_hidden_states + shared_output \
+                * (1. / self.routed_scaling_factor)
         if self.tp_size > 1:
             final_hidden_states = tensor_model_parallel_all_reduce(
                 final_hidden_states)
@@ -243,7 +244,11 @@ class DeepseekV2Attention(nn.Module):
                                         bias=False,
                                         quant_config=quant_config,
                                         prefix=f"{prefix}.o_proj")
-        rope_scaling["rope_type"] = 'deepseek_yarn'
+        if rope_scaling:
+            rope_scaling["rope_type"] = 'deepseek_yarn'
+            self.use_normal_rope = False
+        else:
+            self.use_normal_rope = True
         self.rotary_emb = get_rope(qk_rope_head_dim,
                                    rotary_dim=qk_rope_head_dim,
                                    max_position=max_position_embeddings,
@@ -298,7 +303,18 @@ class DeepseekV2Attention(nn.Module):
                      self.qk_nope_head_dim + self.v_head_dim)
         k_nope, v = kv.split([self.qk_nope_head_dim, self.v_head_dim], dim=-1)
         k_pe = latent_cache[:, :, self.kv_lora_rank:]
+
+        if self.use_normal_rope:
+            seq_len = positions.size(0)
+            ori_q_pe_shape, ori_k_pe_shape = q_pe.shape, k_pe.shape
+            q_pe = q_pe.reshape(seq_len, -1)
+            k_pe = k_pe.reshape(seq_len, -1)
+
         q_pe, k_pe = self.rotary_emb(positions, q_pe, k_pe)
+
+        if self.use_normal_rope:
+            q_pe, k_pe = q_pe.view(ori_q_pe_shape), k_pe.view(ori_k_pe_shape)
+
         q[..., self.qk_nope_head_dim:] = q_pe
         k = torch.empty_like(q)
         k[..., :self.qk_nope_head_dim] = k_nope
@@ -355,6 +371,7 @@ class DeepseekV2DecoderLayer(nn.Module):
             quant_config=quant_config,
             prefix=f"{prefix}.self_attn",
         )
+
         if (config.n_routed_experts is not None
                 and layer_idx >= config.first_k_dense_replace
                 and layer_idx % config.moe_layer_freq == 0):
@@ -375,6 +392,7 @@ class DeepseekV2DecoderLayer(nn.Module):
                                        eps=config.rms_norm_eps)
         self.post_attention_layernorm = RMSNorm(config.hidden_size,
                                                 eps=config.rms_norm_eps)
+        self.routed_scaling_factor = config.routed_scaling_factor
 
     def forward(
         self,
@@ -399,9 +417,14 @@ class DeepseekV2DecoderLayer(nn.Module):
         )
 
         # Fully Connected
+        if isinstance(self.mlp, DeepseekV2MoE):
+            hidden_states *= 1. / self.mlp.routed_scaling_factor
         hidden_states, residual = self.post_attention_layernorm(
             hidden_states, residual)
         hidden_states = self.mlp(hidden_states)
+        if isinstance(self.mlp, DeepseekV2MLP):
+            hidden_states *= 1. / self.routed_scaling_factor
+            residual *= 1. / self.routed_scaling_factor
         return hidden_states, residual
 
 
@@ -617,6 +640,11 @@ class DeepseekV2ForCausalLM(nn.Module, SupportsPP):
                 else:
                     # Skip loading extra bias for GPTQ models.
                     if name.endswith(".bias") and name not in params_dict:
+                        continue
+
+                    # Remapping the name of FP8 kv-scale.
+                    name = maybe_remap_kv_scale_name(name, params_dict)
+                    if name is None:
                         continue
 
                     if is_pp_missing_parameter(name, self):
