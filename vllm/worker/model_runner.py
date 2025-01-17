@@ -47,8 +47,8 @@ from vllm.sampling_params import SamplingParams
 from vllm.sequence import IntermediateTensors, SequenceGroupMetadata
 from vllm.utils import (DeviceMemoryProfiler, GiB_bytes, PyObjectCache,
                         async_tensor_h2d, flatten_2d_lists,
-                        is_pin_memory_available, rpd_mark, supports_dynamo,
-                        weak_ref_tensor)
+                        is_pin_memory_available, rpd_mark, rpd_user_marker,
+                        supports_dynamo, weak_ref_tensor)
 from vllm.worker.model_runner_base import (
     ModelRunnerBase, ModelRunnerInputBase, ModelRunnerInputBuilderBase,
     _add_attn_metadata_broadcastable_dict,
@@ -1502,7 +1502,8 @@ class GPUModelRunnerBase(ModelRunnerBase[TModelInputForGPU]):
                         self._update_inputs_to_capture_for_enc_dec_model(
                             capture_inputs)
 
-                    with set_forward_context(attn_metadata, self.vllm_config):
+                    with set_forward_context(attn_metadata, self.vllm_config,
+                                             virtual_engine):
                         graph_runner.capture(**capture_inputs)
                     self.graph_memory_pool = graph_runner.graph.pool()
                     self.graph_runners[virtual_engine][batch_size] = (
@@ -1629,6 +1630,12 @@ class ModelRunner(GPUModelRunnerBase[ModelInputForGPUWithSamplingMetadata]):
         assert model_input.attn_metadata is not None
         prefill_meta = model_input.attn_metadata.prefill_metadata
         decode_meta = model_input.attn_metadata.decode_metadata
+        if prefill_meta:
+            marker_instance = rpd_user_marker(name="Prefill")
+        else:
+            marker_instance = rpd_user_marker(name="Decode")
+
+        marker_instance.start()
         # TODO(andoorve): We can remove this once all
         # virtual engines share the same kv cache.
         virtual_engine = model_input.virtual_engine
@@ -1671,7 +1678,7 @@ class ModelRunner(GPUModelRunnerBase[ModelInputForGPUWithSamplingMetadata]):
 
         if not bypass_model_exec:
             with set_forward_context(model_input.attn_metadata,
-                                     self.vllm_config):
+                                     self.vllm_config, virtual_engine):
                 hidden_or_intermediate_states = model_executable(
                     input_ids=model_input.input_tokens,
                     positions=model_input.input_positions,
@@ -1764,6 +1771,7 @@ class ModelRunner(GPUModelRunnerBase[ModelInputForGPUWithSamplingMetadata]):
 
             output.hidden_states = hidden_states
 
+        marker_instance.end()
         return [output]
 
     def need_recv_kv(self, model_input, kv_caches) -> bool:
