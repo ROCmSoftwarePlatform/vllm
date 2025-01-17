@@ -135,6 +135,7 @@ def run_vllm(
                 top_p=1.0,
                 ignore_eos=True,
                 max_tokens=output_len,
+                detokenize = False,
             ))
 
     if args.profile_torch or args.profile_rpd:
@@ -171,6 +172,7 @@ async def run_vllm_async(
                     top_p=1.0,
                     ignore_eos=True,
                     max_tokens=output_len,
+                    detokenize = False,
                 ))
 
         generators = []
