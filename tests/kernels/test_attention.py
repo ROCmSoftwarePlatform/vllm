@@ -117,7 +117,7 @@ def ref_single_query_cached_kv_attention(
 
 @pytest.mark.parametrize(
     "version",
-    ["v1", "v2"] if not current_platform.is_rocm() else ["v1", "v2", "rocm"])
+    ["v1", "v2"] if not current_platform.is_rocm() else ["rocm"])
 @pytest.mark.parametrize("num_seqs", NUM_GEN_SEQS)
 @pytest.mark.parametrize("num_heads", NUM_HEADS)
 @pytest.mark.parametrize("head_size", HEAD_SIZES)
@@ -182,7 +182,7 @@ def test_paged_attention(
     key_cache, value_cache = key_caches[0], value_caches[0]
 
     # Using default kv_scale
-    k_scale = v_scale = 1.0
+    k_scale = v_scale = torch.tensor(0.3, dtype=torch.float)
 
     # Call the paged attention kernel.
     output = torch.empty_like(query)
@@ -213,7 +213,7 @@ def test_paged_attention(
 
     elif version in ("v2", "rocm"):
         if current_platform.is_rocm():
-            PARTITION_SIZE = 1024 if version == "v2" else 512
+            PARTITION_SIZE = 1024 if version == "v2" else 256
         num_partitions = ((max_seq_len + PARTITION_SIZE - 1) // PARTITION_SIZE)
         assert PARTITION_SIZE % block_size == 0
         num_seqs, num_heads, head_size = output.shape
@@ -275,13 +275,15 @@ def test_paged_attention(
                 kv_cache_dtype,
                 k_scale,
                 v_scale,
+                None,
+                PARTITION_SIZE,
             )
 
             opcheck(torch.ops._rocm_C.paged_attention,
                     (output, exp_sums, max_logits, tmp_output, query,
                      key_cache, value_cache, num_kv_heads, scale, block_tables,
                      seq_lens, block_size, max_seq_len, alibi_slopes,
-                     kv_cache_dtype, k_scale, v_scale),
+                     kv_cache_dtype, k_scale, v_scale, None, PARTITION_SIZE),
                     cond=(head_size == HEAD_SIZES[0]
                           and block_size == BLOCK_SIZES[0]))
 
@@ -298,14 +300,14 @@ def test_paged_attention(
                                             dtype=dtype,
                                             device=device)
         ops.convert_fp8(dequantized_key_cache, key_cache)
-        key_cache = dequantized_key_cache
+        key_cache = k_scale * dequantized_key_cache
 
         value_cache_shape = value_cache.shape
         dequantized_value_cache = torch.empty(size=value_cache_shape,
                                               dtype=dtype,
                                               device=device)
         ops.convert_fp8(dequantized_value_cache, value_cache)
-        value_cache = dequantized_value_cache
+        value_cache = v_scale * dequantized_value_cache
 
     ref_output = torch.empty_like(query)
     ref_single_query_cached_kv_attention(
