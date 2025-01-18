@@ -81,7 +81,7 @@ def main(args: argparse.Namespace):
         top_p=1.0,
         ignore_eos=True,
         max_tokens=args.output_len,
-        detokenize = False,
+        detokenize=False,
     )
     print(sampling_params)
     dummy_prompt_token_ids = np.random.randint(10000,
