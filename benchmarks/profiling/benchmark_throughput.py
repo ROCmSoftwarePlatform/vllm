@@ -135,7 +135,7 @@ def run_vllm(
                 top_p=1.0,
                 ignore_eos=True,
                 max_tokens=output_len,
-                detokenize=False,
+                detokenize=args.detokenize,
             ))
 
     if args.profile_torch or args.profile_rpd:
@@ -172,7 +172,7 @@ async def run_vllm_async(
                     top_p=1.0,
                     ignore_eos=True,
                     max_tokens=output_len,
-                    detokenize=False,
+                    detokenize=args.detokenize,
                 ))
 
         generators = []
@@ -384,6 +384,11 @@ if __name__ == "__main__":
         default=None,
         help=('path to save the profiler output. Can be visualized '
               'with ui.perfetto.dev or Tensorboard.'))
+    parser.add_argument(
+        '--detokenize',
+        action='store_true',
+        help=('turn on detokenizer for every decode iteration, '
+              'might imact throughput due to host perf'))
     parser = AsyncEngineArgs.add_cli_args(parser)
     args = parser.parse_args()
     if args.tokenizer is None:
