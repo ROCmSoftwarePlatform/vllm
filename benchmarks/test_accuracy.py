@@ -1,5 +1,6 @@
-from vllm import LLM, SamplingParams
 import time
+
+from vllm import LLM, SamplingParams
 
 
 def main():
@@ -33,7 +34,7 @@ def main():
     num_tokens = sum(out_lengths)
 
     print(
-        f"{num_tokens} tokens. {num_tokens / batch_size} on average. {num_tokens / elapsed_time:.2f} tokens/s. {elapsed_time} seconds"
+        f"{num_tokens} tokens. {num_tokens / batch_size} on average. {num_tokens / elapsed_time:.2f} tokens/s. {elapsed_time} seconds"  # noqa: E501
     )
     for out in outs:
         print("===========")
