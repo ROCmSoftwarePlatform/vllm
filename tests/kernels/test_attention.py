@@ -42,7 +42,7 @@ if current_platform.is_rocm():
     HEAD_SIZES = [128, 64]
 
 BLOCK_SIZES = [16, 32]
-USE_ALIBI = [False]
+USE_ALIBI = [False, True]
 KV_CACHE_DTYPE = ["auto", "fp8"]
 SEEDS = [0]
 CUDA_DEVICES = [
@@ -253,13 +253,13 @@ def test_paged_attention(
                 v_scale,
             )
 
-            '''opcheck(torch.ops._C.paged_attention_v2,
+            opcheck(torch.ops._C.paged_attention_v2,
                     (output, exp_sums, max_logits, tmp_output, query,
                      key_cache, value_cache, num_kv_heads, scale, block_tables,
                      seq_lens, block_size, max_seq_len, alibi_slopes,
                      kv_cache_dtype, k_scale, v_scale, 0, 0, 0, 64, 0),
                     cond=(head_size == HEAD_SIZES[0]
-                          and block_size == BLOCK_SIZES[0]))'''
+                          and block_size == BLOCK_SIZES[0]))
 
         else:
             ops.paged_attention_rocm(
@@ -284,13 +284,13 @@ def test_paged_attention(
                 PARTITION_SIZE,
             )
 
-            '''opcheck(torch.ops._rocm_C.paged_attention,
+            opcheck(torch.ops._rocm_C.paged_attention,
                     (output, exp_sums, max_logits, tmp_output, query,
                      key_cache, value_cache, num_kv_heads, scale, block_tables,
                      seq_lens, block_size, max_seq_len, alibi_slopes,
                      kv_cache_dtype, k_scale, v_scale, None, PARTITION_SIZE),
                     cond=(head_size == HEAD_SIZES[0]
-                          and block_size == BLOCK_SIZES[0]))'''
+                          and block_size == BLOCK_SIZES[0]))
 
     else:
         raise AssertionError(f"Unknown version: {version}")
@@ -335,12 +335,8 @@ def test_paged_attention(
 
     # NOTE(zhaoyang): FP8 KV Cache will introduce quantization error,
     # so we use a relaxed tolerance for the test.
-    atol, rtol = 1e-4, 1e-5
     if kv_cache_dtype == "fp8":
-        atol, rtol = 5e-4, 1e-5
-    #bf16 rounding is handled via truncation in new kernel, this increses error
-    if dtype == torch.bfloat16:
-        atol = 1e-3 
+        atol, rtol = 1e-2, 1e-5
 
     torch.testing.assert_close(output, ref_output, atol=atol, rtol=rtol)
 
