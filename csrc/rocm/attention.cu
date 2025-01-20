@@ -392,7 +392,7 @@ __global__ __launch_bounds__(NUM_THREADS,5) void paged_attention_ll4mi_QKV_mfma1
   constexpr int TOKENS_PER_WARP = T_PAR_SIZE / NWARPS; //sub partition of tokens per warp for qk calculation
   constexpr int TLOOP = TOKENS_PER_WARP / 16; //each mfma16x16x16 instruction processes 16 tokens 
 
-  _B16x8 Klocal[TLOOP][QKHELOOP]; //this could be B8x16 too
+  _B16x8 Klocal[TLOOP][QKHELOOP]; //can be interpreted as B8x16 for 8 bit types
 
   const int wg_start_head_idx = blockIdx.z * GQA_RATIO;
   const int wg_start_kv_head_idx = blockIdx.z;
@@ -401,7 +401,7 @@ __global__ __launch_bounds__(NUM_THREADS,5) void paged_attention_ll4mi_QKV_mfma1
   //for QK mfma, tokens in multiples of TOKENS_PER_WARP are spread across warps
   //each mfma takes QH16xT16x16HE across warp
   //repeat mfmas across QKHELOOP dimension
-  //output layout from QKmfma : QH16xT4x4 16 qheads across 16 lanes, 16 tokens across 4 rowsx4 tokens per lane
+  //output layout from QKmfma : QH16xT4x4 16 qheads across 16 lanes, 16 tokens across 4 rows x 4 tokens per lane
 
     const int num_context_blocks = DIVIDE_ROUND_UP(context_len, BLOCK_SIZE);
     const int last_ctx_block = num_context_blocks - 1;
@@ -490,11 +490,11 @@ __global__ __launch_bounds__(NUM_THREADS,5) void paged_attention_ll4mi_QKV_mfma1
         alibi_slope = (lane16id < GQA_RATIO) ? alibi_slopes[alibi_head_idx] : 0.f;
     }
 
-    constexpr int VTOKENS_PER_LANE = TOKENS_PER_WARP / ROWS_PER_WARP; //16 tokens per lane
+    constexpr int VTOKENS_PER_LANE = TOKENS_PER_WARP / ROWS_PER_WARP; //64/4 = 16 contiguous vtokens per lane
     constexpr int VBLOCKS_PER_LANE = 1; //assumes block size >=16, each lane can correspond to 1 block only
     constexpr int VTLOOP = NWARPS; //corresponds to tokens across warps 
     constexpr int VTLANELOOP = DIVIDE_ROUND_UP(VTOKENS_PER_LANE , CONTIGUOUS_KV_ELEMS_16B_LOAD); //optimized for 16B fetches; assumes minimum block size is 16
-    constexpr int VHELOOP = HEAD_SIZE / 16 / NWARPS;
+    constexpr int VHELOOP = HEAD_SIZE / 16 / NWARPS; //head_size distributed across warps; each mfma instr works on 16 head elements 
     
     int vphysical_block_number[VTLOOP][VBLOCKS_PER_LANE];
 
@@ -511,7 +511,7 @@ __global__ __launch_bounds__(NUM_THREADS,5) void paged_attention_ll4mi_QKV_mfma1
      }
     }
 
-    _B16x8 Vlocal[VTLOOP][VHELOOP][VTLANELOOP]; //this could be B8x16 too
+    _B16x8 Vlocal[VTLOOP][VHELOOP][VTLANELOOP]; //this can be interpreted as B8x16 too
     
     const cache_t* v_ptr = v_cache + wg_start_kv_head_idx * kv_head_stride + ((rowid * VTOKENS_PER_LANE)%BLOCK_SIZE);
 
@@ -662,6 +662,9 @@ __global__ __launch_bounds__(NUM_THREADS,5) void paged_attention_ll4mi_QKV_mfma1
     
     __syncthreads();
 
+    constexpr int ELEMS8_ELEMS4_RATIO = 8 / 4;
+    constexpr int ELEMS16_ELEMS8_RATIO = 16 / 8;
+
     _B16x4 outelems[VHELOOP];
     //Softmax V mfma
     //v layout: 16he across lanes x 16 tokens per lane
@@ -672,33 +675,29 @@ __global__ __launch_bounds__(NUM_THREADS,5) void paged_attention_ll4mi_QKV_mfma1
 
         if constexpr (KV_DTYPE == vllm::Fp8KVCacheDataType::kAuto) {
           for (int vfetch_depth = 0; vfetch_depth < VTLANELOOP; vfetch_depth++) {
-              for (int i=0; i<2; i++) {
-                //generalize this for 8 bit dtypes: each lane needs 2*vfetch_depth + 2 _B16x4 K/token dimension elems; each row is multiplied by a factor of 4
-                //layout: lane in depth dimension | row across ->
-                //0 4 8  12
-                //1 5 9  13
-                //2 6 10 14
-                //3 7 11 15
-                const int offset = rowid * VTLANELOOP * 2 + 2*vfetch_depth + i; 
-                const int offset1 = offset % 4; //4 corresponds to ROWS_PER_WARP
-                const int offset2 = offset / 4;
+              for (int i=0; i<ELEMS8_ELEMS4_RATIO; i++) {
+                const int offset = rowid * VTLANELOOP * ELEMS8_ELEMS4_RATIO + vfetch_depth * ELEMS8_ELEMS4_RATIO + i; 
+                const int offset1 = offset % ROWS_PER_WARP;
+                const int offset2 = offset / ROWS_PER_WARP;
                 //output format is 16 qheads across 16 lanes, 16 head elems spread across 4 rows
                 tmp_out = gcn_mfma16x16x16_instr<scalar_t, 0, 0, 0>(Vlocal[vtoken_depth][vhe_depth][vfetch_depth].xy[i],
                         shared_logits[vtoken_depth][offset2][lane16id][offset1],
                         tmp_out);
               }
           }
+        //KV cache fp8  
         } else {
           for (int vfetch_depth = 0; vfetch_depth < VTLANELOOP; vfetch_depth++) {
               _B16x8 Vtmp = Vlocal[vtoken_depth][vhe_depth][vfetch_depth];
+              //reinterpret V format as 16 elements of 8bits
               _B8x16 Vtmp8x16 = *reinterpret_cast<_B8x16*>(&Vtmp);
-              for (int j=0; j<2; j++) {
+              for (int j=0; j<ELEMS16_ELEMS8_RATIO; j++) {
                _B8x8 Vtmp8x8 = Vtmp8x16.xy[j]; 
                _B16x8 Vlocaltmp = convert_b8x8_custom<scalar_t>(Vtmp8x8);
-               for (int i=0; i<2; i++) {
-                const int offset = 4*rowid + 2*j + i; 
-                const int offset1 = offset % 4;
-                const int offset2 = offset / 4;
+               for (int i=0; i<ELEMS8_ELEMS4_RATIO; i++) {
+                const int offset = rowid * ELEMS16_ELEMS8_RATIO * ELEMS8_ELEMS4_RATIO + j * ELEMS8_ELEMS4_RATIO + i; 
+                const int offset1 = offset % ROWS_PER_WARP;
+                const int offset2 = offset / ROWS_PER_WARP;
                 //output format is 16 qheads across 16 lanes, 16 head elems spread across 4 rows
                 tmp_out = gcn_mfma16x16x16_instr<scalar_t, 0, 0, 0>(Vlocaltmp.xy[i],
                         shared_logits[vtoken_depth][offset2][lane16id][offset1],
@@ -706,7 +705,6 @@ __global__ __launch_bounds__(NUM_THREADS,5) void paged_attention_ll4mi_QKV_mfma1
                }
               }
           }
-            
         }
         }
         //apply post Softmax V mfma v_scale
@@ -726,7 +724,7 @@ __global__ __launch_bounds__(NUM_THREADS,5) void paged_attention_ll4mi_QKV_mfma1
 
     __syncthreads();
     
-    //write to tmp_out with coalesced writes
+    //write to tmp_out with coalesced writes after reading from shared mem
     if (warpid == 0) {
       _B16x8 vout[GQA_RATIO4];
       //each lane writes out 16Bytes of tmp_out along head elem dimension
