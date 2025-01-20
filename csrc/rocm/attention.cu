@@ -762,6 +762,7 @@ __global__ __launch_bounds__(NUM_THREADS,5) void paged_attention_ll4mi_QKV_mfma1
 /////////////////////////////////////////////////////////////
 // grid (num_seqs, num_partitions, num_kv_heads)
 // block (256 : partition size)
+//each WG handles 1 partition per sequence
 template <typename scalar_t, typename cache_t,
           vllm::Fp8KVCacheDataType KV_DTYPE, typename OUTT, int BLOCK_SIZE,
           int HEAD_SIZE, int NUM_THREADS, bool ALIBI_ENABLED,
@@ -802,22 +803,28 @@ __global__ __launch_bounds__(NUM_THREADS) void paged_attention_ll4mi_QKV_mfma4_k
   if (partition_start_token_idx >= context_len) {
     return;
   }
+  // every 4 lanes fetch 4 different qheads
+  //qhloop = num loops over qhead dimension 
   constexpr int QHLOOP =
-      DIVIDE_ROUND_UP(GQA_RATIO, 4);  // each 4 lanes fetch 4 different qheads
+      DIVIDE_ROUND_UP(GQA_RATIO, 4);
   constexpr int GQA_RATIO4 = 4 * QHLOOP;
   __shared__ float shared_qk_max[NWARPS][GQA_RATIO4 + 1];
   __shared__ float shared_exp_sum[NWARPS][GQA_RATIO4 + 1];
   _B16x8 Qlocal[QHLOOP];
   constexpr int x = 16 / sizeof(scalar_t);
+  //kheloop = num loops over head_size for 16Bytes of Q/dequantized K elements
   constexpr int KHELOOP = HEAD_SIZE / x;
   _B16x8 Klocal[KHELOOP];
   _B8x8 Klocalb8[KHELOOP];
-  // v head_size dimension is distributed across warp
+  // for SoftMax-V Gemm, V head_size dimension is distributed across warp
+  //vheloop = num loops to cover v head size dimension
   constexpr int VHELOOP =
       HEAD_SIZE /
       WARP_SIZE;  
-  constexpr int VTLOOP = 8;  // 16 separate 4xtokens across warp -> 16/2
-                             // 8xtokens
+  //softmax out has warp_size tokens across warp
+  //vtloop = num loops to cover warp_size(64) tokens with 16Bytes of dequantized V elements
+  constexpr int VTLOOP = WARP_SIZE/8;
+  //num vblocks to cover warp_size(64) v elements
   constexpr int VBLOCKS = 8 * VTLOOP / BLOCK_SIZE;
   int vphysical_blocks[VBLOCKS];
   _B16x8 Vlocal[VHELOOP][VTLOOP];
@@ -838,32 +845,37 @@ __global__ __launch_bounds__(NUM_THREADS) void paged_attention_ll4mi_QKV_mfma4_k
   const int warp_start_token_idx =
       partition_start_token_idx + warpid * WARP_SIZE;
 
-  if (warp_start_token_idx >= context_len) {  // warp out of context
+  // entire warp out of context
+  if (warp_start_token_idx >= context_len) {  
   #pragma unroll
     for (int h = 0; h < GQA_RATIO4; h++) {
       shared_qk_max[warpid][h] = -FLT_MAX;
       shared_exp_sum[warpid][h] = 0.0f;
     }
-  } else {  // warp within context
+  // warp within context
+  } else { 
 
     const int num_context_blocks = DIVIDE_ROUND_UP(context_len, BLOCK_SIZE);
     const int last_ctx_block = num_context_blocks - 1;
 
     const int* block_table = block_tables + seq_idx * max_num_blocks_per_seq;
-
+    //token id within partition
     const int local_token_idx = threadIdx.x;
+    //token id within sequence
     const int global_token_idx = partition_start_token_idx + local_token_idx;
 
     // fetch block number for k
     const int block_idx = (global_token_idx < context_len)
                               ? global_token_idx / BLOCK_SIZE
                               : last_ctx_block;
+    
+    //fetch k physical block number
     // int32 physical_block_number leads to overflow when multiplied with
     // kv_block_stride
     const int64_t physical_block_number =
         static_cast<int64_t>(block_table[block_idx]);
 
-    // fetch vphysical block numbers up front
+    //fetch vphysical block numbers up front
     const int warp_start_block_idx = warp_start_token_idx / BLOCK_SIZE;
     for (int b = 0; b < VBLOCKS; b++) {
         const int vblock_idx = warp_start_block_idx + b;
@@ -872,7 +884,8 @@ __global__ __launch_bounds__(NUM_THREADS) void paged_attention_ll4mi_QKV_mfma4_k
         vphysical_blocks[b] = block_table[vblock_idx_ctx];
     }
 
-    // each 4 lanes fetch 8 helems, so warp fetches 8*16 = 128 helems
+    //fetch q elements
+    //every 4 lanes fetch 8 elems, so warp fetches 8*16 = 128 elems
     const scalar_t* q_ptr =
         q + seq_idx * q_stride + wg_start_head_idx * HEAD_SIZE;
     const _B16x8* q_ptrh8 = reinterpret_cast<const _B16x8*>(q_ptr);
@@ -891,12 +904,15 @@ __global__ __launch_bounds__(NUM_THREADS) void paged_attention_ll4mi_QKV_mfma4_k
       Qlocal[QHLOOP - 1].xy[1] = {0};
     }
 
+    //fetch k elements
     const cache_t* k_ptr = k_cache + physical_block_number * kv_block_stride +
                            wg_start_kv_head_idx * kv_head_stride;
 
+    // physical_block_offset is already cast in terms of _B16x8
     const int physical_block_offset =
-        local_token_idx % BLOCK_SIZE;  // since x=half8, physical_block_offset
-                                       // is already cast as _H8
+        local_token_idx % BLOCK_SIZE;
+
+    //each K fetch is for 8 elements of cache_t which are later dequantized to scalar_t for fp8
     if constexpr (KV_DTYPE == vllm::Fp8KVCacheDataType::kAuto) {
       const _B16x8* k_ptrh8 = reinterpret_cast<const _B16x8*>(k_ptr);
       for (int d = 0; d < KHELOOP; d++) {
@@ -915,6 +931,7 @@ __global__ __launch_bounds__(NUM_THREADS) void paged_attention_ll4mi_QKV_mfma4_k
       }
     }
 
+    //optional alibi fetch
     float alibi_slope[QHLOOP];
     if constexpr(ALIBI_ENABLED) {
       for (int h = 0; h < QHLOOP; h++) {
@@ -981,7 +998,10 @@ __global__ __launch_bounds__(NUM_THREADS) void paged_attention_ll4mi_QKV_mfma4_k
       dout[h] = gcn_mfma4x4x4_instr<scalar_t, 4, x, 0>(Qlocal[h].xy[1], \
                                                   Klocal[x].xy[1], dout[h]);\
     }
-      //QK mfma
+      //QK mfma with Q mfma block broadcast
+      //Q values across head_size dimension stored across lanes
+      //K values across head_size dimension are stored depthwise within lane
+      //Q broadcast with absz, cbid of mfma instruction
       QK_mfma(0);
       QK_mfma(1);
       QK_mfma(2);
@@ -1005,6 +1025,7 @@ __global__ __launch_bounds__(NUM_THREADS) void paged_attention_ll4mi_QKV_mfma4_k
 
     float scale2 = scale;
     if constexpr (KV_DTYPE != vllm::Fp8KVCacheDataType::kAuto) {
+        //post mfma scaling for fp8
         scale2 *= *k_scale_ptr;
     }
 
@@ -1096,6 +1117,7 @@ __global__ __launch_bounds__(NUM_THREADS) void paged_attention_ll4mi_QKV_mfma4_k
       max_logits + seq_idx * num_heads * max_num_partitions + partition_idx;
   float* exp_sums_ptr =
       exp_sums + seq_idx * num_heads * max_num_partitions + partition_idx;
+  //calculate qk_max and exp_sums for partition
   for (int h = 0; h < QHLOOP; h++) {
     float global_qk_max = -FLT_MAX;
     float warp_qk_max[NWARPS];
@@ -1123,6 +1145,7 @@ __global__ __launch_bounds__(NUM_THREADS) void paged_attention_ll4mi_QKV_mfma4_k
   // are 4x16 tokens across warp
   _B16x4 logits[QHLOOP];
   for (int h = 0; h < QHLOOP; h++) {
+    //use rtz for faster performance with no perceivable accuracy loss
     logits[h] = from_floatx4_rtz<scalar_t>(dout[h]);
   }
 
@@ -1150,7 +1173,10 @@ __global__ __launch_bounds__(NUM_THREADS) void paged_attention_ll4mi_QKV_mfma4_k
         for (int qh = 0; qh < QHLOOP; qh++) {
                 acc[qh] = {0};
         }
-        // iterate over tokens
+        //SoftMax-V calculation
+        //logits -> token dimension is distributed across lanes
+        //Vlocal -> token dimension is depthwise within lane
+        //uses mfma instruction block broadcast for logits
         SV_mfma(0);
         SV_mfma(1);
         SV_mfma(2);
@@ -1162,6 +1188,7 @@ __global__ __launch_bounds__(NUM_THREADS) void paged_attention_ll4mi_QKV_mfma4_k
 
         for (int qh = 0; qh < QHLOOP; qh++) {
             if constexpr (KV_DTYPE != vllm::Fp8KVCacheDataType::kAuto) {
+                //post mfma v scale for fp8
                 acc[qh] *= *v_scale_ptr;
             }
             vout_shared[qh][vh][laneid][warpid] = from_floatx4<scalar_t>(acc[qh]);
@@ -1173,6 +1200,7 @@ __global__ __launch_bounds__(NUM_THREADS) void paged_attention_ll4mi_QKV_mfma4_k
 
   __syncthreads();
 
+  //final write to tmp_out after vout accumulation
   if (warpid == 0) {
     const float out_scale =
         (fp8_out_scale_ptr != nullptr) ? 1.0f / (*fp8_out_scale_ptr) : 1.0f;
