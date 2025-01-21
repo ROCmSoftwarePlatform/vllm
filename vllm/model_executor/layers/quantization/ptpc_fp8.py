@@ -3,21 +3,20 @@ from typing import Any, Dict, List, Optional
 import torch
 from torch.nn.parameter import Parameter
 
+from vllm import _custom_ops as ops
 from vllm.logger import init_logger
 from vllm.model_executor.layers.linear import (LinearBase,
                                                UnquantizedLinearMethod)
 from vllm.model_executor.layers.quantization.base_config import (
     QuantizeMethodBase)
-from vllm.model_executor.layers.quantization.fp8 import (
-    Fp8Config, Fp8LinearMethod, Fp8KVCacheMethod)
+from vllm.model_executor.layers.quantization.fp8 import (Fp8Config,
+                                                         Fp8KVCacheMethod,
+                                                         Fp8LinearMethod)
 from vllm.model_executor.layers.quantization.utils.quant_utils import (
     is_layer_skipped)
-from vllm.platforms import current_platform
-from vllm import _custom_ops as ops
 from vllm.model_executor.layers.quantization.utils.w8a8_utils import (
     apply_fp8_linear)
-
-from vllm import _custom_ops as ops
+from vllm.platforms import current_platform
 from vllm.utils import is_navi
 
 ACTIVATION_SCHEMES = ["static", "dynamic"]
@@ -34,17 +33,23 @@ class PTPCFp8Config(Fp8Config):
         ignored_layers: Optional[List[str]] = None,
     ) -> None:
         if not current_platform.is_rocm():
-            raise ValueError("ptpc_fp8 quantization is supported only on ROCm.")
+            raise ValueError(
+                "ptpc_fp8 quantization is supported only on ROCm.")
         if not current_platform.has_device_capability(94):
-            raise ValueError("ptpc_fp8 quantization is supported only on AMD Instinct MI300 GPUs and later.")
+            raise ValueError(
+                "ptpc_fp8 quantization is supported only on AMD Instinct MI300 GPUs and newer."  # noqa: E501
+            )
         if is_navi():
-            raise ValueError("ptpc_fp8 quantization is supported only on AMD Instinct GPUs.")
+            raise ValueError(
+                "ptpc_fp8 quantization is supported only on AMD Instinct GPUs."
+            )
+        if activation_scheme == "static":
+            raise ValueError(
+                "ptpc_fp8 as of now only support dynamic quantization.")
 
-        super().__init__(
-            is_checkpoint_fp8_serialized=False,
-            activation_scheme=activation_scheme,
-            ignored_layers=ignored_layers)
-
+        super().__init__(is_checkpoint_fp8_serialized=False,
+                         activation_scheme=activation_scheme,
+                         ignored_layers=ignored_layers)
 
     @classmethod
     def get_name(cls) -> str:
@@ -60,7 +65,7 @@ class PTPCFp8Config(Fp8Config):
     def get_quant_method(self, layer: torch.nn.Module,
                          prefix: str) -> Optional["QuantizeMethodBase"]:
         from vllm.attention.layer import Attention  # Avoid circular import
-        
+
         if isinstance(layer, LinearBase):
             if is_layer_skipped(prefix, self.ignored_layers):
                 return UnquantizedLinearMethod()
@@ -91,7 +96,7 @@ class PTPCFp8LinearMethod(Fp8LinearMethod):
         # Force weight quantization
         self.quant_config.is_checkpoint_fp8_serialized = False
         assert self.out_dtype == torch.bfloat16, \
-            f"Currently torch._scaled_mm (hipBLASLt) rowwise gemm only support output dtype of bfloat16. {str(self.out_dtype)} is specified."
+            f"Currently torch._scaled_mm (hipBLASLt) rowwise gemm only support output dtype of bfloat16. {str(self.out_dtype)} is specified." # noqa: E501
 
     def process_weights_after_loading(self, layer: torch.nn.Module) -> None:
         layer.weight = torch.nn.Parameter(layer.weight.data,
@@ -99,28 +104,25 @@ class PTPCFp8LinearMethod(Fp8LinearMethod):
 
         # Quantize the weights.
         qweight, weight_scale = ops.scaled_fp8_quant(
-            layer.weight,
-            scale=None,
-            use_per_token_if_dynamic=True)
+            layer.weight, scale=None, use_per_token_if_dynamic=True)
 
         # Update the layer with the new values.
-        layer.weight = Parameter(qweight.t(), requires_grad=False) # Pretranspose the weight
-        layer.weight_scale = Parameter(weight_scale.t(), requires_grad=False) # Pretranspose the weight
+        layer.weight = Parameter(
+            qweight.t(), requires_grad=False)  # Pretranspose the weight
+        layer.weight_scale = Parameter(weight_scale, requires_grad=False)
         layer.input_scale = None
-
 
     def apply(self,
               layer: torch.nn.Module,
               x: torch.Tensor,
               bias: Optional[torch.Tensor] = None) -> torch.Tensor:
-    
-        return apply_fp8_linear(
-            input=x,
-            weight=layer.weight,
-            weight_scale=layer.weight_scale,
-            out_dtype=self.out_dtype,
-            input_scale=None,
-            input_scale_ub=None,
-            bias=bias,
-            cutlass_fp8_supported=False,
-            use_per_token_if_dynamic=True)
+
+        return apply_fp8_linear(input=x,
+                                weight=layer.weight,
+                                weight_scale=layer.weight_scale,
+                                out_dtype=self.out_dtype,
+                                input_scale=None,
+                                input_scale_ub=None,
+                                bias=bias,
+                                cutlass_fp8_supported=False,
+                                use_per_token_if_dynamic=True)

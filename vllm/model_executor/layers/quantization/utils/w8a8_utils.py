@@ -136,6 +136,8 @@ def apply_fp8_linear(
         # for matrices with batch dimension > 16.
         # This could change in the future.
         if input.dtype != torch.float8_e4m3fnuz:
+            # Note: if you are using AMD GPU with FP8, this code branch
+            # will be visited
             qinput, x_scale = ops.scaled_fp8_quant(
                 input_2d,
                 input_scale,
@@ -177,8 +179,10 @@ def apply_fp8_linear(
                                       weight,
                                       out_dtype=out_dtype,
                                       scale_a=x_scale,
-                                      scale_b=weight_scale,
+                                      scale_b=weight_scale.t(),
                                       bias=bias)
+            # TODO: I am not sure how true is the following statement for
+            # this condition branch
             # A fix for discrepancy in scaled_mm which returns tuple
             # for torch < 2.5 and a single value in torch >= 2.5
             if type(output) is tuple and len(output) == 2:
