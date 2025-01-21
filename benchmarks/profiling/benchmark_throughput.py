@@ -135,7 +135,6 @@ def run_vllm(
                 top_p=1.0,
                 ignore_eos=True,
                 max_tokens=output_len,
-                detokenize=args.detokenize,
             ))
 
     if args.profile_torch or args.profile_rpd:
@@ -172,7 +171,6 @@ async def run_vllm_async(
                     top_p=1.0,
                     ignore_eos=True,
                     max_tokens=output_len,
-                    detokenize=args.detokenize,
                 ))
 
         generators = []
@@ -274,7 +272,8 @@ def main(args: argparse.Namespace):
         args.tokenizer, trust_remote_code=args.trust_remote_code)
     if args.dataset is None:
         # Synthesize a prompt with the given input length.
-        prompt = "hi" * (args.input_len - 1)
+        prompt = { "prompt_token_ids" : [42] * (args.input_len - 1) } \
+            if args.skip_tokenizer_init else "hi" * (args.input_len - 1)
         requests = [(prompt, args.input_len, args.output_len)
                     for _ in range(args.num_prompts)]
     else:
@@ -384,11 +383,6 @@ if __name__ == "__main__":
         default=None,
         help=('path to save the profiler output. Can be visualized '
               'with ui.perfetto.dev or Tensorboard.'))
-    parser.add_argument(
-        '--detokenize',
-        action='store_true',
-        help=('turn on detokenizer for every decode iteration, '
-              'might imact throughput due to host perf'))
     parser = AsyncEngineArgs.add_cli_args(parser)
     args = parser.parse_args()
     if args.tokenizer is None:
