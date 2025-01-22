@@ -116,8 +116,7 @@ def ref_single_query_cached_kv_attention(
 
 
 @pytest.mark.parametrize(
-    "version",
-    ["v1", "v2"] if not current_platform.is_rocm() else ["rocm"])
+    "version", ["v1", "v2"] if not current_platform.is_rocm() else ["rocm"])
 @pytest.mark.parametrize("num_seqs", NUM_GEN_SEQS)
 @pytest.mark.parametrize("num_heads", NUM_HEADS)
 @pytest.mark.parametrize("head_size", HEAD_SIZES)
