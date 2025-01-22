@@ -155,10 +155,10 @@ def get_rocm_tuning_space(use_fp16):
     # small search space, no pruning required
     # bypassLDS: block_n/num_warps=16 for perf
     block_m_range = [16, 32, 64, 128, 256]
-    block_n_range = [128] if use_fp16 else [64]
+    block_n_range = [128] if use_fp16 else [128]
     block_k_range = [128] if use_fp16 else [256]
 
-    num_warps_range = [8] if use_fp16 else [4]
+    num_warps_range = [8] if use_fp16 else [8]
     group_m_range = [1]
     # For now we see better perf with num_stages=0 for all gemm configs we care
     # But keep this explicit so that we do not forget we may need to set it to
@@ -211,6 +211,8 @@ def get_configs_compute_bound(use_fp16) -> List[Dict[str, int]]:
     keys, values = zip(*param_ranges.items())
     for config_values in product(*values):
         config = dict(zip(keys, config_values))
+        assert config['num_warps'] == config['BLOCK_SIZE_N'] // 16, \
+            "num_warps should be equal to BLOCK_SIZE_N divided by 16"
         configs.append(config)
     return configs
 

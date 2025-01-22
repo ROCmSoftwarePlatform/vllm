@@ -379,7 +379,7 @@ class Fp8LinearMethod(LinearMethodBase):
 def permute_weight_fp8(x: torch.Tensor) -> torch.Tensor:
     ## Hardcode BLOCK_K and BLOCK_N
     BK = 256
-    BN = 64  #256 #128
+    BN = 128 #256 #64
     x_ = x
 
     x_ = x_.view(x.shape[0], x.shape[1] // BN, BN // 16, 16, x.shape[2] // BK,

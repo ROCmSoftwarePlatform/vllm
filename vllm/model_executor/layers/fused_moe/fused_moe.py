@@ -388,18 +388,28 @@ def get_default_config(
     is_marlin: bool,
 ) -> Dict[str, int]:
     config = {
-        'BLOCK_SIZE_M': 64,
-        'BLOCK_SIZE_N': 64,
-        'BLOCK_SIZE_K': 32,
-        'GROUP_SIZE_M': 8
+        'BLOCK_SIZE_M': 32,
+        'BLOCK_SIZE_N': 128 if dtype is None else 128,
+        'BLOCK_SIZE_K': 128 if dtype is None else 256,
+        'GROUP_SIZE_M': 1,
+        "num_warps": 8 if dtype is None else 8,
+        "num_stages": 2,
+        "waves_per_eu": 0,
+        "kpack": 2,                # garbage w/o this
+        "matrix_instr_nonkdim": 16 # force 16 mfma even for block_m=32
     }
     # A heuristic: fused marlin works faster with this config for small M
     if M <= E or (is_marlin and M <= 32):
         config = {
             'BLOCK_SIZE_M': 16,
-            'BLOCK_SIZE_N': 32,
-            'BLOCK_SIZE_K': 64,
-            'GROUP_SIZE_M': 1
+            'BLOCK_SIZE_N': 128 if dtype is None else 128,
+            'BLOCK_SIZE_K': 128 if dtype is None else 256,
+            'GROUP_SIZE_M': 1,
+            "num_warps": 8 if dtype is None else 8,
+            "num_stages": 2,
+            "waves_per_eu": 0,
+            "kpack": 2,                # garbage w/o this
+            "matrix_instr_nonkdim": 16 # force 16 mfma even for block_m=32
         }
     return config
 

@@ -4,6 +4,7 @@ export FUSED_MOE_PERSISTENT=1
 export VLLM_MOE_PADDING=128 
 export VLLM_MOE_SHUFFLE=1 
 export TRITON_HIP_USE_NEW_STREAM_PIPELINE=1 
+export HIP_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 
 ## ---- Mixtral fp8 tuning ---- ##
 
