@@ -681,10 +681,8 @@ class ROCmFlashAttentionImpl(AttentionImpl):
                             seq_lens,
                             make_attn_mask=False)  # type: ignore
                     full_scales = (
-                        layer._q_scale.item(),
-                        layer._k_scale.item(),
-                        layer._v_scale.item(),
-                        layer._prob_scale.item(),
+                        layer._q_scale.item(), layer._k_scale.item(),
+                        layer._v_scale.item(), layer._prob_scale.item(),
                         fp8_out_scale.item()) if (
                             fp8_out_scale and layer._q_scale
                             and layer._prob_scale

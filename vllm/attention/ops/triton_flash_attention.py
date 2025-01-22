@@ -392,6 +392,7 @@ autotune_configs, autotune_keys = get_autotune_configs()
 
 float8_info = torch.finfo(torch.float8_e4m3fnuz)
 
+
 @triton.autotune(
     configs=autotune_configs,
     key=autotune_keys,
@@ -837,7 +838,8 @@ class _attention(torch.autograd.Function):
             def check_and_convert(t, scale):
                 if t.dtype != float8:
                     descale = 1.0 / scale
-                    ts = (t * descale).clamp(min=float8_info.min, max=float8_info.max)
+                    ts = (t * descale).clamp(min=float8_info.min,
+                                             max=float8_info.max)
                     return ts.to(float8)
                 else:
                     return t
