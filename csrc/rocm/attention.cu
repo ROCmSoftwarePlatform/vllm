@@ -701,12 +701,19 @@ __launch_bounds__(NUM_THREADS, 5) void paged_attention_ll4mi_QKV_mfma16_kernel(
 
   __syncthreads();
 
+  constexpr bool LOGITS_RTZ_CONVERSION = false;
+
   // write logits to shared mem
   for (int token_depth = 0; token_depth < TLOOP; token_depth++) {
     dout[token_depth] *= inv_sum_scale;
-    // use rtz conversion for performance, with no visible impact on accuracy
-    shared_logits[warpid][token_depth][lane16id][rowid] =
+    if constexpr(LOGITS_RTZ_CONVERSION) {
+      // use rtz conversion for performance, with no visible impact on accuracy
+      shared_logits[warpid][token_depth][lane16id][rowid] =
         from_floatx4_rtz<scalar_t>(dout[token_depth]);
+    } else {
+      shared_logits[warpid][token_depth][lane16id][rowid] =
+        from_floatx4<scalar_t>(dout[token_depth]);
+    }
   }
   // write out partition max_logits and exp_sum
   if (threadIdx.x < GQA_RATIO) {
@@ -1219,12 +1226,17 @@ __launch_bounds__(NUM_THREADS) void paged_attention_ll4mi_QKV_mfma4_kernel(
                                        __expf(qk_max[h] - global_qk_max);
     dout[h] *= global_inv_sum_scale;
   }
+  constexpr bool LOGITS_RTZ_CONVERSION = false;
   // logits[h] -> every 4 lanes hold 4 heads, each lane holds 4 tokens, there
   // are 4x16 tokens across warp
   _B16x4 logits[QHLOOP];
   for (int h = 0; h < QHLOOP; h++) {
-    // use rtz for faster performance with no perceivable accuracy loss
-    logits[h] = from_floatx4_rtz<scalar_t>(dout[h]);
+    if constexpr(LOGITS_RTZ_CONVERSION) {
+      // use rtz for faster performance with no perceivable accuracy loss
+      logits[h] = from_floatx4_rtz<scalar_t>(dout[h]);
+    } else {
+      logits[h] = from_floatx4<scalar_t>(dout[h]);
+    }
   }
 
   if (warp_start_token_idx >= context_len) {  // warp out of context
