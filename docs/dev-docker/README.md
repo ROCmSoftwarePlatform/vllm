@@ -45,9 +45,35 @@ You can pull the image with `docker pull rocm/vllm-dev:main`
 
 - ROCm 6.3 support
 - Potential bug with Tunable Ops not saving due to a PyTorch issue
+- [Experimental DeepSeekV3 support](###Running-DeepseekV3) 
 
 Gemms are tuned using PyTorch's Tunable Ops  feature (https://github.com/pytorch/pytorch/blob/main/aten/src/ATen/cuda/tunable/README.md)
 The  gemms are automatically enabled in the docker image, and all stored gemm configs are kept in /app/_gemm_csv in the same image
+
+### Running DeepseekV3
+    
+    docker run -it --rm --ipc=host --network=host --group-add render \
+        --privileged --security-opt seccomp=unconfined \
+        --cap-add=CAP_SYS_ADMIN --cap-add=SYS_PTRACE \
+        --device=/dev/kfd --device=/dev/dri --device=/dev/mem \
+        -e VLLM_USE_TRITON_FLASH_ATTN=0 \
+        -e VLLM_FP8_PADDING=0 \
+        rocm/vllm-dev:main
+    # Online serving
+    vllm serve deepseek-ai/DeepSeek-V3 \
+        --disable-log-requests \
+        --tensor-parallel-size 8 \
+        --trust-remote-code \
+        --max-model-len 32768 
+    # Offline throughput 
+    python3 /app/vllm/benchmarks/benchmark_throughput.py --model deepseek-ai/DeepSeek-V3 \
+        --input-len <> --output-len <> --tensor-parallel-size 8 \
+        --quantization fp8 --kv-cache-dtype fp8 --dtype float16 \
+        --max-model-len 32768 --trust-remote-code
+    # Offline Latency
+    python benchmarks/benchmark_latency.py --model deepseek-ai/DeepSeek-V3 \
+    --tensor-parallel-size 8 --trust-remote-code --max-model-len 32768 \
+    --batch-size <> --input-len <> --output-len <>
 
 ### Reproducing benchmark results
 
@@ -158,7 +184,6 @@ Some environment variables enhance the performance of the vLLM kernels and PyTor
 
     export VLLM_USE_TRITON_FLASH_ATTN=0
     export NCCL_MIN_NCHANNELS=112
-    export VLLM_FP8_PADDING=1
 
 You can set both PYTORCH_TUNABLEOP_ENABLED and PYTORCH_TUNABLEOP_TUNING to 1 to performance GEMM tuning for the 1st benchmark run.
 It will take some time to complete the tuning during the benchmark. After tuning, it will generate several csv files as the performance lookup database. For the subsequent benchmark runs, you can keep
@@ -416,7 +441,7 @@ Please refer to the MLPerf instructions for recreating the MLPerf numbers.
 
 Updated:
 
-vLLM: <https://github.com/ROCm/vllm/commit/2c60adc83981ada77a77b2adda78ef109d2e2e2b>
+vLLM: <https://github.com/ROCm/vllm/commit/c5a9406b8915cb531d4696984f6e28a8214f9dc6>
 
 ### Docker Manifest
 
@@ -424,5 +449,5 @@ To reproduce the release docker:
 
     git clone https://github.com/ROCm/vllm.git
     cd vllm
-    git checkout 2c60adc83981ada77a77b2adda78ef109d2e2e2b
+    git checkout c5a9406b8915cb531d4696984f6e28a8214f9dc6
     docker build -f Dockerfile.rocm -t <your_tag> --build-arg BUILD_HIPBLASLT=1 --build-arg USE_CYTHON=1 .
