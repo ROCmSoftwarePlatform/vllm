@@ -176,7 +176,7 @@ If you want to do limited online tuning use --enforce-eager and tune for particu
         --num-scheduler-steps 10 \
         --enforce-eager
 
-The tuned file will be generated for device 0 only at /app/tuned_gemm_csv/bench_latency_tune_device_0_full.csv. Copy this file to /app/tuned_gemm_csv/bench_latency_tune_device_&lt;D>_full.csv for D=1 through 7.
+The tuned file will be generated for device 0 only at /app/tuned_gemm_csv/bench_latency_tune_device_0_full.csv. Copy this file to /app/tuned_gemm_csv/bench_latency_tune_device_\<D\>_full.csv for D=1 through 7.
 
 After the above steps, retain the environment variables set earlier, but set export PYTORCH_TUNABLEOP_TUNING=0 to disable online tuning, and use the tuned solutions.
 
