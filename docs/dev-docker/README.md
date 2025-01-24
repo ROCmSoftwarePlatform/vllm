@@ -117,7 +117,6 @@ Note: the `--multi_gpu` parameter can be omitted for small models that fit on a 
 
 ## Performance testing with AMD vLLM Docker
 
-
 ### Performance environment variables
 
 Some environment variables enhance the performance of the vLLM kernels on the MI300X / MI325X accelerator. See the AMD Instinct MI300X workload optimization guide for more information.
@@ -156,44 +155,23 @@ python3 /app/vllm/benchmarks/benchmark_latency.py \
     --quantization fp8 \
     --kv-cache-dtype fp8 \
     --dtype float16 \
-    --gpu-memory-utilization 0.95 \
-    --num-scheduler-steps 10 \
+    --gpu-memory-utilization 0.9 \
+    --trust-remote-code \
     --model $MODEL \
-    --max-model-len 8192 \
     --batch-size $BS \
     --input-len $IN \
     --output-len $OUT \
-    --tensor-parallel-size $TP
+    --tensor-parallel-size $TP \
+    --num-iters-warmup 3 \
+    --num-iters 5 \
+    --output-json output.json
 ```
 
 For FP16 models, remove `--quantization fp8 --kv-cache-dtype fp8`.
 
-When measuring models with long context lengths, performance may improve by setting `--max-model-len` to a smaller value (8192 in this example).  It is important, however, to ensure that the `--max-model-len` is at least as large as the IN + OUT token counts.
+When measuring models with long context lengths, performance may improve by setting `--max-model-len` to a smaller value.  It is important, however, to ensure that the `--max-model-len` is at least as large as the IN + OUT token counts.
 
-To estimate Time To First Token (TTFT) with the benchmark_latency.py script, set the OUT to 1 token.  It is also recommended to use `--enforce-eager` and set `--num-scheduler-steps 1` to get a more accurate measurement of the time that it actually takes to generate the first token.  The following command includes these recommendations.  (For a more comprehensive measurement of TTFT, use the Online Serving Benchmark.)
-
-```bash
-MODEL=amd/Llama-3.1-405B-Instruct-FP8-KV
-BS=1
-IN=128
-OUT=1
-TP=8
-
-python3 /app/vllm/benchmarks/benchmark_latency.py \
-    --distributed-executor-backend mp \
-    --quantization fp8 \
-    --kv-cache-dtype fp8 \
-    --dtype float16 \
-    --gpu-memory-utilization 0.95 \
-    --num-scheduler-steps 1 \
-    --enforce-eager \
-    --model $MODEL \
-    --max-model-len 8192 \
-    --batch-size $BS \
-    --input-len $IN \
-    --output-len $OUT \
-    --tensor-parallel-size $TP
-```
+To estimate Time To First Token (TTFT) with the benchmark_latency.py script, set the OUT to 1 token.  It is also recommended to use `--enforce-eager` to get a more accurate measurement of the time that it actually takes to generate the first token.  (For a more comprehensive measurement of TTFT, use the Online Serving Benchmark.)
 
 For additional information about the available parameters run:
 
@@ -221,16 +199,20 @@ python3 /app/vllm/benchmarks/benchmark_throughput.py \
     --quantization fp8 \
     --kv-cache-dtype fp8 \
     --dtype float16 \
-    --gpu-memory-utilization 0.95 \
-    --max-num-batched-tokens 65536 \
+    --gpu-memory-utilization 0.9 \
+    --trust-remote-code \
     --num-scheduler-steps 10 \
     --enable-chunked-prefill False \
     --model $MODEL \
+    --max-model-len 8192 \
+    --max-num-batched-tokens 131072 \
+    --max-seq-len-to-capture 131072 \
     --input-len $IN \
     --output-len $OUT \
     --tensor-parallel-size $TP \
     --num-prompts $PROMPTS \
-    --max-num-seqs $MAX_NUM_SEQS    
+    --max-num-seqs $MAX_NUM_SEQS \
+    --output-json output.json
 ```
 
 For FP16 models, remove `--quantization fp8 --kv-cache-dtype fp8`.
@@ -245,16 +227,16 @@ For optimal performance, the PROMPTS value should be a multiple of the MAX_NUM_S
 
 Recommended values for various configurations are listed in this table:
 
-| MODEL                              | TP | IN   | OUT  | MAX_NUM_SEQS (MI300X) | MAX_NUM_SEQS (MI325X) |
-|------------------------------------|----|------|------|-----------------------|-----------------------|
-| amd/Llama-3.1-405B-Instruct-FP8-KV | 8  | 128  | 128  | 2500                  | 3000                  |
-| amd/Llama-3.1-405B-Instruct-FP8-KV | 8  | 128  | 2048 | 1500                  | 1500                  |
-| amd/Llama-3.1-405B-Instruct-FP8-KV | 8  | 2048 | 128  | 1500                  | 1500                  |
-| amd/Llama-3.1-405B-Instruct-FP8-KV | 8  | 2048 | 2048 | 750                   | 750                   |
-| amd/Llama-3.1-70B-Instruct-FP8-KV  | 1  | 128  | 128  | 2000                  | 2000                  |
-| amd/Llama-3.1-70B-Instruct-FP8-KV  | 1  | 128  | 2048 | 250                   | 250                   |
-| amd/Llama-3.1-70B-Instruct-FP8-KV  | 1  | 2048 | 128  | 250                   | 250                   |
-| amd/Llama-3.1-70B-Instruct-FP8-KV  | 1  | 2048 | 2048 | 250                   | 250                   |
+| MODEL                              | TP | IN   | OUT  | PROMPTS | MAX_NUM_SEQS |
+|------------------------------------|----|------|------|---------|--------------|
+| amd/Llama-3.1-70B-Instruct-FP8-KV  | 8  | 128  | 2048 | 3200    | 3200         |
+| amd/Llama-3.1-70B-Instruct-FP8-KV  | 8  | 128  | 4096 | 1500    | 1500         |
+| amd/Llama-3.1-70B-Instruct-FP8-KV  | 8  | 500  | 2000 | 2000    | 2000         |
+| amd/Llama-3.1-70B-Instruct-FP8-KV  | 8  | 2048 | 2048 | 1500    | 1500         |
+| amd/Llama-3.1-405B-Instruct-FP8-KV | 8  | 128  | 2048 | 1500    | 1500         |
+| amd/Llama-3.1-405B-Instruct-FP8-KV | 8  | 128  | 4096 | 1500    | 1500         |
+| amd/Llama-3.1-405B-Instruct-FP8-KV | 8  | 500  | 2000 | 2000    | 2000         |
+| amd/Llama-3.1-405B-Instruct-FP8-KV | 8  | 2048 | 2048 | 500     | 500          |
 
 For additional information about the available parameters run:
 
