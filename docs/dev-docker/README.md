@@ -110,7 +110,7 @@ Before running performance tests you should ensure that the system is optimized 
 Download and launch the docker.  The HF_TOKEN is required to be set (either here or after launching the container) if you want to allow vLLM to download gated models automatically; use your HuggingFace token in place of `<token>` in the command below:
 
 ```bash
-    docker run -it --rm --ipc=host --network=host --group-add render \
+docker run -it --rm --ipc=host --network=host --group-add render \
     --privileged --security-opt seccomp=unconfined \
     --cap-add=CAP_SYS_ADMIN --cap-add=SYS_PTRACE \
     --device=/dev/kfd --device=/dev/dri --device=/dev/mem \
@@ -124,8 +124,8 @@ Download and launch the docker.  The HF_TOKEN is required to be set (either here
 Some environment variables enhance the performance of the vLLM kernels on the MI300X / MI325X accelerator. See the AMD Instinct MI300X workload optimization guide for more information.
 
 ```bash
-    export VLLM_USE_TRITON_FLASH_ATTN=0
-    export NCCL_MIN_NCHANNELS=112
+export VLLM_USE_TRITON_FLASH_ATTN=0
+export NCCL_MIN_NCHANNELS=112
 ```
 
 ### vLLM engine performance settings
@@ -145,32 +145,32 @@ Optional: Online Gemm tuning for small decode batch sizes can improve performanc
 If you want to do limited online tuning use --enforce-eager and tune for particular batch sizes. See example below.
 
 ```bash
-        export PYTORCH_TUNABLEOP_TUNING=1
-        export PYTORCH_TUNABLEOP_ENABLED=1
-        export PYTORCH_TUNABLEOP_MAX_TUNING_DURATION_MS=100
-        export PYTORCH_TUNABLEOP_MAX_WARMUP_DURATION_MS=10
-        export PYTORCH_TUNABLEOP_ROTATING_BUFFER_SIZE=1024
-        export PYTORCH_TUNABLEOP_FILENAME=/app/tuned_gemm_csv/bench_latency_tune_device_%d_full.csv
+export PYTORCH_TUNABLEOP_TUNING=1
+export PYTORCH_TUNABLEOP_ENABLED=1
+export PYTORCH_TUNABLEOP_MAX_TUNING_DURATION_MS=100
+export PYTORCH_TUNABLEOP_MAX_WARMUP_DURATION_MS=10
+export PYTORCH_TUNABLEOP_ROTATING_BUFFER_SIZE=1024
+export PYTORCH_TUNABLEOP_FILENAME=/app/tuned_gemm_csv/bench_latency_tune_device_%d_full.csv
 ```
  Run the following command for BS=1/2/4/8:
 ```bash
-    for BS in 1 2 4 8
-    do
-        python /app/vllm/benchmarks/benchmark_latency.py \
-        --model <path to Llama-3.1-70B-Instruct-FP8-KV> \
-        --quantization fp8 \
-        --kv-cache-dtype fp8 \
-        --dtype float16 \
-        --max-model-len 8192 \
-        --num-iters-warmup 5 \
-        --num-iters 5 \
-        --tensor-parallel-size 8 \
-        --input-len 4096 \
-        --output-len 512 \
-        --batch-size ${BS} \
-        --num-scheduler-steps 10 \
-        --enforce-eager
-    done
+for BS in 1 2 4 8
+do
+    python /app/vllm/benchmarks/benchmark_latency.py \
+    --model <path to Llama-3.1-70B-Instruct-FP8-KV> \
+    --quantization fp8 \
+    --kv-cache-dtype fp8 \
+    --dtype float16 \
+    --max-model-len 8192 \
+    --num-iters-warmup 5 \
+    --num-iters 5 \
+    --tensor-parallel-size 8 \
+    --input-len 4096 \
+    --output-len 512 \
+    --batch-size ${BS} \
+    --num-scheduler-steps 10 \
+    --enforce-eager
+done
 ```
 
 The tuned file will be generated for device 0 only at /app/tuned_gemm_csv/bench_latency_tune_device_0_full.csv. Copy this file to /app/tuned_gemm_csv/bench_latency_tune_device_\<D\>_full.csv for D=1 through 7.
@@ -179,96 +179,128 @@ After the above steps, retain the environment variables set earlier, but set exp
 
 ### Latency Benchmark
 
-Benchmark Llama-3.1-405B FP8 with input 128 tokens, output 128 tokens, batch size 32 and tensor parallelism 8 as an example,
+vLLM's benchmark_latency.py script measures end-to-end latency for a specified model, input/output length, and batch size.
+
+You can run latency tests for FP8 models with:
 ```bash
-    python /app/vllm/benchmarks/benchmark_latency.py \
-    --model amd/Llama-3.1-405B-Instruct-FP8-KV \
+MODEL=amd/Llama-3.1-405B-Instruct-FP8-KV
+BS=1
+IN=128
+OUT=2048
+TP=8
+
+python3 /app/vllm/benchmarks/benchmark_latency.py \
+    --distributed-executor-backend mp \
     --quantization fp8 \
     --kv-cache-dtype fp8 \
-    --dtype half \
-    --gpu-memory-utilization 0.99 \
-    --distributed-executor-backend mp \
-    --tensor-parallel-size 8 \
-    --batch size 32 \
-    --input-len 128 \
-    --output-len 128
-```
-
-If you want to run Llama-3.1-405B FP16, please run
-```bash
-    python /app/vllm/benchmarks/benchmark_latency.py \
-    --model meta-llama/Llama-3.1-405B-Instruct \
     --dtype float16 \
-    --gpu-memory-utilization 0.99 \
-    --distributed-executor-backend mp \
-    --tensor-parallel-size 8 \
-    --batch size 32 \
-    --input-len 128 \
-    --output-len 128
+    --gpu-memory-utilization 0.95 \
+    --num-scheduler-steps 10 \
+    --model $MODEL \
+    --max-model-len 8192 \
+    --batch-size $BS \
+    --input-len $IN \
+    --output-len $OUT \
+    --tensor-parallel-size $TP
 ```
 
-You can change various input-len, output-len, batch size and run the benchmark as well. When output-len is 1, it measures prefill latency (TTFT).
-Decoding latency (TPOT) can be calculated based on the measured latency.
+For FP16 models, remove `--quantization fp8 --kv-cache-dtype fp8`.
 
-For more information about the parameters, please run
+When measuring models with long context lengths, performance may improve by setting `--max-model-len` to a smaller value (8192 in this example).  It is important, however, to ensure that the `--max-model-len` is at least as large as the IN + OUT token counts.
 
-    /app/vllm/benchmarks/benchmark_latency.py -h
+To estimate Time To First Token (TTFT) with the benchmark_latency.py script, set the OUT to 1 token.  It is also recommended to use `--enforce-eager` and set `--num-scheduler-steps 1` to get a more accurate measurement of the time that it actually takes to generate the first token.  The following command includes these recommendations.  (For a more comprehensive measurement of TTFT, use the Online Serving Benchmark.)
+
+```bash
+MODEL=amd/Llama-3.1-405B-Instruct-FP8-KV
+BS=1
+IN=128
+OUT=1
+TP=8
+
+python3 /app/vllm/benchmarks/benchmark_latency.py \
+    --distributed-executor-backend mp \
+    --quantization fp8 \
+    --kv-cache-dtype fp8 \
+    --dtype float16 \
+    --gpu-memory-utilization 0.95 \
+    --num-scheduler-steps 1 \
+    --enforce-eager \
+    --model $MODEL \
+    --max-model-len 8192 \
+    --batch-size $BS \
+    --input-len $IN \
+    --output-len $OUT \
+    --tensor-parallel-size $TP
+```
+
+For additional information about the available parameters run:
+```bash
+/app/vllm/benchmarks/benchmark_latency.py -h
+```
 
 ### Throughput Benchmark
+vLLM's benchmark_throughput.py script measures offline throughput.  It can either use an input dataset or random prompts with fixed input/output lengths.
 
-Benchmark Llama-3.1-405B FP8 with input 128 tokens, output 128 tokens and tensor parallelism 8 as an example,
+You can run latency tests for FP8 models with:
 ```bash
-    python /app/vllm/benchmarks/benchmark_throughput.py \
-    --model amd/Llama-3.1-405B-Instruct-FP8-KV \
+MODEL=amd/Llama-3.1-405B-Instruct-FP8-KV
+BS=1
+IN=128
+OUT=2048
+TP=8
+PROMPTS=1000
+MAX_NUM_SEQS=2000
+
+python3 /app/vllm/benchmarks/benchmark_throughput.py \
+    --distributed-executor-backend mp \
     --quantization fp8 \
     --kv-cache-dtype fp8 \
-    --dtype half \
-    --gpu-memory-utilization 0.99 \
-    --num-prompts 2000 \
-    --distributed-executor-backend mp \
-    --num-scheduler-steps 10 \
-    --tensor-parallel-size 8 \
-    --input-len 128 \
-    --output-len 128
-```
-If you want to run Llama-3.1-405B FP16, please run
-```bash
-    python /app/vllm/benchmarks/benchmark_throughput.py \
-    --model meta-llama/Llama-3.1-405B-Instruct \
     --dtype float16 \
-    --gpu-memory-utilization 0.9 \
-    --num-prompts 2000 \
-    --distributed-executor-backend mp \
-    --num-scheduler-steps 10 \
-    --tensor-parallel-size 8 \
-    --input-len 128 \
-    --output-len 128 \
-    --swap-space 16 \
-    --max-model-len 8192 \
+    --gpu-memory-utilization 0.95 \
     --max-num-batched-tokens 65536 \
-    --swap-space
-    --max-model-len
-    --gpu-memory-utilization 0.99
+    --num-scheduler-steps 10 \
+    --enable-chunked-prefill False \
+    --model $MODEL \
+    --input-len $IN \
+    --output-len $OUT \
+    --tensor-parallel-size $TP \
+    --num-prompts $PROMPTS \
+    --max-num-seqs $MAX_NUM_SEQS    
 ```
-For fp8 quantized Llama3.18B/70B models:
 
-   Recommend TP:1 for Llama3.1-8B, 8 for Llama3.1-70B
-   Recommend NSCHED: 10 for Llama3.1-8B, 8 for Llama3.1-70B
+For FP16 models, remove `--quantization fp8 --kv-cache-dtype fp8`.
 
-You can change various input-len, output-len, num-prompts and run the benchmark as well.
-Please note num-scheduler-step is a new feature added in vLLM 0.6.0. It can improve the decoding latency and throughput, however, it may increase the prefill latency.
+When measuring models with long context lengths, performance may improve by setting `--max-model-len` to a smaller value (8192 in this example).  It is important, however, to ensure that the `--max-model-len` is at least as large as the IN + OUT token counts.
 
-For more information about the parameters, please run
+It is important to tune vLLM’s --max-num-seqs value to an appropriate value depending on the model and input/output lengths.  Larger values will allow vLLM to leverage more of the GPU memory for KV Cache and process more prompts concurrently.  But if the value is too large, the KV cache will reach its capacity and vLLM will have to cancel and re-process some prompts.  Suggested values for various models and configurations are listed below.
 
-    /app/vllm/benchmarks/benchmark_throughput.py -h
+For models that fit on a single GPU, it is usually best to run with `--tensor-parallel-size 1`.  Requests can be distributed across multiple copies of vLLM running on different GPUs.  This will be more efficient than running a single copy of the model with `--tensor-parallel-size 8`.  (Note: the benchmark_throughput.py script does not include direct support for using multiple copies of vLLM)
 
-Tensor parallelism (TP) parameters depends on the model size. For Llama 3.1 70B and 8B model, TP 1 can be used as well for MI300X. In general, TP 8 and 1 is recommended to achieve the optimum performance.
+For optimal performance, the PROMPTS value should be a multiple of the MAX_NUM_SEQS value -- for example, if MAX_NUM_SEQS=2048 then the PROMPTS value could be 2048, 4096, etc.  If PROMPTS is smaller than MAX_NUM_SEQS then there won’t be enough prompts for vLLM to maximize concurrency.
 
-### Online Server Benchmark
+Recommended values for various configurations are listed in this table:
+
+| MODEL                              | TP | IN   | OUT  | MAX_NUM_SEQS (MI300X) | MAX_NUM_SEQS (MI325X) |
+|------------------------------------|----|------|------|-----------------------|-----------------------|
+| amd/Llama-3.1-405B-Instruct-FP8-KV | 8  | 128  | 128  | 2500                  | 3000                  |
+| amd/Llama-3.1-405B-Instruct-FP8-KV | 8  | 128  | 2048 | 1500                  | 1500                  |
+| amd/Llama-3.1-405B-Instruct-FP8-KV | 8  | 2048 | 128  | 1500                  | 1500                  |
+| amd/Llama-3.1-405B-Instruct-FP8-KV | 8  | 2048 | 2048 | 750                   | 750                   |
+| amd/Llama-3.1-70B-Instruct-FP8-KV  | 1  | 128  | 128  | 2000                  | 2000                  |
+| amd/Llama-3.1-70B-Instruct-FP8-KV  | 1  | 128  | 2048 | 250                   | 250                   |
+| amd/Llama-3.1-70B-Instruct-FP8-KV  | 1  | 2048 | 128  | 250                   | 250                   |
+| amd/Llama-3.1-70B-Instruct-FP8-KV  | 1  | 2048 | 2048 | 250                   | 250                   |
+
+For additional information about the available parameters run:
+```bash
+/app/vllm/benchmarks/benchmark_throughput.py -h
+```
+
+### Online Serving Benchmark
 
 Benchmark Llama-3.1-70B with input 4096 tokens, output 512 tokens and tensor parallelism 8 as an example,
 ```bash
-    vllm serve amd/Llama-3.1-70B-Instruct-FP8-KV \
+vllm serve amd/Llama-3.1-70B-Instruct-FP8-KV \
     --swap-space 16 \
     --disable-log-requests \
     --quantization fp8 \
@@ -284,7 +316,7 @@ Change port (for example --port 8005) if port=8000 is currently being used by ot
 
 Run client in a separate terminal. Use port_id from previous step else port-id=8000.
 ```bash
-    python /app/vllm/benchmarks/benchmark_serving.py \
+python /app/vllm/benchmarks/benchmark_serving.py \
     --port 8000 \
     --model amd/Llama-3.1-70B-Instruct-FP8-KV \
     --dataset-name random \
@@ -304,13 +336,13 @@ But multiple instances can be started simultaneously (if needed) in CPX-NPS1 mod
 
 Set GPUs in CPX mode with:
 ```bash
-    rocm-smi --setcomputepartition cpx
+rocm-smi --setcomputepartition cpx
 ```
 
 Example of running Llama3.1-8B on 1 CPX-NPS1 GPU with input 4096 and output 512. As mentioned above, tp=1.
 ```bash
-    HIP_VISIBLE_DEVICES=0 \
-    python3 /app/vllm/benchmarks/benchmark_throughput.py \
+HIP_VISIBLE_DEVICES=0 \
+python3 /app/vllm/benchmarks/benchmark_throughput.py \
     --max-model-len 4608 \
     --num-scheduler-steps 10 \
     --num-prompts 100 \
@@ -326,7 +358,7 @@ Example of running Llama3.1-8B on 1 CPX-NPS1 GPU with input 4096 and output 512.
 
 Set GPU to SPX mode.
 ```bash
-    rocm-smi --setcomputepartition spx
+rocm-smi --setcomputepartition spx
 ```
 
 ### Speculative Decoding
@@ -335,12 +367,12 @@ Speculative decoding is one of the key features in vLLM. It has been supported o
 
 Without Speculative Decoding -
 ```bash
-     python benchmark_latency.py --model amd/Llama-3.1-405B-Instruct-FP8-KV --max-model-len 26720 -tp 8 --batch-size 1 --use-v2-block-manager --input-len 1024 --output-len 128
+python benchmark_latency.py --model amd/Llama-3.1-405B-Instruct-FP8-KV --max-model-len 26720 -tp 8 --batch-size 1 --use-v2-block-manager --input-len 1024 --output-len 128
 ```
 
 With Speculative Decoding -
 ```bash
-     python benchmark_latency.py --model amd/Llama-3.1-405B-Instruct-FP8-KV --max-model-len 26720 -tp 8 --batch-size 1 --use-v2-block-manager --input-len 1024 --output-len 128 --speculative-model amd/Llama-3.1-8B-Instruct-FP8-KV --num-speculative-tokens 5
+python benchmark_latency.py --model amd/Llama-3.1-405B-Instruct-FP8-KV --max-model-len 26720 -tp 8 --batch-size 1 --use-v2-block-manager --input-len 1024 --output-len 128 --speculative-model amd/Llama-3.1-8B-Instruct-FP8-KV --num-speculative-tokens 5
 ```
 You should see some performance improvement about the e2e latency.
 
