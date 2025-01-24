@@ -161,11 +161,8 @@ class RocmPlatform(Platform):
     def get_device_name(cls, device_id: int = 0) -> str:
         physical_device_id = device_id_to_physical_device_id(device_id)
         handle = amdsmi_get_processor_handles()[physical_device_id]
-        gpu_info = amdsmi_get_gpu_asic_info(handle)
-        # Using num_cu to distinguish mi300 and mi308
-        num_cu = gpu_info["num_compute_units"]
-        gpu_target_name = gpu_info["target_graphics_version"]
-        return f"AMD_{gpu_target_name}_{num_cu}CU"
+        # Using market_name to distinguish MI300 & MI308
+        return amdsmi_get_gpu_asic_info(handle)["market_name"]
 
     @classmethod
     def get_device_total_memory(cls, device_id: int = 0) -> int:
