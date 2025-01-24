@@ -103,7 +103,7 @@ Note: the `--multi_gpu` parameter can be ommitted for small models that fit on a
 
 ### System optimization
 
-Before running performance tests you should ensure that the system is optimized according to the [ROCm Documentation][https://rocm.docs.amd.com/en/latest/how-to/system-optimization/mi300x.html].  In particular, it is important to ensure that NUMA auto-balancing is disabled.
+Before running performance tests you should ensure that the system is optimized according to the [ROCm Documentation](https://rocm.docs.amd.com/en/latest/how-to/system-optimization/mi300x.html).  In particular, it is important to ensure that NUMA auto-balancing is disabled.
 
 ### Launch AMD vLLM Docker
 
@@ -130,7 +130,7 @@ export NCCL_MIN_NCHANNELS=112
 
 ### vLLM engine performance settings
 
-vLLM provides a number of engine options which can be changed to improve performance.  Refer to the [vLLM Engine Args][https://docs.vllm.ai/en/stable/usage/engine_args.html] documentation for the complete list of vLLM engine options.
+vLLM provides a number of engine options which can be changed to improve performance.  Refer to the [vLLM Engine Args](https://docs.vllm.ai/en/stable/usage/engine_args.html) documentation for the complete list of vLLM engine options.
 
 Below is a list of a few of the key vLLM engine arguments for performance; these can be passed to the vLLM benchmark scripts:
 - **--max-model-len** : Maximum context length supported by the model instance. Can be set to a lower value than model configuration value to improve performance and gpu memory utilization.
@@ -398,7 +398,7 @@ vllm (pretrained=models--meta-llama--Llama-3.1-405B-Instruct/snapshots/069992c75
 
 ### *MLPerf* Llama-2-70B
 
-Please refer to the [Benchmarking Machine Learning using ROCm and AMD GPUs: Reproducing Our MLPerf Inference Submission — ROCm Blogs][https://rocm.blogs.amd.com/artificial-intelligence/mlperf-inf-4-1/README.html] for information on reproducing MLPerf 4.1 Inference results.  Note that due to changes in vLLM, it is not possible to use these instructions with the current rocm/vllm-dev docker image.
+Please refer to the [Benchmarking Machine Learning using ROCm and AMD GPUs: Reproducing Our MLPerf Inference Submission — ROCm Blogs](https://rocm.blogs.amd.com/artificial-intelligence/mlperf-inf-4-1/README.html) for information on reproducing MLPerf 4.1 Inference results.  Note that due to changes in vLLM, it is not possible to use these instructions with the current rocm/vllm-dev docker image.
 
 ## Version
 
