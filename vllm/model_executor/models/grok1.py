@@ -200,7 +200,7 @@ class Grok1DecoderLayer(nn.Module):
         self.hidden_size = config.hidden_size
         self.use_fp8 = isinstance(
             quant_config, Fp8Config) or (isinstance(quant_config, QuarkConfig)
-                                         and quant_config._is_fp8_w8a8)
+                                         and quant_config.is_fp8_w8a8())
         # Requires transformers > 4.32.0
         rope_theta = getattr(config, "rope_theta", 10000)
         self.attn = Grok1Attention(hidden_size=self.hidden_size,

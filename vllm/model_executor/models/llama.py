@@ -87,7 +87,7 @@ class LlamaMLP(nn.Module):
         )
         self.use_fp8 = (isinstance(quant_config, Fp8Config) or
                         (isinstance(quant_config, QuarkConfig)
-                         and quant_config._is_fp8_w8a8)
+                         and quant_config.is_fp8_w8a8())
                         if current_platform.is_rocm() and not is_navi() else
                         False)
         if hidden_act != "silu":
@@ -201,7 +201,7 @@ class LlamaAttention(nn.Module):
         # For CUDA devices and Navi4x, attn_fp8 will be set to false.
         use_fp8 = isinstance(
             quant_config, Fp8Config) or (isinstance(quant_config, QuarkConfig)
-                                         and quant_config._is_fp8_w8a8)
+                                         and quant_config.is_fp8_w8a8())
         self.attn_fp8_out = envs.VLLM_USE_ROCM_CUSTOM_PAGED_ATTN_FP8_OUT \
                         and current_platform.is_rocm() \
                         and not is_navi() \
@@ -248,7 +248,7 @@ class LlamaDecoderLayer(nn.Module):
         self.hidden_size = config.hidden_size
         self.use_fp8 = (isinstance(quant_config, Fp8Config) or
                         (isinstance(quant_config, QuarkConfig)
-                         and quant_config._is_fp8_w8a8)
+                         and quant_config.is_fp8_w8a8())
                         if current_platform.is_rocm() and not is_navi() else
                         False)
         rope_theta = getattr(config, "rope_theta", 10000)
