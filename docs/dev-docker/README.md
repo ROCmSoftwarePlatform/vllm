@@ -23,30 +23,42 @@ You can pull the most recent validated docker image with `docker pull rocm/vllm-
 - ROCm 6.3 support
 - Potential bug with Tunable Ops not saving due to a PyTorch issue
 
-Gemms are tuned using PyTorch's Tunable Ops feature (https://github.com/pytorch/pytorch/blob/main/aten/src/ATen/cuda/tunable/README.md)
-The  gemms are automatically enabled in the docker image, and all stored gemm configs are kept in /app/_gemm_csv in the same image
+## Preparation
 
-## Obtaining models
+### Obtaining access to models
 
 The vllm-dev docker image should work with any model supported by vLLM.  When running with FP8, AMD has quantized models available for a variety of popular models, or you can quantize models yourself using Quark.  The vLLM benchmark scripts will download models automatically if needed, and then store them in a HuggingFace cache directory for reuse in future tests.  Alternatively you can choose to download the model to the cache (or to another directory on the system) in advance.
 
 Many HuggingFace models, including Llama-3.1, have gated access.  You will need to an account at (https://huggingface.co), search for the model of interest, and request access to it if necessary.  You will also need to create a token for accessing these models from vLLM: open your user profile (https://huggingface.co/settings/profile), select "Access Tokens", press "+ Create New Token", and create a new Read token.
 
-### Downloading models with huggingface-cli
+### System optimization
 
-If you would like to download models directly (instead of allowing vLLM to download them automatically) you can install the HuggingFace CLI:
+Before running performance tests you should ensure that the system is optimized according to the [ROCm Documentation](https://rocm.docs.amd.com/en/latest/how-to/system-optimization/mi300x.html).  In particular, it is important to ensure that NUMA auto-balancing is disabled.
+
+### Launch AMD vLLM Docker
+
+Download and launch the docker.  The HF_TOKEN is required to be set (either here or after launching the container) if you want to allow vLLM to download gated models automatically; use your HuggingFace token in place of `<token>` in the command below:
 
 ```bash
-sudo pip install -U "huggingface_hub[cli]"
+docker run -it --rm --ipc=host --network=host --group-add render \
+    --privileged --security-opt seccomp=unconfined \
+    --cap-add=CAP_SYS_ADMIN --cap-add=SYS_PTRACE \
+    --device=/dev/kfd --device=/dev/dri --device=/dev/mem \
+    -e HF_HOME=/data \
+    -e HF_TOKEN=<token> \
+    -v /data:/data \
+    rocm/vllm-dev:main
 ```
 
-Then login using the token that you created earlier.  (Note, it is not necessary to save it as a git credential.):
+Note: The instructions in this document use `/data` to store the models.  If you choose a different directory, you will also need to make that change to the host volume mount when launching the docker container.  For example, `-v /home/username/models:/data` in place of `-v /data:/data` would store the models in /home/username/models on the host.  Some models can be quite large; please ensure that you have sufficient disk space prior to downloading the model.  Since the model download may take a long time, you may wish to use `tmux` or `screen` to avoid getting disconnected.
+
+### Downloading models with huggingface-cli
+
+If you would like to download models directly (instead of allowing vLLM to download them automatically) you can use the huggingface-cli inside the running docker container.  Login using the token that you created earlier.  (Note, it is not necessary to save it as a git credential.)
 
 ```bash
 huggingface-cli login
 ```
-
-Note: The instructions in this document use `/data` to store the models.  If you choose a different directory, you will also need to make that change to the host volume mount when launching the docker container.  Some models can be quite large; please ensure that you have sufficient disk space prior to downloading the model.  Since the model download may take a long time, you may wish to use `tmux` or `screen` to avoid getting disconnected.
 
 You can download a model to the huggingface-cache directory using a command similar to the following (substituting the name of the model you wish to download):
 
@@ -68,14 +80,13 @@ In the benchmark commands provided later in this document, replace the model nam
 
 ### Use pre-quantized models
 
-AMD has provided FP8-quantized versions of several models in order to make them easier to run on MI300X / MI325X:
+AMD has provided [FP8-quantized versions](https://huggingface.co/collections/amd/quark-quantized-ocp-fp8-models-66db7936d18fcbaf95d4405c) of several models in order to make them easier to run on MI300X / MI325X, including:
 
 - <https://huggingface.co/amd/Llama-3.1-8B-Instruct-FP8-KV>
 - <https://huggingface.co/amd/Llama-3.1-70B-Instruct-FP8-KV>
 - <https://huggingface.co/amd/Llama-3.1-405B-Instruct-FP8-KV>
-- <https://huggingface.co/amd/grok-1-FP8-KV>
 
-These models are currently private; please join <https://huggingface.co/amd> to access.
+Some models may be private to those who are members of <https://huggingface.co/amd>.
 
 These FP8 quantized checkpoints were generated with AMD’s Quark Quantizer. For more information about Quark, please refer to <https://quark.docs.amd.com/latest/quark_example_torch_llm_gen.html>
 
@@ -106,24 +117,6 @@ Note: the `--multi_gpu` parameter can be omitted for small models that fit on a 
 
 ## Performance testing with AMD vLLM Docker
 
-### System optimization
-
-Before running performance tests you should ensure that the system is optimized according to the [ROCm Documentation](https://rocm.docs.amd.com/en/latest/how-to/system-optimization/mi300x.html).  In particular, it is important to ensure that NUMA auto-balancing is disabled.
-
-### Launch AMD vLLM Docker
-
-Download and launch the docker.  The HF_TOKEN is required to be set (either here or after launching the container) if you want to allow vLLM to download gated models automatically; use your HuggingFace token in place of `<token>` in the command below:
-
-```bash
-docker run -it --rm --ipc=host --network=host --group-add render \
-    --privileged --security-opt seccomp=unconfined \
-    --cap-add=CAP_SYS_ADMIN --cap-add=SYS_PTRACE \
-    --device=/dev/kfd --device=/dev/dri --device=/dev/mem \
-    -e HF_HOME=/data \
-    -e HF_TOKEN=<token> \
-    -v /data:/data \
-    rocm/vllm-dev:main
-```
 
 ### Performance environment variables
 
@@ -144,47 +137,6 @@ Below is a list of a few of the key vLLM engine arguments for performance; these
 - **--max-num-seqs** : The maximum decode batch size (default 256). Using larger values will allow more prompts to be processed concurrently, resulting in increased throughput (possibly at the expense of higher latency).  If the value is too large, there may not be enough GPU memory for the KV cache, resulting in requests getting preempted.  The optimal value will depend on the GPU memory, model size, and maximum context length.
 - **--max-seq-len-to-capture** : Maximum sequence length for which Hip-graphs are captured and utilized. It's recommended to use Hip-graphs for the best decode performance. The default value of this parameter is 8K, which is lower than the large context lengths supported by recent models such as LLama. Set this parameter to max-model-len or maximum context length supported by the model for best performance.
 - **--gpu-memory-utilization** : The ratio of GPU memory reserved by a vLLM instance. Default value is 0.9.  Increasing the value (potentially as high as 0.99) will increase the amount of memory available for KV cache.  When running in graph mode (i.e. not using `--enforce-eager`), it may be necessary to use a slightly smaller value of 0.92 - 0.95 to ensure adequate memory is available for the HIP graph.
-
-### Online Gemm Tuning
-
-Optional: Online Gemm tuning for small decode batch sizes can improve performance in some cases. e.g. Llama 70B upto Batch size 8
-
-If you want to do limited online tuning use --enforce-eager and tune for particular batch sizes. See example below.
-
-```bash
-export PYTORCH_TUNABLEOP_TUNING=1
-export PYTORCH_TUNABLEOP_ENABLED=1
-export PYTORCH_TUNABLEOP_MAX_TUNING_DURATION_MS=100
-export PYTORCH_TUNABLEOP_MAX_WARMUP_DURATION_MS=10
-export PYTORCH_TUNABLEOP_ROTATING_BUFFER_SIZE=1024
-export PYTORCH_TUNABLEOP_FILENAME=/app/tuned_gemm_csv/bench_latency_tune_device_%d_full.csv
-```
-
-Run the following command for BS=1/2/4/8:
-
-```bash
-for BS in 1 2 4 8
-do
-    python /app/vllm/benchmarks/benchmark_latency.py \
-    --model <path to Llama-3.1-70B-Instruct-FP8-KV> \
-    --quantization fp8 \
-    --kv-cache-dtype fp8 \
-    --dtype float16 \
-    --max-model-len 8192 \
-    --num-iters-warmup 5 \
-    --num-iters 5 \
-    --tensor-parallel-size 8 \
-    --input-len 4096 \
-    --output-len 512 \
-    --batch-size ${BS} \
-    --num-scheduler-steps 10 \
-    --enforce-eager
-done
-```
-
-The tuned file will be generated for device 0 only at /app/tuned_gemm_csv/bench_latency_tune_device_0_full.csv. Copy this file to /app/tuned_gemm_csv/bench_latency_tune_device_\<D\>_full.csv for D=1 through 7.
-
-After the above steps, retain the environment variables set earlier, but set export PYTORCH_TUNABLEOP_TUNING=0 to disable online tuning, and use the tuned solutions.
 
 ### Latency Benchmark
 
@@ -424,17 +376,7 @@ vllm (pretrained=models--meta-llama--Llama-3.1-405B-Instruct/snapshots/069992c75
 
 Please refer to the [Benchmarking Machine Learning using ROCm and AMD GPUs: Reproducing Our MLPerf Inference Submission — ROCm Blogs](https://rocm.blogs.amd.com/artificial-intelligence/mlperf-inf-4-1/README.html) for information on reproducing MLPerf 4.1 Inference results.  Note that due to changes in vLLM, it is not possible to use these instructions with the current rocm/vllm-dev docker image.
 
-## Version
-
-### Release Notes
-
-20240906a: Legacy quantization formats required `--quantization fp8_rocm` as a flag instead of `--quantization fp8`
-
-Updated:
-
-vLLM: <https://github.com/ROCm/vllm/commit/2c60adc83981ada77a77b2adda78ef109d2e2e2b>
-
-### Docker Manifest
+## Docker Manifest
 
 To reproduce the release docker:
 
