@@ -223,20 +223,7 @@ It is important to tune vLLM’s --max-num-seqs value to an appropriate value de
 
 For models that fit on a single GPU, it is usually best to run with `--tensor-parallel-size 1`.  Requests can be distributed across multiple copies of vLLM running on different GPUs.  This will be more efficient than running a single copy of the model with `--tensor-parallel-size 8`.  (Note: the benchmark_throughput.py script does not include direct support for using multiple copies of vLLM)
 
-For optimal performance, the PROMPTS value should be a multiple of the MAX_NUM_SEQS value -- for example, if MAX_NUM_SEQS=2048 then the PROMPTS value could be 2048, 4096, etc.  If PROMPTS is smaller than MAX_NUM_SEQS then there won’t be enough prompts for vLLM to maximize concurrency.
-
-Recommended values for various configurations are listed in this table:
-
-| MODEL                              | TP | IN   | OUT  | PROMPTS | MAX_NUM_SEQS |
-|------------------------------------|----|------|------|---------|--------------|
-| amd/Llama-3.1-70B-Instruct-FP8-KV  | 8  | 128  | 2048 | 3200    | 3200         |
-| amd/Llama-3.1-70B-Instruct-FP8-KV  | 8  | 128  | 4096 | 1500    | 1500         |
-| amd/Llama-3.1-70B-Instruct-FP8-KV  | 8  | 500  | 2000 | 2000    | 2000         |
-| amd/Llama-3.1-70B-Instruct-FP8-KV  | 8  | 2048 | 2048 | 1500    | 1500         |
-| amd/Llama-3.1-405B-Instruct-FP8-KV | 8  | 128  | 2048 | 1500    | 1500         |
-| amd/Llama-3.1-405B-Instruct-FP8-KV | 8  | 128  | 4096 | 1500    | 1500         |
-| amd/Llama-3.1-405B-Instruct-FP8-KV | 8  | 500  | 2000 | 2000    | 2000         |
-| amd/Llama-3.1-405B-Instruct-FP8-KV | 8  | 2048 | 2048 | 500     | 500          |
+For optimal performance, the PROMPTS value should be a multiple of the MAX_NUM_SEQS value -- for example, if MAX_NUM_SEQS=1500 then the PROMPTS value could be 1500, 3000, etc.  If PROMPTS is smaller than MAX_NUM_SEQS then there won’t be enough prompts for vLLM to maximize concurrency.
 
 For additional information about the available parameters run:
 
