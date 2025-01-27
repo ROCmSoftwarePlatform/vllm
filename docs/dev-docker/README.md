@@ -101,10 +101,13 @@ First download the model from <https://huggingface.co/meta-llama/Llama-3.1-405B>
 Run the quantization script in the example folder using the following command line:
 
 ```bash
-export MODEL_DIR = /data/llama-3.1/Llama-3.1-405B-Instruct
-    python3 quantize_quark.py \
+# path to quark was quantization script
+export QUARK_DIR=/data/quark-0.6.0+dba9ca364/examples/torch/language_modeling/llm_ptq/quantize_quark.py
+# path to Model 
+export MODEL_DIR=/data/llama-3.1/Llama-3.1-405B-Instruct
+    python3 $QUARK_DIR \
     --model_dir $MODEL_DIR \
-    --output_dir Llama-3.1-405B-Instruct-FP8-KV \                           
+    --output_dir Llama-3.1-405B-Instruct-FP8-KV \
     --quant_scheme w_fp8_a_fp8 \
     --kv_cache_dtype fp8 \
     --num_calib_data 128 \
@@ -123,7 +126,6 @@ Some environment variables enhance the performance of the vLLM kernels on the MI
 
 ```bash
 export VLLM_USE_TRITON_FLASH_ATTN=0
-export NCCL_MIN_NCHANNELS=112
 ```
 
 ### vLLM engine performance settings
@@ -144,6 +146,7 @@ vLLM's benchmark_latency.py script measures end-to-end latency for a specified m
 You can run latency tests for FP8 models with:
 
 ```bash
+export VLLM_USE_TRITON_FLASH_ATTN=0
 MODEL=amd/Llama-3.1-405B-Instruct-FP8-KV
 BS=1
 IN=128
@@ -186,6 +189,7 @@ vLLM's benchmark_throughput.py script measures offline throughput.  It can eithe
 You can run latency tests for FP8 models with:
 
 ```bash
+export VLLM_USE_TRITON_FLASH_ATTN=0
 MODEL=amd/Llama-3.1-405B-Instruct-FP8-KV
 BS=1
 IN=128
@@ -228,7 +232,7 @@ For optimal performance, the PROMPTS value should be a multiple of the MAX_NUM_S
 For additional information about the available parameters run:
 
 ```bash
-/app/vllm/benchmarks/benchmark_throughput.py -h
+python3 /app/vllm/benchmarks/benchmark_throughput.py -h
 ```
 
 ### Online Serving Benchmark
@@ -236,6 +240,7 @@ For additional information about the available parameters run:
 Benchmark Llama-3.1-70B with input 4096 tokens, output 512 tokens and tensor parallelism 8 as an example,
 
 ```bash
+export VLLM_USE_TRITON_FLASH_ATTN=0
 vllm serve amd/Llama-3.1-70B-Instruct-FP8-KV \
     --swap-space 16 \
     --disable-log-requests \
@@ -310,13 +315,15 @@ Speculative decoding is one of the key features in vLLM. It has been supported o
 Without Speculative Decoding -
 
 ```bash
-python benchmark_latency.py --model amd/Llama-3.1-405B-Instruct-FP8-KV --max-model-len 26720 -tp 8 --batch-size 1 --use-v2-block-manager --input-len 1024 --output-len 128
+export VLLM_USE_TRITON_FLASH_ATTN=0
+python /app/vllm/benchmarks/benchmark_latency.py --model amd/Llama-3.1-405B-Instruct-FP8-KV --max-model-len 26720 -tp 8 --batch-size 1 --input-len 1024 --output-len 128
 ```
 
 With Speculative Decoding -
 
 ```bash
-python benchmark_latency.py --model amd/Llama-3.1-405B-Instruct-FP8-KV --max-model-len 26720 -tp 8 --batch-size 1 --use-v2-block-manager --input-len 1024 --output-len 128 --speculative-model amd/Llama-3.1-8B-Instruct-FP8-KV --num-speculative-tokens 5
+export VLLM_USE_TRITON_FLASH_ATTN=0
+python /app/vllm/benchmarks/benchmark_latency.py --model amd/Llama-3.1-405B-Instruct-FP8-KV --max-model-len 26720 -tp 8 --batch-size 1 --input-len 1024 --output-len 128 --speculative-model amd/Llama-3.1-8B-Instruct-FP8-KV --num-speculative-tokens 5
 ```
 
 You should see some performance improvement about the e2e latency.
