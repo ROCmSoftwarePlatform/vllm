@@ -181,8 +181,6 @@ def apply_fp8_linear(
                                       scale_a=x_scale,
                                       scale_b=weight_scale.t(),
                                       bias=bias)
-            # TODO: I am not sure how true is the following statement for
-            # this condition branch
             # A fix for discrepancy in scaled_mm which returns tuple
             # for torch < 2.5 and a single value in torch >= 2.5
             if type(output) is tuple and len(output) == 2:
