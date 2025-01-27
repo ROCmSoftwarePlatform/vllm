@@ -101,7 +101,7 @@ First download the model from <https://huggingface.co/meta-llama/Llama-3.1-405B>
 Run the quantization script in the example folder using the following command line:
 
 ```bash
-# path to quark was quantization script
+# path to quark quantization script
 export QUARK_DIR=/data/quark-0.6.0+dba9ca364/examples/torch/language_modeling/llm_ptq/quantize_quark.py
 # path to Model 
 export MODEL_DIR=/data/llama-3.1/Llama-3.1-405B-Instruct
