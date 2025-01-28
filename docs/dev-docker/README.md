@@ -402,7 +402,7 @@ python3 /app/vllm/benchmarks/benchmark_throughput.py \
     --max-model-len 4608 \
     --num-scheduler-steps 10 \
     --num-prompts 100 \
-    --model amd/Llama-3.1-70B-Instruct-FP8-KV \
+    --model amd/Llama-3.1-8B-Instruct-FP8-KV \
     --input-len 4096 \
     --output-len 512 \
     --dtype float16 \
