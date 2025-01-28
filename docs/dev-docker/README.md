@@ -43,6 +43,7 @@ The table below shows performance data where a local inference client is fed req
 |       |           |         | 128   | 4096   | 1500        | 1500         | 3171                  |
 |       |           |         | 500   | 2000   | 2000        | 2000         | 2985                  |
 |       |           |         | 2048  | 2048   | 500         | 500          | 1999                  |
+
 *TP stands for Tensor Parallelism.*
 ## Latency Measurements
 
@@ -82,6 +83,7 @@ The table below shows latency measurement, which typically involves assessing th
 | | | | 32 | 2048 | 2048 | 80687.64 |
 | | | | 64 | 2048 | 2048 | 108503.12 |
 | | | | 128 | 2048 | 2048 | 168845.50 |
+
 *TP stands for Tensor Parallelism.*
 
 ## Reproducing Benchmarked Results 
