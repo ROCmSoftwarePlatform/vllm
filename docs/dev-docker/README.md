@@ -22,7 +22,7 @@ Pull the most recent validated docker image with `docker pull rocm/vllm-dev:main
 
 - ROCm 6.3 support
 - Potential bug with Tunable Ops not saving due to a PyTorch issue
-- [Experimental DeepSeek-V3 and DeepSeek-R1 support](###Running-DeepSeek-V3-and-DeepSeek-R1) 
+- [Experimental DeepSeek-V3 and DeepSeek-R1 support](###running-deepseekv3-and-deepseekr1) 
 
 
 ## Performance Results
@@ -341,7 +341,7 @@ Once all prompts are processed, terminate the server gracefully (ctrl+c).
 
 
 
-### Running DeepSeek V3 and DeepSeek R1
+### Running DeepSeek-V3 and DeepSeek-R1
 
 We have experimental support for running both DeepSeek-V3 and DeepSeek-R1 models.
 *Note there are currently limitations and `--max-model-len` cannot be greater than 32768*
