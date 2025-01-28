@@ -20,8 +20,10 @@ Pull the most recent validated docker image with `docker pull rocm/vllm-dev:main
 
 ## What is New
 
-- ROCm 6.3 support
-- Potential bug with Tunable Ops not saving due to a PyTorch issue
+20250124:
+- Fix accuracy issue with 405B FP8 Triton FA
+- Fixed accuracy issue with TP8 
+20250117:
 - [Experimental DeepSeek-V3 and DeepSeek-R1 support](#running-deepseek-v3-and-deepseek-r1) 
 
 
@@ -469,6 +471,6 @@ To reproduce the release docker:
 ```bash
     git clone https://github.com/ROCm/vllm.git
     cd vllm
-    git checkout 84f5d47b04c26bd07721cc9c76d84b0915d7afd3
+    git checkout 8e87b08c2a284c1a20eb3d8e0fbdc84918bf27dc
     docker build -f Dockerfile.rocm -t <your_tag> --build-arg BUILD_HIPBLASLT=1 --build-arg USE_CYTHON=1 .
 ```
