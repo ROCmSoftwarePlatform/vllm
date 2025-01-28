@@ -22,6 +22,7 @@ Pull the most recent validated docker image with `docker pull rocm/vllm-dev:main
 
 - ROCm 6.3 support
 - Potential bug with Tunable Ops not saving due to a PyTorch issue
+- [Experimental DeepSeek-V3 and DeepSeek-R1 support](###Running-DeepSeek-V3-and-DeepSeek-R1) 
 
 
 ## Performance Results
@@ -337,6 +338,49 @@ python /app/vllm/benchmarks/benchmark_serving.py \
 
 Once all prompts are processed, terminate the server gracefully (ctrl+c).
 
+
+
+
+### Running DeepSeek V3 and DeepSeek R1
+
+We have experimental support for running both DeepSeek-V3 and DeepSeek-R1 models.
+*Note there are currently limitations and `--max-model-len` cannot be greater than 32768*
+```bash
+docker run -it --rm --ipc=host --network=host --group-add render \
+    --privileged --security-opt seccomp=unconfined \
+    --cap-add=CAP_SYS_ADMIN --cap-add=SYS_PTRACE \
+    --device=/dev/kfd --device=/dev/dri --device=/dev/mem \
+    -e VLLM_USE_TRITON_FLASH_ATTN=0 \
+    -e VLLM_FP8_PADDING=0 \
+    rocm/vllm-dev:main
+# Online serving
+vllm serve deepseek-ai/DeepSeek-V3 \
+    --disable-log-requests \
+    --tensor-parallel-size 8 \
+    --trust-remote-code \
+    --max-model-len 32768 
+
+python3 /app/vllm/benchmarks/benchmark_serving.py \
+    --backend vllm \
+    --model deepseek-ai/DeepSeek-V3 \
+    --max-concurrency 256\
+    --dataset-name random \
+    --random-input-len 128 \
+    --random-output-len 128 \
+    --num-prompts 1000
+
+# Offline throughput 
+python3 /app/vllm/benchmarks/benchmark_throughput.py --model deepseek-ai/DeepSeek-V3 \
+    --input-len <> --output-len <> --tensor-parallel-size 8 \
+    --quantization fp8 --kv-cache-dtype fp8 --dtype float16 \
+    --max-model-len 32768 --trust-remote-code
+# Offline Latency
+python benchmarks/benchmark_latency.py --model deepseek-ai/DeepSeek-V3 \
+--tensor-parallel-size 8 --trust-remote-code --max-model-len 32768 \
+--batch-size <> --input-len <> --output-len <>
+```
+
+
 ### CPX mode
 
 Currently only CPX-NPS1 mode is supported. So ONLY tp=1 is supported in CPX mode.
@@ -391,6 +435,7 @@ python /app/vllm/benchmarks/benchmark_latency.py --model amd/Llama-3.1-405B-Inst
 ```
 
 You should see some performance improvement about the e2e latency.
+
 
 ## MMLU_PRO_Biology Accuracy Evaluation
 
