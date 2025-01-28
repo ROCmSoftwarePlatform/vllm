@@ -701,13 +701,15 @@ __launch_bounds__(NUM_THREADS, 5) void paged_attention_ll4mi_QKV_mfma16_kernel(
 
   __syncthreads();
 
+  // disable rtz conversion due to its impact on accuracy.
   constexpr bool LOGITS_RTZ_CONVERSION = false;
 
   // write logits to shared mem
   for (int token_depth = 0; token_depth < TLOOP; token_depth++) {
     dout[token_depth] *= inv_sum_scale;
     if constexpr (LOGITS_RTZ_CONVERSION) {
-      // use rtz conversion for performance, with no visible impact on accuracy
+      // use rtz conversion for better performance, with negligible impact on
+      // accuracy.
       shared_logits[warpid][token_depth][lane16id][rowid] =
           from_floatx4_rtz<scalar_t>(dout[token_depth]);
     } else {
