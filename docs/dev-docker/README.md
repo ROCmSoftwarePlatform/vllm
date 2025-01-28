@@ -22,7 +22,7 @@ Pull the most recent validated docker image with `docker pull rocm/vllm-dev:main
 
 - ROCm 6.3 support
 - Potential bug with Tunable Ops not saving due to a PyTorch issue
-- [Experimental DeepSeek-V3 and DeepSeek-R1 support](###running-deepseekv3-and-deepseekr1) 
+- [Experimental DeepSeek-V3 and DeepSeek-R1 support](#running-deepseek-v3-and-deepseek-r1) 
 
 
 ## Performance Results
