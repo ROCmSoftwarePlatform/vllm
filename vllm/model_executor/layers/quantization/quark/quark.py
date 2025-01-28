@@ -154,13 +154,15 @@ class QuarkConfig(QuantizationConfig):
             return False
 
     def is_fp8_w8a8(self) -> bool:
-        # Returns True if all quantized layers in model are fp8 w8a8.
-        global_quant_config = self.quant_config.get("global_quant_config")
-        layer_quant_configs = self.quant_config.get("layer_quant_config")
-        for quant_config in (global_quant_config,
-                             *layer_quant_configs.values()):
-            if not self._is_fp8_w8a8(quant_config.get("weight"),
-                                     quant_config.get("input_tensors")):
+        # Returns True if all quantized layers in model are fp8 w8a8
+        global_quant_config = cast(
+            Dict[str, Any], self.quant_config.get("global_quant_config"))
+        layer_quant_configs = cast(Dict[str, Any],
+                                   self.quant_config.get("layer_quant_config"))
+        for config in (global_quant_config, *layer_quant_configs.values()):
+            weight_config = cast(Dict[str, Any], config.get("weight"))
+            input_config = cast(Dict[str, Any], config.get("input_tensors"))
+            if not self._is_fp8_w8a8(weight_config, input_config):
                 return False
         return True
 
