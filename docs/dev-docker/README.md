@@ -1,6 +1,6 @@
-# vllm FP8 Latency and Throughput benchmarks with vLLM on the AMD Instinct™ MI300X accelerator 
+# vllm FP8 Latency and Throughput benchmarks with vLLM on the AMD Instinct™ MI300X accelerator
 
-Documentation for Inferencing with vLLM on AMD Instinct™ MI300X platforms. 
+Documentation for Inferencing with vLLM on AMD Instinct™ MI300X platforms.
 
 ## Overview
 
@@ -28,7 +28,7 @@ Pull the most recent validated docker image with `docker pull rocm/vllm-dev:main
 
 ## Performance Results
 
-The data in the following tables is a reference point to help users validate observed performance. It should not be considered as the peak performance that can be delivered by AMD Instinct™ MI300X accelerator with vLLM. See the MLPerf section in this document for information about MLPerf 4.1 inference results. The performance numbers above were collected using the steps below. 
+The data in the following tables is a reference point to help users validate observed performance. It should not be considered as the peak performance that can be delivered by AMD Instinct™ MI300X accelerator with vLLM. See the MLPerf section in this document for information about MLPerf 4.1 inference results. The performance numbers above were collected using the steps below.
 
 ### Throughput Measurements
 
@@ -46,6 +46,7 @@ The table below shows performance data where a local inference client is fed req
 |       |           |         | 2048  | 2048   | 500         | 500          | 1999                  |
 
 *TP stands for Tensor Parallelism.*
+
 ## Latency Measurements
 
 The table below shows latency measurement, which typically involves assessing the time from when the system receives an input to when the model produces a result.
