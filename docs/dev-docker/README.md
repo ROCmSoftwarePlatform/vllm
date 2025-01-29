@@ -462,7 +462,7 @@ vllm (pretrained=models--meta-llama--Llama-3.1-405B-Instruct/snapshots/069992c75
 ### MLPerf Performance Results
 #### LLama-2-70B
 
-Please refer to the [Benchmarking Machine Learning using ROCm and AMD GPUs: Reproducing Our MLPerf Inference Submission — ROCm Blogs](https://rocm.blogs.amd.com/artificial-intelligence/mlperf-inf-4-1/README.html) for information on reproducing MLPerf 4.1 Inference results.  Note that due to changes in vLLM, it is not possible to use these instructions with the current rocm/vllm-dev docker image. Due to recent changes in vLLM, the instructions for MLPerf 4.1 submittion do not apply to the current rocm/vllm-dev docker image.
+Please refer to the [Benchmarking Machine Learning using ROCm and AMD GPUs: Reproducing Our MLPerf Inference Submission — ROCm Blogs](https://rocm.blogs.amd.com/artificial-intelligence/mlperf-inf-4-1/README.html) for information on reproducing MLPerf 4.1 Inference results.  Note that due to changes in vLLM, it is not possible to use these instructions with the current rocm/vllm-dev docker image. Due to recent changes in vLLM, the instructions for MLPerf 4.1 submission do not apply to the current rocm/vllm-dev docker image.
 
 ## Docker Manifest
 
