@@ -22,19 +22,17 @@ Pull the most recent validated docker image with `docker pull rocm/vllm-dev:main
 
 20250124:
 - Fix accuracy issue with 405B FP8 Triton FA
-- Fixed accuracy issue with TP8 
+- Fixed accuracy issue with TP8
 20250117:
-- [Experimental DeepSeek-V3 and DeepSeek-R1 support](#running-deepseek-v3-and-deepseek-r1) 
-
+- [Experimental DeepSeek-V3 and DeepSeek-R1 support](#running-deepseek-v3-and-deepseek-r1)
 
 ## Performance Results
 
 The data in the following tables is a reference point to help users validate observed performance. It should not be considered as the peak performance that can be delivered by AMD Instinct™ MI300X accelerator with vLLM. See the MLPerf section in this document for information about MLPerf 4.1 inference results. The performance numbers above were collected using the steps below. 
 
+### Throughput Measurements
 
-### Throughput Measurements 
-
-The table below shows performance data where a local inference client is fed requests at an infinite rate and shows the throughput client-server scenario under maximum load. 
+The table below shows performance data where a local inference client is fed requests at an infinite rate and shows the throughput client-server scenario under maximum load.
 
 | Model | Precision | TP Size | Input | Output | Num Prompts | Max Num Seqs | Throughput (tokens/s) |
 |-------|-----------|---------|-------|--------|-------------|--------------|-----------------------|
@@ -50,7 +48,7 @@ The table below shows performance data where a local inference client is fed req
 *TP stands for Tensor Parallelism.*
 ## Latency Measurements
 
-The table below shows latency measurement, which typically involves assessing the time from when the system receives an input to when the model produces a result. 
+The table below shows latency measurement, which typically involves assessing the time from when the system receives an input to when the model produces a result.
 
 | Model | Precision | TP Size | Batch Size | Input | Output | MI300X Latency (ms) |
 |-------|-----------|----------|------------|--------|---------|-------------------|
@@ -89,9 +87,9 @@ The table below shows latency measurement, which typically involves assessing th
 
 *TP stands for Tensor Parallelism.*
 
-## Reproducing Benchmarked Results 
+## Reproducing Benchmarked Results
 
-### Preparation - Obtaining access to models 
+### Preparation - Obtaining access to models
 
 The vllm-dev docker image should work with any model supported by vLLM.  When running with FP8, AMD has quantized models available for a variety of popular models, or you can quantize models yourself using Quark.  If needed, the vLLM benchmark scripts will automatically download models and then store them in a Hugging Face cache directory for reuse in future tests. Alternatively, you can choose to download the model to the cache (or to another directory on the system) in advance.
 
@@ -122,7 +120,7 @@ Note: The instructions in this document use `/data` to store the models.  If you
 
 ### Downloading models with huggingface-cli
 
-If you would like want to download models directly (instead of allowing vLLM to download them automatically), you can use the huggingface-cli inside the running docker container. (remove an extra white space) Login using the token that you created earlier. (Note, it is not necessary to save it as a git credential.) 
+If you would like want to download models directly (instead of allowing vLLM to download them automatically), you can use the huggingface-cli inside the running docker container. (remove an extra white space) Login using the token that you created earlier. (Note, it is not necessary to save it as a git credential.)
 
 ```bash
 huggingface-cli login
@@ -340,13 +338,11 @@ python /app/vllm/benchmarks/benchmark_serving.py \
 
 Once all prompts are processed, terminate the server gracefully (ctrl+c).
 
-
-
-
 ### Running DeepSeek-V3 and DeepSeek-R1
 
 We have experimental support for running both DeepSeek-V3 and DeepSeek-R1 models.
 *Note there are currently limitations and `--max-model-len` cannot be greater than 32768*
+
 ```bash
 docker run -it --rm --ipc=host --network=host --group-add render \
     --privileged --security-opt seccomp=unconfined \
@@ -381,7 +377,6 @@ python benchmarks/benchmark_latency.py --model deepseek-ai/DeepSeek-V3 \
 --tensor-parallel-size 8 --trust-remote-code --max-model-len 32768 \
 --batch-size <> --input-len <> --output-len <>
 ```
-
 
 ### CPX mode
 
@@ -438,7 +433,6 @@ python /app/vllm/benchmarks/benchmark_latency.py --model amd/Llama-3.1-405B-Inst
 
 You should see some performance improvement about the e2e latency.
 
-
 ## MMLU_PRO_Biology Accuracy Evaluation
 
 ### FP16
@@ -460,6 +454,7 @@ vllm (pretrained=models--meta-llama--Llama-3.1-405B-Instruct/snapshots/069992c75
 ## Performance
 
 ### MLPerf Performance Results
+
 #### LLama-2-70B
 
 Please refer to the [Benchmarking Machine Learning using ROCm and AMD GPUs: Reproducing Our MLPerf Inference Submission — ROCm Blogs](https://rocm.blogs.amd.com/artificial-intelligence/mlperf-inf-4-1/README.html) for information on reproducing MLPerf 4.1 Inference results.  Note that due to changes in vLLM, it is not possible to use these instructions with the current rocm/vllm-dev docker image. Due to recent changes in vLLM, the instructions for MLPerf 4.1 submission do not apply to the current rocm/vllm-dev docker image.
