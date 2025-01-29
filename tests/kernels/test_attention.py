@@ -182,7 +182,7 @@ def test_paged_attention(
     key_cache, value_cache = key_caches[0], value_caches[0]
 
     # Using default kv_scale
-    k_scale = v_scale = torch.tensor(1.0, dtype=torch.float32)
+    k_scale = v_scale = torch.tensor(1.0, dtype=torch.float32, device=device)
 
     # additional argument for v1/v2 pa kernel
     num_threads = 1024 if current_platform.is_rocm() \
