@@ -19,16 +19,16 @@ steps:
         - exit_status: -10  # Agent was lost
           limit: 5
     agents:
-      queue: amd-cpu
+      queue: amd_gpu
 
 {% for step in steps %}
 {% if step.mirror_hardwares and "amd" in step.mirror_hardwares %}
   - label: "AMD: {{ step.label }}"
-    depends_on: 
-      - "amd-build"
+    depends_on: ~
     agents:
-      queue: amd_gpu
+      queue: default
     commands: 
+      - "docker build --build-arg max_jobs=16 --tag {{ docker_image_amd }} -f Dockerfile.rocm --progress plain ."
       - bash .buildkite/run-amd-test.sh "cd {{ (step.working_dir or default_working_dir) | safe  }} ; {{ step.command  or (step.commands | join(" && ")) | safe }}"
     env:
       DOCKER_BUILDKIT: "1"
