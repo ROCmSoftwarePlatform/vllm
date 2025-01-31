@@ -33,20 +33,20 @@ class QuarkW8A8Fp8(QuarkScheme):
         # tensor scales (thus N scales being passed to the kernel),
         # requantize so we can always run per tensor
         if self.qscheme == "per_tensor":
-            max_w_scale, weight = requantize_with_max_scale(
-                weight=layer.weight,
-                weight_scale=layer.weight_scale,
-                logical_widths=layer.logical_widths,
-            )
-
             if current_platform.is_rocm():
                 weight, max_w_scale, input_scale = normalize_e4m3fn_to_e4m3fnuz(
-                    weight=weight,
-                    weight_scale=max_w_scale,
+                    weight=layer.weight,
+                    weight_scale=layer.weight_scale,
                     input_scale=layer.input_scale)
                 if input_scale is not None:
                     layer.input_scale = Parameter(input_scale,
                                                   requires_grad=False)
+
+            max_w_scale, weight = requantize_with_max_scale(
+                weight=weight,
+                weight_scale=max_w_scale,
+                logical_widths=layer.logical_widths,
+            )
 
             layer.weight = Parameter(weight.t(), requires_grad=False)
             layer.weight_scale = Parameter(max_w_scale, requires_grad=False)
