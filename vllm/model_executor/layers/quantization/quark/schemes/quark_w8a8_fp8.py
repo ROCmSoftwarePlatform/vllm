@@ -38,9 +38,10 @@ class QuarkW8A8Fp8(QuarkScheme):
                     weight=layer.weight,
                     weight_scale=layer.weight_scale,
                     input_scale=layer.input_scale)
-                if input_scale is not None:
-                    layer.input_scale = Parameter(input_scale,
-                                                  requires_grad=False)
+            else:
+                max_w_scale = layer.weight_scale
+                weight = layer.weight
+                input_scale = layer.input_scape
 
             max_w_scale, weight = requantize_with_max_scale(
                 weight=weight,
@@ -50,6 +51,8 @@ class QuarkW8A8Fp8(QuarkScheme):
 
             layer.weight = Parameter(weight.t(), requires_grad=False)
             layer.weight_scale = Parameter(max_w_scale, requires_grad=False)
+            if input_scale is not None:
+                layer.input_scale = Parameter(input_scale, requires_grad=False)
 
         # If channelwise, scales are already lined up, so just transpose.
         elif self.qscheme == "per_channel":
