@@ -434,6 +434,11 @@ python /app/vllm/benchmarks/benchmark_latency.py --model amd/Llama-3.1-405B-Inst
 
 You should see some performance improvement about the e2e latency.
 
+### AITER
+
+To get [AITER](https://github.com/ROCm/aiter) kernels support, follow the [Docker build steps](#Docker-manifest) using the [aiter_intergration_final](https://github.com/ROCm/vllm/tree/aiter_intergration_final) branch  
+There is a published release candidate image at `rocm/vllm-dev:nightly_aiter_intergration_final_20250130`
+
 ## MMLU_PRO_Biology Accuracy Evaluation
 
 ### FP16
