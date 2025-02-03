@@ -439,7 +439,8 @@ You should see some performance improvement about the e2e latency.
 To get [AITER](https://github.com/ROCm/aiter) kernels support, follow the [Docker build steps](#Docker-manifest) using the [aiter_intergration_final](https://github.com/ROCm/vllm/tree/aiter_intergration_final) branch  
 There is a published release candidate image at `rocm/vllm-dev:nightly_aiter_intergration_final_20250130`
 
-To enable the feature make sure the following environment is set: `VLLM_USE_AITER=1`
+To enable the feature make sure the following environment is set: `VLLM_USE_AITER=1`.  
+The default value is `0` in vLLM, but is set to `1` in the aiter docker.
 
 ## MMLU_PRO_Biology Accuracy Evaluation
 
