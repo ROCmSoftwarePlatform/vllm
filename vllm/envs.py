@@ -538,6 +538,12 @@ environment_variables: Dict[str, Callable[[], Any]] = {
     "VLLM_USE_V1":
     lambda: bool(int(os.getenv("VLLM_USE_V1", "0"))),
 
+    # Try to accumulate this many requests before proceeding
+    "VLLM_SYNC_SERVER_ACCUM_REQUESTS":
+    lambda: int(os.getenv("VLLM_SYNC_SERVER_ACCUM_REQUESTS", "1")),
+    "VLLM_SYNC_SERVER_ENGINE_STEPS_BETWEEN_POLLS":
+    lambda: int(os.getenv("VLLM_SYNC_SERVER_ENGINE_STEPS_BETWEEN_POLLS", "1")),
+
     # Pad the weight for moe kernel or not
     "VLLM_MOE_PADDING":
     lambda: bool(int(os.getenv("VLLM_MOE_PADDING", "0"))),
