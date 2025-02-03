@@ -475,3 +475,14 @@ To reproduce the release docker:
     git checkout 8e87b08c2a284c1a20eb3d8e0fbdc84918bf27dc
     docker build -f Dockerfile.rocm -t <your_tag> --build-arg BUILD_HIPBLASLT=1 --build-arg USE_CYTHON=1 .
 ```
+
+### AITER
+
+Use Aiter release candidate branch instead:
+
+```bash
+    git clone https://github.com/ROCm/vllm.git
+    cd vllm
+    git checkout aiter_intergration_final
+    docker build -f Dockerfile.rocm -t <your_tag> --build-arg BUILD_HIPBLASLT=1 --build-arg USE_CYTHON=1 .
+```
