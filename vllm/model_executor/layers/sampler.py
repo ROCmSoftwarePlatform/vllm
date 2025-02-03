@@ -839,19 +839,25 @@ def _sample_with_torch(
                 sampled_token_ids_tensor[long_sample_indices] = \
                     multinomial_samples[sampling_type].to(torch.long)
         elif sampling_type == SamplingType.FORCED:
-            forced_samples = torch.tensor([],dtype=torch.int32,device='cuda:0')
-            for sgidx in range(len(seq_groups)): 
-                if (seq_groups[sgidx].sampling_params.future_context is not None):
+            forced_samples = torch.tensor([],
+                                          dtype=torch.int32,
+                                          device='cuda:0')
+            for sgidx in range(len(seq_groups)):
+                if (seq_groups[sgidx].sampling_params.future_context
+                        is not None):
                     forced_sample = torch.tensor([
-                        seq_groups[sgidx].sampling_params.future_context[sgidx][min(
+                        seq_groups[sgidx].sampling_params.future_context[sgidx]
+                        [min(
                             len(sampling_metadata.seq_groups[sgidx].seq_data[
                                 sampling_params.cntr[sgidx]].output_token_ids),
-                            len(seq_groups[sgidx].sampling_params.future_context[sgidx]) -
-                            1)]
-                    ],device='cuda:0')
+                            len(seq_groups[sgidx].sampling_params.
+                                future_context[sgidx]) - 1)]
+                    ],
+                                                 device='cuda:0')
                 else:
                     forced_sample = torch.argmax(logprobs[long_sample_indices],
-                                              dim=-1,device='cuda:0')
+                                                 dim=-1,
+                                                 device='cuda:0')
                 forced_samples = torch.cat([forced_samples, forced_sample])
 
         elif sampling_type == SamplingType.BEAM:

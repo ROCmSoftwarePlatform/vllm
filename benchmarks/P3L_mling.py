@@ -51,6 +51,8 @@ https://confluence.amd.com/display/MLSE/Multi-Lingual+P3L+Test
 
 for the complete set of possible language-scripture choices.
 
+Running the script with multiple batches is possible 
+by specifying the --batch-size parameter.
 
 """
 
@@ -181,25 +183,29 @@ def main(args: argparse.Namespace):
         my_sampl_par.cntr = []
 
         for b in range(my_batchsize):
-            if(c+b)<my_n_patches :
-                upper_boundary = min((c + b + 1) * my_n_samples + args.context_size,
-                             len(my_test_enc['input_ids']))
-                CONTEXT.append(my_test_enc['input_ids'][(c + b) * my_n_samples:(c + b) * my_n_samples +
-                                      args.context_size])
+            if (c + b) < my_n_patches:
+                upper_boundary = min(
+                    (c + b + 1) * my_n_samples + args.context_size,
+                    len(my_test_enc['input_ids']))
+                CONTEXT.append(
+                    my_test_enc['input_ids'][(c + b) * my_n_samples:(c + b) *
+                                             my_n_samples + args.context_size])
 
-                my_sampl_par.future_context.append(my_test_enc['input_ids'][(c + b) * my_n_samples +
-                                      args.context_size:upper_boundary])
+                my_sampl_par.future_context.append(
+                    my_test_enc['input_ids'][(c + b) * my_n_samples +
+                                             args.context_size:upper_boundary])
 
-                my_sampl_par.cntr.append(c+b)
+                my_sampl_par.cntr.append(c + b)
 
-        my_sampl_par.max_tokens = max(len(my_sampl_par.future_context[b]) for b in range(len(CONTEXT)))
+        my_sampl_par.max_tokens = max(
+            len(my_sampl_par.future_context[b]) for b in range(len(CONTEXT)))
 
         LOGPROBS = vllm_predict(CONTEXT, my_llm, my_sampl_par)
         for b in range(len(CONTEXT)):
             num_tokens_generated += len(LOGPROBS[b].outputs[0].token_ids)
             my_ppl -= LOGPROBS[b].outputs[0].cumulative_logprob
 
-        if (num_tokens_generated < my_n_samples*len(CONTEXT)):
+        if (num_tokens_generated < my_n_samples * len(CONTEXT)):
             MESSAGE = (f"Warning: The number of generated tokens is" \
                     f"less than requested ({num_tokens_generated}" \
                     f" < {my_n_samples*len(CONTEXT)}).")
