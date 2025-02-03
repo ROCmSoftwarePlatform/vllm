@@ -1,8 +1,8 @@
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from dataclasses import dataclass, fields
-from typing import (TYPE_CHECKING, Any, Dict, Generic, List, Optional, Set,
-                    Tuple, Type, TypeVar)
+from typing import (TYPE_CHECKING, Any, Dict, Generic, List, Optional,
+                    Protocol, Set, Tuple, Type, TypeVar)
 
 import torch
 
@@ -31,6 +31,10 @@ class AttentionType:
 
 class AttentionBackend(ABC):
     """Abstract class for attention backends."""
+    # For some attention backends, we allocate an output tensor before
+    # calling the custom op. When piecewise cudagraph is enabled, this
+    # makes sure the output tensor is allocated inside the cudagraph.
+    accept_output_buffer: bool = False
 
     @staticmethod
     @abstractmethod
@@ -60,11 +64,6 @@ class AttentionBackend(ABC):
     @abstractmethod
     def get_builder_cls() -> Type["AttentionMetadataBuilder"]:
         raise NotImplementedError
-
-    @classmethod
-    def make_metadata_builder(cls, *args,
-                              **kwargs) -> "AttentionMetadataBuilder":
-        return cls.get_builder_cls()(*args, **kwargs)
 
     @staticmethod
     @abstractmethod
@@ -214,6 +213,12 @@ class AttentionMetadataBuilder(ABC, Generic[T]):
 
     @abstractmethod
     def __init__(self, input_builder: "ModelRunnerInputBuilderBase") -> None:
+        """Create the builder, remember some configuration and parameters."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def prepare(self) -> None:
+        """Prepare for one batch."""
         raise NotImplementedError
 
     @abstractmethod
@@ -221,6 +226,26 @@ class AttentionMetadataBuilder(ABC, Generic[T]):
               cuda_graph_pad_size: int, batch_size: int) -> T:
         """Build attention metadata with on-device tensors."""
         raise NotImplementedError
+
+
+class AttentionLayer(Protocol):
+
+    _k_scale: torch.Tensor
+    _v_scale: torch.Tensor
+    _k_scale_float: torch.Tensor
+    _v_scale_float: torch.Tensor
+    _q_scale: torch.Tensor
+    _prob_scale: torch.Tensor
+
+    def forward(
+        self,
+        query: torch.Tensor,
+        key: torch.Tensor,
+        value: torch.Tensor,
+        kv_cache: torch.Tensor,
+        attn_metadata: AttentionMetadata,
+    ) -> torch.Tensor:
+        ...
 
 
 class AttentionImpl(ABC, Generic[T]):
@@ -244,15 +269,12 @@ class AttentionImpl(ABC, Generic[T]):
     @abstractmethod
     def forward(
         self,
+        layer: AttentionLayer,
         query: torch.Tensor,
         key: torch.Tensor,
         value: torch.Tensor,
         kv_cache: torch.Tensor,
         attn_metadata: T,
-        k_scale: torch.Tensor,
-        v_scale: torch.Tensor,
-        q_scale: Optional[torch.Tensor] = None,
-        prob_scale: Optional[torch.Tensor] = None,
         fp8_out_scale: Optional[torch.Tensor] = None,
         output: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:

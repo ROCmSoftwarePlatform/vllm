@@ -100,7 +100,6 @@ class EngineArgs:
     kv_cache_dtype: str = 'auto'
     seed: int = 0
     max_model_len: Optional[int] = None
-    worker_use_ray: bool = False
     # Note: Specifying a custom executor backend by passing a class
     # is intended for expert use only. The API may change without
     # notice.
@@ -196,6 +195,8 @@ class EngineArgs:
     kv_transfer_config: Optional[KVTransferConfig] = None
 
     generation_config: Optional[str] = None
+    enable_sleep_mode: bool = False
+
     calculate_kv_scales: Optional[bool] = None
 
     def __post_init__(self):
@@ -238,7 +239,7 @@ class EngineArgs:
             choices=get_args(TaskOption),
             help='The task to use the model for. Each vLLM instance only '
             'supports one task, even if the same model can be used for '
-            'multiple tasks. When the model only supports one task, "auto" '
+            'multiple tasks. When the model only supports one task, ``"auto"`` '
             'can be used to select it; otherwise, you must specify explicitly '
             'which task to use.')
         parser.add_argument(
@@ -250,7 +251,7 @@ class EngineArgs:
         parser.add_argument(
             '--skip-tokenizer-init',
             action='store_true',
-            help='Skip initialization of tokenizer and detokenizer')
+            help='Skip initialization of tokenizer and detokenizer.')
         parser.add_argument(
             '--revision',
             type=nullable_str,
@@ -377,7 +378,7 @@ class EngineArgs:
         # Parallel arguments
         parser.add_argument(
             '--distributed-executor-backend',
-            choices=['ray', 'mp'],
+            choices=['ray', 'mp', 'uni', 'external_launcher'],
             default=EngineArgs.distributed_executor_backend,
             help='Backend to use for distributed model '
             'workers, either "ray" or "mp" (multiprocessing). If the product '
@@ -385,12 +386,8 @@ class EngineArgs:
             'or equal to the number of GPUs available, "mp" will be used to '
             'keep processing on a single host. Otherwise, this will default '
             'to "ray" if Ray is installed and fail otherwise. Note that tpu '
-            'and hpu only support Ray for distributed inference.')
+            'only supports Ray for distributed inference.')
 
-        parser.add_argument(
-            '--worker-use-ray',
-            action='store_true',
-            help='Deprecated, use --distributed-executor-backend=ray.')
         parser.add_argument('--pipeline-parallel-size',
                             '-pp',
                             type=int,
@@ -419,7 +416,7 @@ class EngineArgs:
                             choices=[8, 16, 32, 64, 128],
                             help='Token block size for contiguous chunks of '
                             'tokens. This is ignored on neuron devices and '
-                            'set to max-model-len. On CUDA devices, '
+                            'set to ``--max-model-len``. On CUDA devices, '
                             'only block sizes up to 32 are supported. '
                             'On HPU devices, block size defaults to 128.')
 
@@ -428,12 +425,12 @@ class EngineArgs:
             action=argparse.BooleanOptionalAction,
             default=EngineArgs.enable_prefix_caching,
             help="Enables automatic prefix caching. "
-            "Use --no-enable-prefix-caching to disable explicitly.",
+            "Use ``--no-enable-prefix-caching`` to disable explicitly.",
         )
         parser.add_argument('--disable-sliding-window',
                             action='store_true',
                             help='Disables sliding window, '
-                            'capping to sliding window size')
+                            'capping to sliding window size.')
         parser.add_argument('--use-v2-block-manager',
                             action='store_true',
                             default=True,
@@ -527,7 +524,7 @@ class EngineArgs:
             default=None,
             type=json.loads,
             help='RoPE scaling configuration in JSON format. '
-            'For example, {"rope_type":"dynamic","factor":2.0}')
+            'For example, ``{"rope_type":"dynamic","factor":2.0}``')
         parser.add_argument('--rope-theta',
                             default=None,
                             type=float,
@@ -596,7 +593,7 @@ class EngineArgs:
             default=None,
             type=json.loads,
             help=('Overrides for the multimodal input mapping/processing, '
-                  'e.g., image processor. For example: {"num_crops": 4}.'))
+                  'e.g., image processor. For example: ``{"num_crops": 4}``.'))
         parser.add_argument(
             '--disable-mm-preprocessor-cache',
             action='store_true',
@@ -850,7 +847,7 @@ class EngineArgs:
             "of the provided names. The model name in the model "
             "field of a response will be the first name in this "
             "list. If not specified, the model name will be the "
-            "same as the `--model` argument. Noted that this name(s) "
+            "same as the ``--model`` argument. Noted that this name(s) "
             "will also be used in `model_name` tag content of "
             "prometheus metrics, if multiple names provided, metrics "
             "tag will take the first one.")
@@ -870,7 +867,7 @@ class EngineArgs:
             default=None,
             help="Valid choices are " +
             ",".join(ALLOWED_DETAILED_TRACE_MODULES) +
-            ". It makes sense to set this only if --otlp-traces-endpoint is"
+            ". It makes sense to set this only if ``--otlp-traces-endpoint`` is"
             " set. If set, it will collect detailed traces for the specified "
             "modules. This involves use of possibly costly and or blocking "
             "operations and hence might have a performance impact.")
@@ -897,13 +894,13 @@ class EngineArgs:
             type=json.loads,
             default=None,
             help="Override or set neuron device configuration. "
-            "e.g. {\"cast_logits_dtype\": \"bloat16\"}.'")
+            "e.g. ``{\"cast_logits_dtype\": \"bloat16\"}``.")
         parser.add_argument(
             '--override-pooler-config',
             type=PoolerConfig.from_json,
             default=None,
             help="Override or set the pooling method for pooling models. "
-            "e.g. {\"pooling_type\": \"mean\", \"normalize\": false}.'")
+            "e.g. ``{\"pooling_type\": \"mean\", \"normalize\": false}``.")
 
         parser.add_argument('--compilation-config',
                             '-O',
@@ -942,7 +939,15 @@ class EngineArgs:
             "Defaults to None, will use the default generation config in vLLM. "
             "If set to 'auto', the generation config will be automatically "
             "loaded from model. If set to a folder path, the generation config "
-            "will be loaded from the specified folder path.")
+            "will be loaded from the specified folder path. If "
+            "`max_new_tokens` is specified, then it sets a server-wide limit "
+            "on the number of output tokens for all requests.")
+
+        parser.add_argument("--enable-sleep-mode",
+                            action="store_true",
+                            default=False,
+                            help="Enable sleep mode for the engine. "
+                            "(only cuda platform is supported)")
 
         parser.add_argument(
             '--calculate-kv-scales',
@@ -996,7 +1001,9 @@ class EngineArgs:
             override_neuron_config=self.override_neuron_config,
             override_pooler_config=self.override_pooler_config,
             logits_processor_pattern=self.logits_processor_pattern,
-            generation_config=self.generation_config)
+            generation_config=self.generation_config,
+            enable_sleep_mode=self.enable_sleep_mode,
+        )
 
     def create_load_config(self) -> LoadConfig:
         return LoadConfig(
@@ -1061,7 +1068,6 @@ class EngineArgs:
         parallel_config = ParallelConfig(
             pipeline_parallel_size=self.pipeline_parallel_size,
             tensor_parallel_size=self.tensor_parallel_size,
-            worker_use_ray=self.worker_use_ray,
             max_parallel_loading_workers=self.max_parallel_loading_workers,
             disable_custom_all_reduce=self.disable_custom_all_reduce,
             tokenizer_pool_config=TokenizerPoolConfig.create_config(
@@ -1269,11 +1275,22 @@ class EngineArgs:
         self.enable_chunked_prefill = True
         # When no user override, set the default values based on the usage
         # context.
-        # TODO(woosuk): Tune the default values for different hardware.
-        default_max_num_batched_tokens = {
-            UsageContext.LLM_CLASS: 8192,
-            UsageContext.OPENAI_API_SERVER: 2048,
-        }
+        # Use different default values for different hardware.
+        from vllm.platforms import current_platform
+        device_name = current_platform.get_device_name().lower()
+        if "h100" in device_name or "h200" in device_name:
+            # For H100 and H200, we use larger default values.
+            default_max_num_batched_tokens = {
+                UsageContext.LLM_CLASS: 16384,
+                UsageContext.OPENAI_API_SERVER: 8192,
+            }
+        else:
+            # TODO(woosuk): Tune the default values for other hardware.
+            default_max_num_batched_tokens = {
+                UsageContext.LLM_CLASS: 8192,
+                UsageContext.OPENAI_API_SERVER: 2048,
+            }
+
         if (self.max_num_batched_tokens is None
                 and usage_context in default_max_num_batched_tokens):
             self.max_num_batched_tokens = default_max_num_batched_tokens[

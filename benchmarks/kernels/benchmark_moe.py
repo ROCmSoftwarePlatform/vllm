@@ -12,10 +12,10 @@ from transformers import AutoConfig
 
 from vllm.model_executor.layers.fused_moe.fused_moe import *
 from vllm.platforms import current_platform
-from vllm.utils import FlexibleArgumentParser, is_navi
+from vllm.utils import FlexibleArgumentParser
 
 FP8_DTYPE = torch.float8_e4m3fnuz if current_platform.is_rocm(
-) and not is_navi() else torch.float8_e4m3fn
+) else torch.float8_e4m3fn
 
 
 class BenchmarkConfig(TypedDict):
@@ -41,12 +41,6 @@ def benchmark_config(
 ) -> float:
     init_dtype = torch.float16 if use_fp8_w8a8 else dtype
     x = torch.randn(num_tokens, hidden_size, dtype=dtype)
-    padding_size = 0
-    if envs.VLLM_MOE_PADDING and not (use_fp8_w8a8 or use_int8_w8a16):
-        padding_size = 128  # fp16 padding size
-    if envs.VLLM_FP8_PADDING and use_fp8_w8a8:
-        padding_size = 256  # fp8 padding size. Ignoring int8 for now
-
     if use_int8_w8a16:
         w1 = torch.randint(-127,
                            127, (
@@ -65,8 +59,8 @@ def benchmark_config(
     else:
         w1 = torch.randn(num_experts,
                          shard_intermediate_size,
-                         hidden_size + padding_size,
-                         dtype=init_dtype)[..., :-padding_size]
+                         hidden_size,
+                         dtype=init_dtype)
         w2 = torch.randn(num_experts,
                          hidden_size,
                          shard_intermediate_size // 2,
@@ -152,33 +146,29 @@ def benchmark_config(
 
 
 def get_rocm_tuning_space(use_fp16):
-    # small search space, no pruning required
-    # bypassLDS: block_n/num_warps=16 for perf
-    block_m_range = [16, 32, 64, 128, 256]
-    block_n_range = [128] if use_fp16 else [64]
-    block_k_range = [128] if use_fp16 else [256]
-
-    num_warps_range = [8] if use_fp16 else [4]
-    group_m_range = [1]
-    # For now we see better perf with num_stages=0 for all gemm configs we care
-    # But keep this explicit so that we do not forget we may need to set it to
-    # other values in the future
+    block_mn_range = [16, 32, 64, 128, 256]
+    block_k_range = [16, 32, 64, 128, 256]
+    if not use_fp16:
+        block_k_range.remove(16)  # BLOCK_K=16 not supported for fp8
+    num_warps_range = [1, 2, 4, 8]
+    group_m_range = [1, 4, 8, 16, 32]
     num_stage_range = [2]
     waves_per_eu_range = [0]
-    matrix_instr_nonkdim_range = [16]
-    kpack_range = [2]
+    matrix_instr_nonkdim_range = [16, 32] if use_fp16 else []
+    kpack_range = [1, 2] if use_fp16 else []
 
     param_ranges = {
-        "BLOCK_SIZE_M": block_m_range,
-        "BLOCK_SIZE_N": block_n_range,
+        "BLOCK_SIZE_M": block_mn_range,
+        "BLOCK_SIZE_N": block_mn_range,
         "BLOCK_SIZE_K": block_k_range,
         "GROUP_SIZE_M": group_m_range,
         "num_warps": num_warps_range,
         "num_stages": num_stage_range,
         "waves_per_eu": waves_per_eu_range,
-        "matrix_instr_nonkdim": matrix_instr_nonkdim_range,
-        "kpack": kpack_range,
     }
+    if use_fp16:
+        param_ranges["matrix_instr_nonkdim"] = matrix_instr_nonkdim_range
+        param_ranges["kpack"] = kpack_range
 
     return param_ranges
 
@@ -215,6 +205,112 @@ def get_configs_compute_bound(use_fp16) -> List[Dict[str, int]]:
     return configs
 
 
+def prune_rocm_search_space(num_tokens, shard_intermediate_size, hidden_size,
+                            search_space, is_fp16):
+    N1, K1 = shard_intermediate_size, hidden_size
+    N2, K2 = hidden_size, shard_intermediate_size // 2
+    pruned_space_1 = prune_rocm_configs(num_tokens * 2, N1, K1, search_space,
+                                        is_fp16)
+    pruned_space_2 = prune_rocm_configs(num_tokens * 2, N2, K2, search_space,
+                                        is_fp16)
+    search_space = merge_unique_dicts(pruned_space_1, pruned_space_2)
+    return search_space
+
+
+# The following code is inspired by ROCm/Triton GEMM tuning script:
+# https://github.com/ROCm/triton/blob/triton-mlir/scripts/amd/gemm/tune_gemm.py#L89
+def prune_rocm_configs(M, N, K, configs, is_fp16=True):
+    pruned_configs = []
+    elemBytes_a = 2 if is_fp16 else 1
+    elemBytes_b = 2 if is_fp16 else 1
+
+    mfma = 16 if M < 32 or N < 32 else 32
+
+    # TODO (zhanglx): figure out the boundary between large and small gemms
+    large_gemm = False
+    if M >= 2048 and N >= 2048:
+        large_gemm = True
+
+    for config in configs:
+        BLOCK_SIZE_M = config.get("BLOCK_SIZE_M")
+        BLOCK_SIZE_N = config.get("BLOCK_SIZE_N")
+        BLOCK_SIZE_K = config.get("BLOCK_SIZE_K")
+        num_warps = config.get("num_warps")
+
+        if is_fp16:
+            matrix_instr_nonkdim = config.get("matrix_instr_nonkdim")
+            if matrix_instr_nonkdim > mfma:
+                continue
+        if mfma == 4 and BLOCK_SIZE_K < 64:
+            continue
+        # some layouts could not work properly in case
+        # number elements per thread is less 1
+        if BLOCK_SIZE_M * BLOCK_SIZE_N < 64:
+            continue
+        SPLIT_K = config.get("SPLIT_K", 1)
+        GROUP_M = config.get("GROUP_SIZE_M")
+        if is_fp16:
+            if (matrix_instr_nonkdim > BLOCK_SIZE_M
+                    or matrix_instr_nonkdim > BLOCK_SIZE_N):
+                continue
+            if (matrix_instr_nonkdim >= M
+                    and matrix_instr_nonkdim != BLOCK_SIZE_M):
+                continue
+            if (matrix_instr_nonkdim >= N
+                    and matrix_instr_nonkdim != BLOCK_SIZE_N):
+                continue
+        # Skip BLOCK_SIZE that is too large compare to M/N
+        # unless BLOCK_SIZE is already small enough
+        if M * 2 < BLOCK_SIZE_M and BLOCK_SIZE_M != 16:
+            continue
+        if N * 2 < BLOCK_SIZE_N and BLOCK_SIZE_N != 16:
+            continue
+        # skip large split_k when not necessary
+        if SPLIT_K != 1 and not need_split_k(M, N, K):
+            continue
+        # skip split_k that leads to EVEN_K = false
+        leap = SPLIT_K * BLOCK_SIZE_K
+        modv = K % leap
+        if modv != 0:
+            continue
+        # skip large GROUP_M
+        if GROUP_M * BLOCK_SIZE_M > M and GROUP_M != 1:
+            continue
+        # out of shared memory resource
+        # TODO (zhanglx): This does not consider the LDS usage in the epilogue
+        LDS = (BLOCK_SIZE_K * BLOCK_SIZE_M * elemBytes_a +
+               BLOCK_SIZE_K * BLOCK_SIZE_N * elemBytes_b)
+        if LDS > 65536:
+            continue
+        # Skip small block sizes and num_warps for large gemm
+        # For fp16 and f8, we want to only use BLOCK_SIZE >= 64
+        if large_gemm:
+            if BLOCK_SIZE_M < 64 or BLOCK_SIZE_N < 64:
+                continue
+            if BLOCK_SIZE_K < 64:
+                continue
+            if num_warps < 4:
+                continue
+
+        pruned_configs.append(config)
+
+    return pruned_configs
+
+
+def need_split_k(SIZE_M, SIZE_N, SIZE_K):
+    return (SIZE_M < 64 or SIZE_N < 64) and SIZE_K > 1024
+
+
+def merge_unique_dicts(list1, list2):
+    result = []
+    combined_list = list1.copy()
+    combined_list.extend(list2)
+    for dictionary in combined_list:
+        if dictionary not in result:
+            result.append(dictionary)
+    return result
+
+
 @ray.remote(num_gpus=1)
 class BenchmarkWorker:
 
@@ -222,8 +318,9 @@ class BenchmarkWorker:
         torch.set_default_device("cuda")
         current_platform.seed_everything(seed)
         self.seed = seed
-        # get the device id to allocate the tensors and kernels explicitly
-        # on the respective GPU ID
+        # Get the device ID to allocate tensors and kernels
+        # on the respective GPU. This is required for Ray to work
+        # correctly with multi-GPU tuning on the ROCm platform.
         self.device_id = int(ray.get_gpu_ids()[0])
 
     def benchmark(
@@ -272,6 +369,12 @@ class BenchmarkWorker:
     ) -> Dict[str, int]:
         best_config = None
         best_time = float("inf")
+        if current_platform.is_rocm():
+            is_fp16 = not (use_fp8_w8a8 or use_int8_w8a16)
+            search_space = prune_rocm_search_space(num_tokens,
+                                                   shard_intermediate_size,
+                                                   hidden_size, search_space,
+                                                   is_fp16)
 
         with torch.cuda.device(self.device_id):
             for config in tqdm(search_space):
@@ -373,7 +476,7 @@ def main(args: argparse.Namespace):
     if args.batch_size is None:
         batch_sizes = [
             1, 2, 4, 8, 16, 24, 32, 48, 64, 96, 128, 256, 512, 1024, 1536,
-            2048, 3072, 4096, 8192, 16384, 18432, 20480
+            2048, 3072, 4096
         ]
     else:
         batch_sizes = [args.batch_size]
