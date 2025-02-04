@@ -27,7 +27,7 @@ steps:
     depends_on: 
       - "amd-build"
     agents:
-      queue: amd_rocm_gpu
+      queue: amd_gpu
     commands: 
       - bash .buildkite/run-amd-test.sh "cd {{ (step.working_dir or default_working_dir) | safe  }} ; {{ step.command  or (step.commands | join(" && ")) | safe }}"
     env:

@@ -4,6 +4,7 @@ import inspect
 import itertools
 import time
 import weakref
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import (TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set,
                     Tuple, Type, TypeVar, Union)
@@ -47,8 +48,8 @@ from vllm.sampling_params import SamplingParams
 from vllm.sequence import IntermediateTensors, SequenceGroupMetadata
 from vllm.utils import (DeviceMemoryProfiler, GiB_bytes, PyObjectCache,
                         async_tensor_h2d, flatten_2d_lists,
-                        is_pin_memory_available, rpd_mark, supports_dynamo,
-                        weak_ref_tensor)
+                        is_pin_memory_available, rpd_mark, rpd_user_marker,
+                        supports_dynamo, weak_ref_tensor)
 from vllm.worker.model_runner_base import (
     ModelRunnerBase, ModelRunnerInputBase, ModelRunnerInputBuilderBase,
     _add_attn_metadata_broadcastable_dict,
@@ -454,17 +455,12 @@ class ModelInputForGPUBuilder(ModelRunnerInputBuilderBase[ModelInputForGPU]):
         self.enable_prompt_adapter = (self.runner.prompt_adapter_config
                                       is not None)
         self.multi_modal_input_mapper = self.runner.multi_modal_input_mapper
-        self.finished_requests_ids = finished_requests_ids
-        self.decode_only = True
-
-        # Intermediate data (data in CPU before going to GPU) for
-        # the current sequence group.
-        self.inter_data_list: List[
-            ModelInputForGPUBuilder.InterDataForSeqGroup] = []
 
         # Attention metadata inputs.
-        self.attn_metadata_builder = self.attn_backend.make_metadata_builder(
-            weakref.proxy(self))
+        if self.attn_backend is not None:
+            # spec decode (e.g. Medusa) does not have atten backend
+            self.attn_metadata_builder = self.attn_backend.get_builder_cls()(
+                weakref.proxy(self))
 
         # Engine/Model configurations.
         self.chunked_prefill_enabled = (
@@ -475,6 +471,21 @@ class ModelInputForGPUBuilder(ModelRunnerInputBuilderBase[ModelInputForGPU]):
                 self.sliding_window + self.block_size - 1) // self.block_size
             self.block_aligned_sliding_window = \
                 self.sliding_window_blocks * self.block_size
+
+    def prepare(self,
+                finished_requests_ids: Optional[List[str]] = None) -> None:
+        self.finished_requests_ids = finished_requests_ids
+
+        # if the current batch is decode-only.
+        # will be set to False if there is any non-decode request.
+        self.decode_only = True
+
+        # Intermediate data (data in CPU before going to GPU) for
+        # the current sequence group.
+        self.inter_data_list: List[
+            ModelInputForGPUBuilder.InterDataForSeqGroup] = []
+
+        self.attn_metadata_builder.prepare()
 
     def _compute_lens(self, inter_data: InterDataForSeqGroup, seq_idx: int,
                       seq_group_metadata: SequenceGroupMetadata):
@@ -990,6 +1001,7 @@ class GPUModelRunnerBase(ModelRunnerBase[TModelInputForGPU]):
     """
     _model_input_cls: Type[TModelInputForGPU]
     _builder_cls: Type[ModelInputForGPUBuilder]
+    builder: ModelInputForGPUBuilder
 
     def __init__(
         self,
@@ -1025,6 +1037,8 @@ class GPUModelRunnerBase(ModelRunnerBase[TModelInputForGPU]):
             int, int]] = None  # Set during graph capture.
 
         self.has_inner_state = model_config.has_inner_state
+
+        self.in_profile_run = False
 
         # When using CUDA graph, the input block tables must be padded to
         # max_seq_len_to_capture. However, creating the block table in
@@ -1088,6 +1102,10 @@ class GPUModelRunnerBase(ModelRunnerBase[TModelInputForGPU]):
               SamplingMetadataCache() \
                 if self.parallel_config.pipeline_parallel_size == 1 else None
 
+        if hasattr(self, "_builder_cls"):
+            # multi-step model runner does not have `_builder_cls`
+            self.builder = self._builder_cls(weakref.proxy(self))
+
     def load_model(self) -> None:
         logger.info("Starting to load model %s...", self.model_config.model)
         with DeviceMemoryProfiler() as m:
@@ -1143,6 +1161,9 @@ class GPUModelRunnerBase(ModelRunnerBase[TModelInputForGPU]):
                 fullgraph=envs.VLLM_TEST_DYNAMO_FULLGRAPH_CAPTURE,
                 backend=backend)
 
+    def get_model(self) -> nn.Module:
+        return self.model
+
     def save_sharded_state(
         self,
         path: str,
@@ -1190,122 +1211,141 @@ class GPUModelRunnerBase(ModelRunnerBase[TModelInputForGPU]):
 
         If cuda graph is required, this API automatically pads inputs.
         """
-        builder = self._builder_cls(weakref.proxy(self), finished_requests_ids)
+        self.builder.prepare(finished_requests_ids)
         for seq_group_metadata in seq_group_metadata_list:
-            builder.add_seq_group(seq_group_metadata)
+            self.builder.add_seq_group(seq_group_metadata)
 
-        builder.reset_cached_inter_data()
+        self.builder.reset_cached_inter_data()
 
-        return builder.build()  # type: ignore
+        return self.builder.build()  # type: ignore
+
+    @contextmanager
+    def set_in_profile_run(self):
+        self.in_profile_run = True
+        try:
+            yield
+        finally:
+            self.in_profile_run = False
 
     @torch.inference_mode()
     def profile_run(self) -> None:
-        # Enable top-k sampling to reflect the accurate memory usage.
-        sampling_params = SamplingParams(top_p=0.99, top_k=self.vocab_size - 1)
-        max_num_batched_tokens = self.scheduler_config.max_num_batched_tokens
+        max_num_batched_tokens = \
+            self.scheduler_config.max_num_batched_tokens
         max_num_seqs = self.scheduler_config.max_num_seqs
-        # This represents the maximum number of different requests
-        # that will have unique loras, an therefore the max amount of memory
-        # consumption create dummy lora request copies from the lora request
-        # passed in, which contains a lora from the lora warmup path.
-        dummy_lora_requests: List[LoRARequest] = []
-        dummy_lora_requests_per_seq: List[LoRARequest] = []
-        if self.lora_config:
-            assert self.lora_manager is not None
-            with self.lora_manager.dummy_lora_cache():
-                for idx in range(self.lora_config.max_loras):
-                    lora_id = idx + 1
-                    dummy_lora_request = LoRARequest(
-                        lora_name=f"warmup_{lora_id}",
-                        lora_int_id=lora_id,
-                        lora_path="/not/a/real/path",
-                    )
-                    self.lora_manager.add_dummy_lora(dummy_lora_request,
-                                                     rank=LORA_WARMUP_RANK)
-                    dummy_lora_requests.append(dummy_lora_request)
-                dummy_lora_requests_per_seq = [
-                    dummy_lora_requests[idx % len(dummy_lora_requests)]
-                    for idx in range(max_num_seqs)
-                ]
+        self._dummy_run(max_num_batched_tokens, max_num_seqs)
 
-        # Profile memory usage with max_num_sequences sequences and the total
-        # number of tokens equal to max_num_batched_tokens.
-        seqs: List[SequenceGroupMetadata] = []
-        # Additional GPU memory may be needed for multi-modal encoding, which
-        # needs to be accounted for when calculating the GPU blocks for
-        # vLLM blocker manager.
-        # To exercise the worst scenario for GPU memory consumption,
-        # the number of seqs (batch_size) is chosen to maximize the number
-        # of images processed.
+    def _dummy_run(self,
+                   max_num_batched_tokens: int,
+                   max_num_seqs: int = 1) -> None:
+        with self.set_in_profile_run():
+            # Enable top-k sampling to reflect the accurate memory usage.
+            sampling_params = \
+                SamplingParams(top_p=0.99, top_k=self.vocab_size - 1)
 
-        max_mm_tokens = self.mm_registry.get_max_multimodal_tokens(
-            self.model_config)
-        if max_mm_tokens > 0:
-            max_num_seqs_orig = max_num_seqs
-            max_num_seqs = min(max_num_seqs,
-                               max_num_batched_tokens // max_mm_tokens)
-            if max_num_seqs < 1:
-                expr = (f"min({max_num_seqs_orig}, "
-                        f"{max_num_batched_tokens} // {max_mm_tokens})")
-                logger.warning(
-                    "Computed max_num_seqs (%s) to be less than 1. "
-                    "Setting it to the minimum value of 1.", expr)
-                max_num_seqs = 1
+            # This represents the maximum number of different requests
+            # that will have unique loras, an therefore the max amount of memory
+            # consumption create dummy lora request copies from the lora request
+            # passed in, which contains a lora from the lora warmup path.
+            dummy_lora_requests: List[LoRARequest] = []
+            dummy_lora_requests_per_seq: List[LoRARequest] = []
+            if self.lora_config:
+                assert self.lora_manager is not None
+                with self.lora_manager.dummy_lora_cache():
+                    for idx in range(self.lora_config.max_loras):
+                        lora_id = idx + 1
+                        dummy_lora_request = LoRARequest(
+                            lora_name=f"warmup_{lora_id}",
+                            lora_int_id=lora_id,
+                            lora_path="/not/a/real/path",
+                        )
+                        self.lora_manager.add_dummy_lora(dummy_lora_request,
+                                                         rank=LORA_WARMUP_RANK)
+                        dummy_lora_requests.append(dummy_lora_request)
+                    dummy_lora_requests_per_seq = [
+                        dummy_lora_requests[idx % len(dummy_lora_requests)]
+                        for idx in range(max_num_seqs)
+                    ]
 
-        batch_size = 0
-        for group_id in range(max_num_seqs):
-            seq_len = (max_num_batched_tokens // max_num_seqs +
-                       (group_id < max_num_batched_tokens % max_num_seqs))
-            batch_size += seq_len
+            # Profile memory usage with max_num_sequences sequences and the
+            # total number of tokens equal to max_num_batched_tokens.
+            seqs: List[SequenceGroupMetadata] = []
+            # Additional GPU memory may be needed for multi-modal encoding,
+            # which needs to be accounted for when calculating the GPU blocks
+            # for vLLM blocker manager.
+            # To exercise the worst scenario for GPU memory consumption,
+            # the number of seqs (batch_size) is chosen to maximize the number
+            # of images processed.
 
-            dummy_data = self.input_registry \
-                .dummy_data_for_profiling(self.model_config,
-                                          seq_len,
-                                          self.mm_registry)
+            max_mm_tokens = self.mm_registry.get_max_multimodal_tokens(
+                self.model_config)
+            if max_mm_tokens > 0:
+                max_num_seqs_orig = max_num_seqs
+                max_num_seqs = min(max_num_seqs,
+                                   max_num_batched_tokens // max_mm_tokens)
+                if max_num_seqs < 1:
+                    expr = (f"min({max_num_seqs_orig}, "
+                            f"{max_num_batched_tokens} // {max_mm_tokens})")
+                    logger.warning(
+                        "Computed max_num_seqs (%s) to be less than 1. "
+                        "Setting it to the minimum value of 1.", expr)
+                    max_num_seqs = 1
 
-            seq = SequenceGroupMetadata(
-                request_id=str(group_id),
-                is_prompt=True,
-                seq_data={group_id: dummy_data.seq_data},
-                sampling_params=sampling_params,
-                block_tables=None,
-                lora_request=dummy_lora_requests_per_seq[group_id]
-                if dummy_lora_requests_per_seq else None,
-                multi_modal_data=dummy_data.multi_modal_data,
-                multi_modal_placeholders=dummy_data.multi_modal_placeholders,
-            )
-            seqs.append(seq)
+            batch_size = 0
+            for group_id in range(max_num_seqs):
+                seq_len = (max_num_batched_tokens // max_num_seqs +
+                           (group_id < max_num_batched_tokens % max_num_seqs))
+                batch_size += seq_len
 
-        # Run the model with the dummy inputs.
-        num_layers = self.model_config.get_num_layers(self.parallel_config)
-        # use an empty tensor instead of `None`` to force Dynamo to pass
-        # it by reference, rather by specializing on the value ``None``.
-        # the `dtype` argument does not matter, and we use `float32` as
-        # a placeholder (it has wide hardware support).
-        # it is important to create tensors inside the loop, rather than
-        # multiplying the list, to avoid Dynamo from treating them as
-        # tensor aliasing.
-        kv_caches = [
-            torch.tensor([], dtype=torch.float32, device=self.device)
-            for _ in range(num_layers)
-        ]
-        finished_requests_ids = [seq.request_id for seq in seqs]
-        model_input = self.prepare_model_input(
-            seqs, finished_requests_ids=finished_requests_ids)
-        intermediate_tensors = None
-        if not get_pp_group().is_first_rank:
-            intermediate_tensors = self.model.make_empty_intermediate_tensors(
-                batch_size=batch_size,
-                dtype=self.model_config.dtype,
-                device=self.device)
+                dummy_data = self.input_registry \
+                    .dummy_data_for_profiling(self.model_config,
+                                            seq_len,
+                                            self.mm_registry)
 
-        # Disable KV Scale Calculation for dummy data during profile run
-        if model_input.attn_metadata is not None:
-            model_input.attn_metadata.enable_kv_scales_calculation = False
+                seq = SequenceGroupMetadata(
+                    request_id=str(group_id),
+                    is_prompt=True,
+                    seq_data={group_id: dummy_data.seq_data},
+                    sampling_params=sampling_params,
+                    block_tables=None,
+                    lora_request=dummy_lora_requests_per_seq[group_id]
+                    if dummy_lora_requests_per_seq else None,
+                    multi_modal_data=dummy_data.multi_modal_data,
+                    multi_modal_placeholders=dummy_data.
+                    multi_modal_placeholders,
+                )
+                seqs.append(seq)
 
-        self.execute_model(model_input, kv_caches, intermediate_tensors)
-        torch.cuda.synchronize()
-        return
+            # Run the model with the dummy inputs.
+            num_layers = self.model_config.get_num_layers(self.parallel_config)
+            # use an empty tensor instead of `None`` to force Dynamo to pass
+            # it by reference, rather by specializing on the value ``None``.
+            # the `dtype` argument does not matter, and we use `float32` as
+            # a placeholder (it has wide hardware support).
+            # it is important to create tensors inside the loop, rather than
+            # multiplying the list, to avoid Dynamo from treating them as
+            # tensor aliasing.
+            kv_caches = [
+                torch.tensor([], dtype=torch.float32, device=self.device)
+                for _ in range(num_layers)
+            ]
+            finished_requests_ids = [seq.request_id for seq in seqs]
+            model_input = self.prepare_model_input(
+                seqs, finished_requests_ids=finished_requests_ids)
+            intermediate_tensors = None
+            if not get_pp_group().is_first_rank:
+                intermediate_tensors = \
+                    self.model.make_empty_intermediate_tensors(
+                    batch_size=batch_size,
+                    dtype=self.model_config.dtype,
+                    device=self.device)
+
+            # Disable KV Scale Calculation for dummy data during profile run
+            if model_input.attn_metadata is not None:
+                model_input.attn_metadata.enable_kv_scales_calculation = False
+
+            self.execute_model(model_input, kv_caches, intermediate_tensors)
+            torch.cuda.synchronize()
+            return
 
     def remove_all_loras(self):
         if not self.lora_manager:
@@ -1434,13 +1474,14 @@ class GPUModelRunnerBase(ModelRunnerBase[TModelInputForGPU]):
             for virtual_engine in range(
                     self.parallel_config.pipeline_parallel_size):
                 # Only rank 0 should print progress bar during capture
-                capture_sizes = (
-                    tqdm(
-                        self.vllm_config.compilation_config.capture_sizes,
-                        desc="Capturing CUDA graph shapes",
-                    ) if get_tensor_model_parallel_rank() == 0 else
-                    self.vllm_config.compilation_config.capture_sizes)
-                for batch_size in capture_sizes:
+                cudagraph_capture_sizes = (tqdm(
+                    self.vllm_config.compilation_config.
+                    cudagraph_capture_sizes,
+                    desc="Capturing CUDA graph shapes",
+                ) if get_tensor_model_parallel_rank() == 0 else
+                                           self.vllm_config.compilation_config.
+                                           cudagraph_capture_sizes)
+                for batch_size in cudagraph_capture_sizes:
                     attn_metadata = (
                         self.attn_state.graph_capture_get_metadata_for_batch(
                             batch_size,
@@ -1630,6 +1671,12 @@ class ModelRunner(GPUModelRunnerBase[ModelInputForGPUWithSamplingMetadata]):
         assert model_input.attn_metadata is not None
         prefill_meta = model_input.attn_metadata.prefill_metadata
         decode_meta = model_input.attn_metadata.decode_metadata
+        if prefill_meta:
+            marker_instance = rpd_user_marker(name="Prefill")
+        else:
+            marker_instance = rpd_user_marker(name="Decode")
+
+        marker_instance.start()
         # TODO(andoorve): We can remove this once all
         # virtual engines share the same kv cache.
         virtual_engine = model_input.virtual_engine
@@ -1765,6 +1812,7 @@ class ModelRunner(GPUModelRunnerBase[ModelInputForGPUWithSamplingMetadata]):
 
             output.hidden_states = hidden_states
 
+        marker_instance.end()
         return [output]
 
     def need_recv_kv(self, model_input, kv_caches) -> bool:

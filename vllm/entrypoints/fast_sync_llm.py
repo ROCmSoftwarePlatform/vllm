@@ -6,8 +6,9 @@ import vllm.envs as envs
 from vllm.distributed.communication_op import broadcast_tensor_dict
 from vllm.engine.arg_utils import EngineArgs
 from vllm.engine.llm_engine import LLMEngine
-from vllm.executor.multiproc_gpu_executor import MultiprocessingGPUExecutor
-from vllm.executor.ray_gpu_executor import RayGPUExecutor
+from vllm.executor.mp_distributed_executor import (
+    MultiprocessingDistributedExecutor)
+from vllm.executor.ray_distributed_executor import RayDistributedExecutor
 from vllm.inputs import PromptType, TokensPrompt
 from vllm.logger import init_logger
 from vllm.pooling_params import PoolingParams
@@ -55,7 +56,7 @@ class FastSyncLLM:
                 (request_id, prompt, sampling_params) = self.input_queue.get()
                 if self.need_restart and isinstance(
                         self.llm_engine.model_executor,
-                        MultiprocessingGPUExecutor):
+                        MultiprocessingDistributedExecutor):
                     logger.info("Restarting worker loops")
                     for worker in self.llm_engine.model_executor.workers:
                         worker.execute_method("start_worker_execution_loop")
@@ -74,7 +75,7 @@ class FastSyncLLM:
             self.engine_args, usage_context=UsageContext.LLM_CLASS)
         assert not isinstance(
             self.llm_engine.model_executor,
-            RayGPUExecutor), "Ray is not supported in sync openai mode"
+            RayDistributedExecutor), "Ray is not supported in sync openai mode"
 
         self.result_queue.put(("Ready", None, None))
         prompt_lens = {}
