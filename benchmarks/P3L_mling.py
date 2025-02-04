@@ -212,7 +212,8 @@ def main(args: argparse.Namespace):
             logger.info(MESSAGE)
             print(MESSAGE)
 
-        MESSAGE = (f"Iteration {c+1} of {my_n_patches} Intermediate" \
+        MESSAGE = (f"Iterations {c+1} through {c+len(CONTEXT)}" \
+            " of {my_n_patches} Intermediate" \
             "Estimates:\n" \
             f"\tCross-entropy_intermediate={my_ppl/num_tokens_generated}\n" \
             f"\tPerplexity_intermediate=" \
