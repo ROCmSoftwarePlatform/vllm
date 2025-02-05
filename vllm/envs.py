@@ -545,8 +545,6 @@ environment_variables: Dict[str, Callable[[], Any]] = {
     # Try to accumulate this many requests before proceeding
     "VLLM_SYNC_SERVER_ACCUM_REQUESTS":
     lambda: int(os.getenv("VLLM_SYNC_SERVER_ACCUM_REQUESTS", "1")),
-
-    # Poll for new requests every this many steps
     "VLLM_SYNC_SERVER_ENGINE_STEPS_BETWEEN_POLLS":
     lambda: int(os.getenv("VLLM_SYNC_SERVER_ENGINE_STEPS_BETWEEN_POLLS", "1")),
 
@@ -579,7 +577,6 @@ environment_variables: Dict[str, Callable[[], Any]] = {
     # for FP8 KV Cache and attention
     "V_SCALE_CONSTANT":
     lambda: int(os.getenv("V_SCALE_CONSTANT", "10")),
-
     # If set, enable multiprocessing in LLM for the V1 code path.
     "VLLM_ENABLE_V1_MULTIPROCESSING":
     lambda: bool(int(os.getenv("VLLM_ENABLE_V1_MULTIPROCESSING", "1"))),
