@@ -481,6 +481,7 @@ To reproduce the release docker:
     cd vllm
     git checkout 9dc3394c9ee4da250be28d7bd08babf098d51081
     docker build -f Dockerfile.rocm -t <your_tag> --build-arg BUILD_HIPBLASLT=1 --build-arg USE_CYTHON=1 .
+    export VLLM_USE_AITER=0
 ```
 
 ### AITER
