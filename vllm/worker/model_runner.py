@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 import dataclasses
 import gc
 import inspect
@@ -455,17 +457,12 @@ class ModelInputForGPUBuilder(ModelRunnerInputBuilderBase[ModelInputForGPU]):
         self.enable_prompt_adapter = (self.runner.prompt_adapter_config
                                       is not None)
         self.multi_modal_input_mapper = self.runner.multi_modal_input_mapper
-        self.finished_requests_ids = finished_requests_ids
-        self.decode_only = True
-
-        # Intermediate data (data in CPU before going to GPU) for
-        # the current sequence group.
-        self.inter_data_list: List[
-            ModelInputForGPUBuilder.InterDataForSeqGroup] = []
 
         # Attention metadata inputs.
-        self.attn_metadata_builder = self.attn_backend.make_metadata_builder(
-            weakref.proxy(self))
+        if self.attn_backend is not None:
+            # spec decode (e.g. Medusa) does not have atten backend
+            self.attn_metadata_builder = self.attn_backend.get_builder_cls()(
+                weakref.proxy(self))
 
         # Engine/Model configurations.
         self.chunked_prefill_enabled = (
@@ -476,6 +473,21 @@ class ModelInputForGPUBuilder(ModelRunnerInputBuilderBase[ModelInputForGPU]):
                 self.sliding_window + self.block_size - 1) // self.block_size
             self.block_aligned_sliding_window = \
                 self.sliding_window_blocks * self.block_size
+
+    def prepare(self,
+                finished_requests_ids: Optional[List[str]] = None) -> None:
+        self.finished_requests_ids = finished_requests_ids
+
+        # if the current batch is decode-only.
+        # will be set to False if there is any non-decode request.
+        self.decode_only = True
+
+        # Intermediate data (data in CPU before going to GPU) for
+        # the current sequence group.
+        self.inter_data_list: List[
+            ModelInputForGPUBuilder.InterDataForSeqGroup] = []
+
+        self.attn_metadata_builder.prepare()
 
     def _compute_lens(self, inter_data: InterDataForSeqGroup, seq_idx: int,
                       seq_group_metadata: SequenceGroupMetadata):
@@ -991,6 +1003,7 @@ class GPUModelRunnerBase(ModelRunnerBase[TModelInputForGPU]):
     """
     _model_input_cls: Type[TModelInputForGPU]
     _builder_cls: Type[ModelInputForGPUBuilder]
+    builder: ModelInputForGPUBuilder
 
     def __init__(
         self,
@@ -1055,6 +1068,7 @@ class GPUModelRunnerBase(ModelRunnerBase[TModelInputForGPU]):
             self.kv_cache_dtype,
             self.block_size,
             self.model_config.is_attention_free,
+            use_mla=self.model_config.use_mla,
         ) if needs_attn_backend else None
         if self.attn_backend:
             self.attn_state = self.attn_backend.get_state_cls()(
@@ -1090,6 +1104,10 @@ class GPUModelRunnerBase(ModelRunnerBase[TModelInputForGPU]):
         self.sampling_metadata_cache: SamplingMetadataCache = \
               SamplingMetadataCache() \
                 if self.parallel_config.pipeline_parallel_size == 1 else None
+
+        if hasattr(self, "_builder_cls"):
+            # multi-step model runner does not have `_builder_cls`
+            self.builder = self._builder_cls(weakref.proxy(self))
 
     def load_model(self) -> None:
         logger.info("Starting to load model %s...", self.model_config.model)
@@ -1196,13 +1214,13 @@ class GPUModelRunnerBase(ModelRunnerBase[TModelInputForGPU]):
 
         If cuda graph is required, this API automatically pads inputs.
         """
-        builder = self._builder_cls(weakref.proxy(self), finished_requests_ids)
+        self.builder.prepare(finished_requests_ids)
         for seq_group_metadata in seq_group_metadata_list:
-            builder.add_seq_group(seq_group_metadata)
+            self.builder.add_seq_group(seq_group_metadata)
 
-        builder.reset_cached_inter_data()
+        self.builder.reset_cached_inter_data()
 
-        return builder.build()  # type: ignore
+        return self.builder.build()  # type: ignore
 
     @contextmanager
     def set_in_profile_run(self):
@@ -1214,13 +1232,19 @@ class GPUModelRunnerBase(ModelRunnerBase[TModelInputForGPU]):
 
     @torch.inference_mode()
     def profile_run(self) -> None:
+        max_num_batched_tokens = \
+            self.scheduler_config.max_num_batched_tokens
+        max_num_seqs = self.scheduler_config.max_num_seqs
+        self._dummy_run(max_num_batched_tokens, max_num_seqs)
+
+    def _dummy_run(self,
+                   max_num_batched_tokens: int,
+                   max_num_seqs: int = 1) -> None:
         with self.set_in_profile_run():
             # Enable top-k sampling to reflect the accurate memory usage.
             sampling_params = \
                 SamplingParams(top_p=0.99, top_k=self.vocab_size - 1)
-            max_num_batched_tokens = \
-                self.scheduler_config.max_num_batched_tokens
-            max_num_seqs = self.scheduler_config.max_num_seqs
+
             # This represents the maximum number of different requests
             # that will have unique loras, an therefore the max amount of memory
             # consumption create dummy lora request copies from the lora request
@@ -1324,6 +1348,10 @@ class GPUModelRunnerBase(ModelRunnerBase[TModelInputForGPU]):
 
             self.execute_model(model_input, kv_caches, intermediate_tensors)
             torch.cuda.synchronize()
+            if self.lora_config:
+                # Remove dummy loras.
+                assert self.lora_manager is not None
+                self.remove_all_loras()
             return
 
     def remove_all_loras(self):
@@ -1453,13 +1481,14 @@ class GPUModelRunnerBase(ModelRunnerBase[TModelInputForGPU]):
             for virtual_engine in range(
                     self.parallel_config.pipeline_parallel_size):
                 # Only rank 0 should print progress bar during capture
-                capture_sizes = (
-                    tqdm(
-                        self.vllm_config.compilation_config.capture_sizes,
-                        desc="Capturing CUDA graph shapes",
-                    ) if get_tensor_model_parallel_rank() == 0 else
-                    self.vllm_config.compilation_config.capture_sizes)
-                for batch_size in capture_sizes:
+                cudagraph_capture_sizes = (tqdm(
+                    self.vllm_config.compilation_config.
+                    cudagraph_capture_sizes,
+                    desc="Capturing CUDA graph shapes",
+                ) if get_tensor_model_parallel_rank() == 0 else
+                                           self.vllm_config.compilation_config.
+                                           cudagraph_capture_sizes)
+                for batch_size in cudagraph_capture_sizes:
                     attn_metadata = (
                         self.attn_state.graph_capture_get_metadata_for_batch(
                             batch_size,
@@ -1959,7 +1988,8 @@ class CUDAGraphRunner(nn.Module):
 
         # Copy the input tensors to the input buffers.
         self.input_buffers["input_ids"].copy_(input_ids, non_blocking=True)
-        self.input_buffers["positions"].copy_(positions, non_blocking=True)
+        if positions is not None:
+            self.input_buffers["positions"].copy_(positions, non_blocking=True)
 
         if self.backend_name != "NO_ATTENTION":
             self.input_buffers["slot_mapping"].copy_(

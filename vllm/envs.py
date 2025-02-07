@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 import os
 import tempfile
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
@@ -19,6 +21,7 @@ if TYPE_CHECKING:
     VLLM_USE_ROCM_CUSTOM_PAGED_ATTN_FP8_OUT: bool = True
     VLLM_USE_ROCM_FP8_FLASH_ATTN: bool = False
     RANK: int = 0
+    VLLM_FLASH_ATTN_VERSION: Optional[int] = None
     LOCAL_RANK: int = 0
     CUDA_VISIBLE_DEVICES: Optional[str] = None
     VLLM_ENGINE_ITERATION_TIMEOUT_S: int = 60
@@ -78,8 +81,6 @@ if TYPE_CHECKING:
     VLLM_SKIP_P2P_CHECK: bool = False
     VLLM_DISABLED_KERNELS: List[str] = []
     VLLM_USE_V1: bool = False
-    VLLM_SYNC_SERVER_ACCUM_REQUESTS: int = 1
-    VLLM_SYNC_SERVER_ENGINE_STEPS_BETWEEN_POLLS: int = 1
     VLLM_MOE_PADDING: bool = False
     VLLM_FP8_PADDING: bool = True
     VLLM_ENABLE_V1_MULTIPROCESSING: bool = True
@@ -88,6 +89,12 @@ if TYPE_CHECKING:
     Q_SCALE_CONSTANT: int = 20
     K_SCALE_CONSTANT: int = 20
     V_SCALE_CONSTANT: int = 10
+    VLLM_SERVER_DEV_MODE: bool = False
+    VLLM_V1_OUTPUT_PROC_CHUNK_SIZE: int = 128
+    VLLM_MLA_DISABLE: bool = False
+    VLLM_MLA_PERFORM_MATRIX_ABSORPTION: bool = True
+    VLLM_MLA_DISABLE_REQUANTIZATION: bool = False
+    VLLM_ENABLE_MOE_ALIGN_BLOCK_SIZE_TRITON: bool = False
 
 
 def get_default_cache_root():
@@ -102,6 +109,12 @@ def get_default_config_root():
         "XDG_CONFIG_HOME",
         os.path.join(os.path.expanduser("~"), ".config"),
     )
+
+
+def maybe_convert_int(value: Optional[str]) -> Optional[int]:
+    if value is None:
+        return None
+    return int(value)
 
 
 # The begin-* and end* here are used by the documentation generator
@@ -231,6 +244,11 @@ environment_variables: Dict[str, Callable[[], Any]] = {
     "VLLM_USE_TRITON_FLASH_ATTN":
     lambda: (os.environ.get("VLLM_USE_TRITON_FLASH_ATTN", "True").lower() in
              ("true", "1")),
+
+    # Force vllm to use a specific flash-attention version (2 or 3), only valid
+    # when using the flash-attention backend.
+    "VLLM_FLASH_ATTN_VERSION":
+    lambda: maybe_convert_int(os.environ.get("VLLM_FLASH_ATTN_VERSION", None)),
 
     # Internal flag to enable Dynamo fullgraph capture
     "VLLM_TEST_DYNAMO_FULLGRAPH_CAPTURE":
@@ -523,14 +541,6 @@ environment_variables: Dict[str, Callable[[], Any]] = {
     "VLLM_USE_V1":
     lambda: bool(int(os.getenv("VLLM_USE_V1", "0"))),
 
-    # Try to accumulate this many requests before proceeding
-    "VLLM_SYNC_SERVER_ACCUM_REQUESTS":
-    lambda: int(os.getenv("VLLM_SYNC_SERVER_ACCUM_REQUESTS", "1")),
-
-    # Poll for new requests every this many steps
-    "VLLM_SYNC_SERVER_ENGINE_STEPS_BETWEEN_POLLS":
-    lambda: int(os.getenv("VLLM_SYNC_SERVER_ENGINE_STEPS_BETWEEN_POLLS", "1")),
-
     # Pad the weight for moe kernel or not
     "VLLM_MOE_PADDING":
     lambda: bool(int(os.getenv("VLLM_MOE_PADDING", "0"))),
@@ -552,7 +562,6 @@ environment_variables: Dict[str, Callable[[], Any]] = {
     # for FP8 KV Cache and attention
     "V_SCALE_CONSTANT":
     lambda: int(os.getenv("V_SCALE_CONSTANT", "10")),
-
     # If set, enable multiprocessing in LLM for the V1 code path.
     "VLLM_ENABLE_V1_MULTIPROCESSING":
     lambda: bool(int(os.getenv("VLLM_ENABLE_V1_MULTIPROCESSING", "1"))),
@@ -560,6 +569,49 @@ environment_variables: Dict[str, Callable[[], Any]] = {
     lambda: float(os.getenv("VLLM_LOG_BATCHSIZE_INTERVAL", "-1")),
     "VLLM_DISABLE_COMPILE_CACHE":
     lambda: bool(int(os.getenv("VLLM_DISABLE_COMPILE_CACHE", "0"))),
+
+    # If set, vllm will run in development mode, which will enable
+    # some additional endpoints for developing and debugging,
+    # e.g. `/reset_prefix_cache`
+    "VLLM_SERVER_DEV_MODE":
+    lambda: bool(int(os.getenv("VLLM_SERVER_DEV_MODE", "0"))),
+
+    # Controls the maximum number of requests to handle in a
+    # single asyncio task when processing per-token outputs in the
+    # V1 AsyncLLM interface. It is applicable when handling a high
+    # concurrency of streaming requests.
+    # Setting this too high can result in a higher variance of
+    # inter-message latencies. Setting it too low can negatively impact
+    # TTFT and overall throughput.
+    "VLLM_V1_OUTPUT_PROC_CHUNK_SIZE":
+    lambda: int(os.getenv("VLLM_V1_OUTPUT_PROC_CHUNK_SIZE", "128")),
+
+    # If set, vLLM will disable the MLA attention optimizations.
+    "VLLM_MLA_DISABLE":
+    lambda: bool(int(os.getenv("VLLM_MLA_DISABLE", "0"))),
+
+    # Flag that can control whether or not we perform matrix-absorption for MLA
+    # decode, i.e. absorb W_UK into W_Q/W_UK and W_UV into W_O, absorbing the
+    # matrices reduces the runtime FLOPs needed to compute MLA but requires
+    # storing more weights, W_Q_UK and W_UV_O, so can increase memory usage,
+    # the is enabled by default
+    "VLLM_MLA_PERFORM_MATRIX_ABSORPTION":
+    lambda: bool(int(os.getenv("VLLM_MLA_PERFORM_MATRIX_ABSORPTION", "1"))),
+
+    # When running MLA with matrix-absorption enabled and fp8 quantized weights
+    # we perform the matrix-absorption in float32 precision, after the matrices
+    # are absorbed we requantize the weights back to fp8, this flag can be used
+    # to disable the requantization step, and instead convert the absorbed
+    # matrices to match the activation type. This can lead to higher memory and
+    # compute usage but better preserves the accuracy of the original model.
+    "VLLM_MLA_DISABLE_REQUANTIZATION":
+    lambda: bool(int(os.getenv("VLLM_MLA_DISABLE_REQUANTIZATION", "0"))),
+
+    # If set, vLLM will use the Triton implementation of moe_align_block_size,
+    # i.e. moe_align_block_size_triton in fused_moe.py.
+    "VLLM_ENABLE_MOE_ALIGN_BLOCK_SIZE_TRITON":
+    lambda: bool(int(os.getenv("VLLM_ENABLE_MOE_ALIGN_BLOCK_SIZE_TRITON", "0"))
+                 ),
 }
 
 # end-env-vars-definition

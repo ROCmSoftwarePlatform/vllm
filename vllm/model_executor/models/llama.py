@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 # Adapted from
 # https://github.com/huggingface/transformers/blob/v4.28.0/src/transformers/models/llama/modeling_llama.py
 # Copyright 2023 The vLLM team.
@@ -40,6 +42,7 @@ from vllm.model_executor.layers.linear import (MergedColumnParallelLinear,
 from vllm.model_executor.layers.logits_processor import LogitsProcessor
 from vllm.model_executor.layers.quantization import QuantizationConfig
 from vllm.model_executor.layers.quantization.fp8 import Fp8Config
+from vllm.model_executor.layers.quantization.quark.quark import QuarkConfig
 from vllm.model_executor.layers.rotary_embedding import get_rope
 from vllm.model_executor.layers.sampler import SamplerOutput, get_sampler
 from vllm.model_executor.layers.vocab_parallel_embedding import (
@@ -84,7 +87,9 @@ class LlamaMLP(nn.Module):
             quant_config=quant_config,
             prefix=f"{prefix}.down_proj",
         )
-        self.use_fp8 = (isinstance(quant_config, Fp8Config)
+        self.use_fp8 = (isinstance(quant_config, Fp8Config) or
+                        (isinstance(quant_config, QuarkConfig)
+                         and quant_config.is_fp8_w8a8())
                         if current_platform.is_rocm() and not is_navi() else
                         False)
         if hidden_act != "silu":
@@ -196,10 +201,13 @@ class LlamaAttention(nn.Module):
             sliding_window = None
 
         # For CUDA devices and Navi4x, attn_fp8 will be set to false.
+        use_fp8 = isinstance(
+            quant_config, Fp8Config) or (isinstance(quant_config, QuarkConfig)
+                                         and quant_config.is_fp8_w8a8())
         self.attn_fp8_out = envs.VLLM_USE_ROCM_CUSTOM_PAGED_ATTN_FP8_OUT \
                         and current_platform.is_rocm() \
                         and not is_navi() \
-                        and isinstance(quant_config, Fp8Config)
+                        and use_fp8
 
         self.attn = Attention(
             self.num_heads,
@@ -240,7 +248,9 @@ class LlamaDecoderLayer(nn.Module):
     ) -> None:
         super().__init__()
         self.hidden_size = config.hidden_size
-        self.use_fp8 = (isinstance(quant_config, Fp8Config)
+        self.use_fp8 = (isinstance(quant_config, Fp8Config) or
+                        (isinstance(quant_config, QuarkConfig)
+                         and quant_config.is_fp8_w8a8())
                         if current_platform.is_rocm() and not is_navi() else
                         False)
         rope_theta = getattr(config, "rope_theta", 10000)
@@ -436,6 +446,11 @@ class LlamaModel(nn.Module):
                 weight_loader(param, loaded_weight)
                 loaded_params.add(scale_name)
                 continue
+            if "scale" in name:
+                # Remapping the name of FP8 kv-scale.
+                name = maybe_remap_kv_scale_name(name, params_dict)
+                if name is None:
+                    continue
             for param_name, weight_name, shard_id in stacked_params_mapping:
                 if weight_name not in name:
                     continue
@@ -454,10 +469,6 @@ class LlamaModel(nn.Module):
             else:
                 # Skip loading extra bias for GPTQ models.
                 if name.endswith(".bias") and name not in params_dict:
-                    continue
-                # Remapping the name of FP8 kv-scale.
-                name = maybe_remap_kv_scale_name(name, params_dict)
-                if name is None:
                     continue
 
                 if is_pp_missing_parameter(name, self):

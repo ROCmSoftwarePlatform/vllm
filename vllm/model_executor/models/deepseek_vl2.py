@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 # adapted from https://github.com/deepseek-ai/DeepSeek-VL2/blob/faf18023f24b962b32d9f0a2d89e402a8d383a78/deepseek_vl2/models/modeling_deepseek_vl_v2.py
 """Inference-only Deepseek-VL2 model compatible with HuggingFace weights."""
 import math
@@ -249,8 +251,10 @@ class DeepseekVL2MultiModalProcessor(
         hf_processor_mm_kwargs: Mapping[str, object],
         out_mm_kwargs: MultiModalKwargs,
     ) -> list[PromptReplacement]:
-        hf_processor = self.info.get_hf_processor()
-        image_token_id: int = hf_processor.image_token_id
+        hf_processor = self.info.get_hf_processor(**hf_processor_mm_kwargs)
+
+        image_token_id = hf_processor.image_token_id
+        assert isinstance(image_token_id, int)
 
         def get_replacement_deepseek_vl2(item_idx: int):
             images = mm_items.get_items(

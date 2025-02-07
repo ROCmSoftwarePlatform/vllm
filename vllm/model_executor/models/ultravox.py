@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 # Adapted from https://github.com/fixie-ai/ultravox/blob/ecd58c4041030bae2ad15aa6bcf04ab43199ea02/ultravox/model/ultravox_model.py
 """PyTorch Ultravox model."""
 import math
@@ -205,11 +207,15 @@ class UltravoxMultiModalProcessor(
         out_mm_kwargs: MultiModalKwargs,
     ) -> list[PromptReplacement]:
         hf_processor = self.info.get_hf_processor(**hf_processor_mm_kwargs)
-        placeholder = hf_processor.audio_token_replacement  # type: ignore
+        tokenizer = self.info.get_tokenizer()
+        vocab = tokenizer.get_vocab()
+
+        replacement_id = vocab[
+            hf_processor.audio_token_replacement]  # type: ignore
 
         def get_replacement_ultravox(item_idx: int):
             audio_token_len = out_mm_kwargs["audio_token_len"][item_idx]
-            return placeholder * audio_token_len
+            return [replacement_id] * int(audio_token_len)  # type: ignore
 
         return [
             PromptReplacement(
@@ -329,10 +335,10 @@ class ModifiedWhisperEncoder(WhisperEncoder):
         return hidden_states
 
 
-@MULTIMODAL_REGISTRY.register_processor(UltravoxMultiModalProcessor,
-                                        info=UltravoxProcessingInfo,
-                                        dummy_inputs=UltravoxDummyInputsBuilder
-                                        )
+@MULTIMODAL_REGISTRY.register_processor(
+    UltravoxMultiModalProcessor,
+    info=UltravoxProcessingInfo,
+    dummy_inputs=UltravoxDummyInputsBuilder)
 class UltravoxModel(nn.Module, SupportsMultiModal, SupportsPP):
 
     hf_to_vllm_mapper = WeightsMapper(

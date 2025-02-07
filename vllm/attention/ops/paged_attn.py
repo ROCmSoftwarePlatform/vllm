@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
@@ -206,8 +208,8 @@ class PagedAttention:
         max_query_len: int,
         alibi_slopes: Optional[torch.Tensor],
         sliding_window: Optional[int],
-        k_scale: float,
-        v_scale: float,
+        k_scale: torch.Tensor,
+        v_scale: torch.Tensor,
     ) -> torch.Tensor:
         output = torch.empty_like(query)
         context_attention_fwd(

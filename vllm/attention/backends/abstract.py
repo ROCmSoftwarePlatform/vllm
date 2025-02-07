@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from dataclasses import dataclass, fields
@@ -64,11 +66,6 @@ class AttentionBackend(ABC):
     @abstractmethod
     def get_builder_cls() -> Type["AttentionMetadataBuilder"]:
         raise NotImplementedError
-
-    @classmethod
-    def make_metadata_builder(cls, *args,
-                              **kwargs) -> "AttentionMetadataBuilder":
-        return cls.get_builder_cls()(*args, **kwargs)
 
     @staticmethod
     @abstractmethod
@@ -218,6 +215,12 @@ class AttentionMetadataBuilder(ABC, Generic[T]):
 
     @abstractmethod
     def __init__(self, input_builder: "ModelRunnerInputBuilderBase") -> None:
+        """Create the builder, remember some configuration and parameters."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def prepare(self) -> None:
+        """Prepare for one batch."""
         raise NotImplementedError
 
     @abstractmethod
@@ -231,6 +234,8 @@ class AttentionLayer(Protocol):
 
     _k_scale: torch.Tensor
     _v_scale: torch.Tensor
+    _k_scale_float: torch.Tensor
+    _v_scale_float: torch.Tensor
     _q_scale: torch.Tensor
     _prob_scale: torch.Tensor
 
@@ -270,6 +275,23 @@ class AttentionImpl(ABC, Generic[T]):
         query: torch.Tensor,
         key: torch.Tensor,
         value: torch.Tensor,
+        kv_cache: torch.Tensor,
+        attn_metadata: T,
+        fp8_out_scale: Optional[torch.Tensor] = None,
+        output: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        raise NotImplementedError
+
+
+class MLAAttentionImpl(AttentionImpl[T], Generic[T]):
+
+    @abstractmethod
+    def forward(
+        self,
+        layer: AttentionLayer,
+        hidden_states_or_cq: torch.Tensor,
+        kv_c_normed: torch.Tensor,
+        k_pe: torch.Tensor,
         kv_cache: torch.Tensor,
         attn_metadata: T,
         fp8_out_scale: Optional[torch.Tensor] = None,
