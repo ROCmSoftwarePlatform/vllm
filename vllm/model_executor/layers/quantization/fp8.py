@@ -363,6 +363,7 @@ class Fp8LinearMethod(LinearMethodBase):
 
             # Update layer with new values.
             layer.weight = Parameter(weight.t(), requires_grad=False)
+            #layer.weight = Parameter(weight, requires_grad=False)
             layer.weight_scale = Parameter(weight_scale, requires_grad=False)
             if self.quant_config.activation_scheme == "static":
                 layer.input_scale = Parameter(layer.input_scale.max(),

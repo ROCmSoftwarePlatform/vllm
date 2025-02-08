@@ -91,6 +91,25 @@ class TunedGemm:
         else:
             return None
 
+    def scaled_mm(self,
+                  inp,
+                  weight,
+                  out_dtype=None,
+                  scale_a=None,
+                  scale_b=None,
+                  bias=None):
+        out = torch.empty(inp.shape[0],
+                          weight.shape[0],
+                          dtype=out_dtype,
+                          device='cuda')
+        n = inp.shape[0]
+
+        Otp = 1  #default bfloat16
+        if out_dtype == torch.float16:
+            Otp = 0
+        ops.wvSpltKQ(weight, inp, out, scale_a, scale_b, n, Otp, self.cu_count)
+        return out
+
     def mm(self, inp, weights, bias=None):
         if not support_tuned_gemms:
             return F.linear(inp, weights, bias)
