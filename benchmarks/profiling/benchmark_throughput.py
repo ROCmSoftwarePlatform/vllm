@@ -6,11 +6,10 @@ import json
 import os
 import random
 import time
-from functools import cache
-from typing import Dict, List, Optional, Tuple
 from contextlib import contextmanager, nullcontext
+from functools import cache
 from pathlib import Path
-
+from typing import Dict, List, Optional, Tuple
 
 import torch
 import uvloop
@@ -93,15 +92,15 @@ def get_random_lora_request(
 
 
 def sample_requests(tokenizer: PreTrainedTokenizerBase,
-                   args: argparse.Namespace) -> List[SampleRequest]:
-    
+                    args: argparse.Namespace) -> List[SampleRequest]:
+
     dataset_path: str = args.dataset
     num_requests: int = args.num_prompts
     fixed_output_len: Optional[int] = args.output_len
     model: str = args.model
     if fixed_output_len is not None and fixed_output_len < 4:
         raise ValueError("output_len too small")
-    
+
     # Load the dataset.
     with open(dataset_path) as f:
         dataset = json.load(f)
@@ -227,8 +226,8 @@ def run_vllm(
     sampling_params: List[SamplingParams] = []
     for request in requests:
         prompts.append(
-                TextPrompt(prompt=request.prompt,
-                           multi_modal_data=request.multi_modal_data))
+            TextPrompt(prompt=request.prompt,
+                       multi_modal_data=request.multi_modal_data))
         sampling_params.append(
             SamplingParams(
                 n=n,
@@ -244,7 +243,10 @@ def run_vllm(
     use_beam_search = False
 
     if not use_beam_search:
-        execute = lambda: llm.generate(prompts, sampling_params, lora_request=lora_requests, use_tqdm=True)
+        execute = lambda: llm.generate(prompts,
+                                       sampling_params,
+                                       lora_request=lora_requests,
+                                       use_tqdm=True)
     else:
         assert lora_requests is None, "BeamSearch API does not support LoRA"
         prompts = [request.prompt for request in requests]
@@ -253,12 +255,12 @@ def run_vllm(
         for request in requests:
             assert request.expected_output_len == output_len
         execute = lambda: llm.beam_search(
-                             prompts,
-                             BeamSearchParams(
-                             beam_width=n,
-                             max_tokens=output_len,
-                             ignore_eos=True,
-                          ))
+            prompts,
+            BeamSearchParams(
+                beam_width=n,
+                max_tokens=output_len,
+                ignore_eos=True,
+            ))
 
     if args.profile_torch or args.profile_rpd:
         with get_profiling_context(profile_dir):
@@ -268,7 +270,7 @@ def run_vllm(
         start = time.perf_counter()
         execute()
         end = time.perf_counter()
-        return end - start        
+        return end - start
 
 
 async def run_vllm_async(
@@ -288,8 +290,8 @@ async def run_vllm_async(
         lora_requests: List[Optional[LoRARequest]] = []
         for request in requests:
             prompts.append(
-                    TextPrompt(prompt=request.prompt,
-                               multi_modal_data=request.multi_modal_data))
+                TextPrompt(prompt=request.prompt,
+                           multi_modal_data=request.multi_modal_data))
             sampling_params.append(
                 SamplingParams(
                     n=n,
@@ -304,7 +306,7 @@ async def run_vllm_async(
         start = time.perf_counter()
         for i, (prompt, sp,
                 lr) in enumerate(zip(prompts, sampling_params, lora_requests)):
-            generator = llm.generate(prompt, 
+            generator = llm.generate(prompt,
                                      sp,
                                      lora_request=lr,
                                      request_id=f"test{i}")
@@ -400,51 +402,51 @@ def main(args: argparse.Namespace):
     tokenizer = AutoTokenizer.from_pretrained(
         args.tokenizer, trust_remote_code=args.trust_remote_code)
     if args.dataset is None:
-       vocab_size = tokenizer.vocab_size
-       requests = []
-       for _ in range(args.num_prompts):
-           
-           request_tokenizer = tokenizer
-           lora_request: Optional[LoRARequest] = None
-           if args.enable_lora:
-               lora_request, lora_tokenizer = get_random_lora_request(args)
-               if lora_tokenizer:
-                   request_tokenizer = lora_tokenizer
+        vocab_size = tokenizer.vocab_size
+        requests = []
+        for _ in range(args.num_prompts):
 
-           # Synthesize a prompt with the given input length.
-           candidate_ids = [
-               random.randint(0, vocab_size - 1)
-               for _ in range(args.input_len)
-           ]
-           # As tokenizer may add additional tokens like BOS, we need to try
-           # different lengths to get the desired input length.
-           for _ in range(5):  # Max attempts to correct
-               candidate_prompt = request_tokenizer.decode(candidate_ids)
-               tokenized_len = len(request_tokenizer.encode(candidate_prompt))
+            request_tokenizer = tokenizer
+            lora_request: Optional[LoRARequest] = None
+            if args.enable_lora:
+                lora_request, lora_tokenizer = get_random_lora_request(args)
+                if lora_tokenizer:
+                    request_tokenizer = lora_tokenizer
 
-               if tokenized_len == args.input_len:
-                   break
+            # Synthesize a prompt with the given input length.
+            candidate_ids = [
+                random.randint(0, vocab_size - 1)
+                for _ in range(args.input_len)
+            ]
+            # As tokenizer may add additional tokens like BOS, we need to try
+            # different lengths to get the desired input length.
+            for _ in range(5):  # Max attempts to correct
+                candidate_prompt = request_tokenizer.decode(candidate_ids)
+                tokenized_len = len(request_tokenizer.encode(candidate_prompt))
 
-               # Adjust length based on difference
-               diff = args.input_len - tokenized_len
-               if diff > 0:
-                   candidate_ids.extend([
-                       random.randint(100, vocab_size - 100)
-                       for _ in range(diff)
-                   ])
-               else:
-                   candidate_ids = candidate_ids[:diff]
-           requests.append(
-               SampleRequest(prompt=candidate_prompt,
-                             prompt_len=args.input_len,
-                             expected_output_len=args.output_len,
-                             lora_request=lora_request))
+                if tokenized_len == args.input_len:
+                    break
+
+                # Adjust length based on difference
+                diff = args.input_len - tokenized_len
+                if diff > 0:
+                    candidate_ids.extend([
+                        random.randint(100, vocab_size - 100)
+                        for _ in range(diff)
+                    ])
+                else:
+                    candidate_ids = candidate_ids[:diff]
+            requests.append(
+                SampleRequest(prompt=candidate_prompt,
+                              prompt_len=args.input_len,
+                              expected_output_len=args.output_len,
+                              lora_request=lora_request))
     else:
         requests = sample_requests(tokenizer, args)
 
     is_multi_modal = any(request.multi_modal_data is not None
                          for request in requests)
-    
+
     if args.backend == "vllm":
         if args.async_engine:
             elapsed_time = uvloop.run(
@@ -470,15 +472,16 @@ def main(args: argparse.Namespace):
                            for request in requests)
     total_output_tokens = sum(request.expected_output_len
                               for request in requests)
-    
+
     if args.profile_torch or args.profile_rpd:
         # Profiling complete
         pass
     else:
         if is_multi_modal:
-            print("\033[91mWARNING\033[0m: Multi-modal request detected. The "
-              "following metrics are not accurate because image tokens are not"
-              " counted. See vllm-project/vllm/issues/9778 for details.")
+            print(
+                "\033[91mWARNING\033[0m: Multi-modal request detected. The "
+                "following metrics are not accurate because image tokens are"
+                " not counted. See vllm-project/vllm/issues/9778 for details.")
         # TODO(vllm-project/vllm/issues/9778): Count molti-modal token length.
         print(f"Throughput: {len(requests) / elapsed_time:.2f} requests/s, "
               f"{total_num_tokens / elapsed_time:.2f} total tokens/s, "
