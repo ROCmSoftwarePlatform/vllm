@@ -1,7 +1,6 @@
 import argparse
 
 import itertools
-from tqdm.asyncio import tqdm
 
 import json
 
@@ -21,49 +20,6 @@ default_config = {
     "matrix_instr_nonkdim": 16,
 }
 default_values = tuple(default_config.values())
-
-
-def get_pruner(M, N, K, a_element_size, b_element_size):
-    import torch
-
-    def pruner(config):
-        (BLOCK_SIZE_M, BLOCK_SIZE_N, BLOCK_SIZE_K, GROUP_SIZE_M, num_warps,
-         kpack, matrix_instr_nonkdim) = config
-        # Will run out of LDS.
-        if BLOCK_SIZE_N * BLOCK_SIZE_M * BLOCK_SIZE_K > 128 * 64 * 64:
-            return False
-        return True
-
-    return pruner
-
-
-def collect_results(result_configs, M, N, K, results):
-    baseline = result_configs[
-        (default_config['BLOCK_SIZE_M'] == result_configs['BLOCK_SIZE_M'])
-        & (default_config['BLOCK_SIZE_N'] == result_configs['BLOCK_SIZE_N'])
-        & (default_config['BLOCK_SIZE_K'] == result_configs['BLOCK_SIZE_K'])
-        & (default_config['GROUP_SIZE_M'] == result_configs['GROUP_SIZE_M'])
-        & (default_config['kpack'] == result_configs['kpack'])
-        & (default_config['matrix_instr_nonkdim']
-           == result_configs['matrix_instr_nonkdim'])]
-
-    best_configs = result_configs[result_configs['Triton'] ==
-                                  result_configs['Triton'].min()]
-    best_configs = [row.to_dict() for index, row in best_configs.iterrows()]
-    baseline = baseline.iloc[0].to_dict()
-
-    for best_config in best_configs:
-        best_config['speedup'] = baseline['Triton'] / best_config['Triton']
-
-    result = {
-        'M': M,
-        'N': N,
-        'K': K,
-        'baseline': baseline,
-        'best': best_configs,
-    }
-    key = f"{M}-{N}-{K}"
-    results[key] = result
 
 
 def run_benchmark(update_callback, a, b, a_per_token, b_per_block, group_n,
@@ -140,17 +96,6 @@ def run_benchmark(update_callback, a, b, a_per_token, b_per_block, group_n,
     return result_data_frames
 
 
-def compute_total_benchmarks(partition_func, get_pruner, shapes,
-                             config_choices, a_element_size, b_element_size):
-    count = 0
-    for shape in shapes:
-        M, K, N = shape
-        pruner = get_pruner(M, N, K, a_element_size, b_element_size)
-        work_list = list(filter(pruner, config_choices()))
-        count += len(partition_func(work_list))
-    return count
-
-
 def tune(update_callback, start_callback, partition_func, event_queue,
          output_file):
     import torch
@@ -216,12 +161,6 @@ def tune(update_callback, start_callback, partition_func, event_queue,
     group_n = 128
     group_k = 128
 
-    num_total_benchmarks = compute_total_benchmarks(partition_func, get_pruner,
-                                                    shapes, config_choices,
-                                                    a_element_size,
-                                                    b_element_size)
-    start_callback(num_total_benchmarks)
-
     results = {}
     for shape in shapes:
         M, K, N = shape
@@ -252,44 +191,6 @@ def tune(update_callback, start_callback, partition_func, event_queue,
             f.write(json_output)
     else:
         print(json_output)
-
-
-def listener_function(event_queue, num_jobs):
-    bars = {}
-    for event in iter(event_queue.get, None):
-        event_type = event['type']
-        pid = event['pid']
-        if event_type == 'start':
-            bars[pid] = tqdm(desc=f"GPU{pid}", total=event['count'])
-        elif event_type == 'update':
-            bars[pid].update()
-
-
-def partition_list(l, pid, num_jobs):
-    n = len(l)
-    count = (n + num_jobs - 1) // num_jobs
-    start = pid * count
-    end = start + count
-    work_list = l[start:end]
-    if default_values not in work_list:
-        work_list.append(default_values)
-    return work_list
-
-
-def worker_function(pid, num_jobs, parent_connection, event_queue,
-                    output_file):
-    update_callback = lambda: event_queue.put({'pid': pid, 'type': 'update'})
-
-    start_callback = lambda count: event_queue.put({
-        'pid': pid,
-        'type': 'start',
-        'count': count
-    })
-    partition_func = lambda l: partition_list(l, pid, num_jobs)
-
-    tune(update_callback, start_callback, partition_func, event_queue,
-         output_file)
-
 
 def main():
     parser = argparse.ArgumentParser()
