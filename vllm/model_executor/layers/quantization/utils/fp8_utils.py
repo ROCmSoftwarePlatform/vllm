@@ -15,7 +15,7 @@ from vllm.logger import init_logger
 from vllm.model_executor.layers.quantization.utils.quant_utils import (
     _normalize_quant_group_shape, scaled_dequantize)
 from vllm.model_executor.layers.quantization.utils.w8a8_utils import (
-    apply_fp8_linear)
+    CUTLASS_BLOCK_FP8_SUPPORTED, CUTLASS_FP8_SUPPORTED, apply_fp8_linear)
 from vllm.platforms import current_platform
 from vllm.utils import is_navi
 
@@ -39,7 +39,7 @@ def apply_w8a8_block_fp8_linear(
     weight_scale: torch.Tensor,
     input_scale: Optional[torch.Tensor] = None,
     bias: Optional[torch.Tensor] = None,
-    cutlass_block_fp8_supported: bool = True,
+    cutlass_block_fp8_supported: bool = CUTLASS_BLOCK_FP8_SUPPORTED,
 ) -> torch.Tensor:
     assert input_scale is None
     # View input as 2D matrix for fp8 methods
@@ -86,12 +86,14 @@ def apply_w8a8_block_fp8_linear(
 # `apply_fp8_linear`
 # NOTE(lucas): this is quite messy, we should think through this more formally
 def apply_fp8_linear_generic(
-        input: torch.Tensor,
-        weight: torch.Tensor,
-        weight_scale: torch.Tensor,
-        input_group_shape: Tuple[int, int],
-        weight_group_shape: Tuple[int, int],
-        input_scale: Optional[torch.Tensor] = None,  # static scale if one
+    input: torch.Tensor,
+    weight: torch.Tensor,
+    weight_scale: torch.Tensor,
+    input_group_shape: Tuple[int, int],
+    weight_group_shape: Tuple[int, int],
+    input_scale: Optional[torch.Tensor] = None,  # static scale if one
+    cutlass_fp8_supported: bool = CUTLASS_FP8_SUPPORTED,
+    cutlass_block_fp8_supported: bool = CUTLASS_BLOCK_FP8_SUPPORTED,
 ) -> torch.Tensor:
     # View input as 2D matrix for fp8 methods
     input = input.view(-1, input.shape[-1])
@@ -106,14 +108,18 @@ def apply_fp8_linear_generic(
     if is_dim_blocked(0, weight.shape, weight_group_shape[0])\
      and is_dim_blocked(1, weight.shape, weight_group_shape[1]) and\
      input_group_shape == (1, weight_group_shape[1]):
-        return apply_w8a8_block_fp8_linear(input, weight,
-                                           list(weight_group_shape),
-                                           weight_scale)
+        return apply_w8a8_block_fp8_linear(
+            input,
+            weight,
+            list(weight_group_shape),
+            weight_scale,
+            cutlass_block_fp8_supported=cutlass_block_fp8_supported)
     else:
         # Despite having linear in the it doesn't conform to
         # `torch.nn.functional.linear` which is defined as `input @ weight.T`
         # so we explicitly transpose the weight matrix here
         return apply_fp8_linear(input, weight.T, weight_scale.T,
+                    cutlass_fp8_supported=cutlass_fp8_supported,
                          use_per_token_if_dynamic=\
                              (input_group_shape == (1, input.shape[1])))
 
@@ -418,7 +424,7 @@ def get_w8a8_block_fp8_configs(N: int, K: int, block_n: int,
     # First look up if an optimized configuration is available in the configs
     # directory
     device_name = current_platform.get_device_name().replace(" ", "_")
-    json_file_name = f"N={N},K={K},device_name={device_name},dtype=fp8_w8a8,block_shape=[{block_n}, {block_k}].json"  # noqa: E501
+    json_file_name = f"N={N},K={K},device_name={device_name},dtype=fp8_w8a8,block_shape=[{block_n},{block_k}].json"  # noqa: E501
 
     config_file_path = os.path.join(
         os.path.dirname(os.path.realpath(__file__)), "configs", json_file_name)
@@ -441,14 +447,14 @@ def get_w8a8_block_fp8_configs(N: int, K: int, block_n: int,
     return None
 
 
-def w8a8_block_fp8_matmul(
-    A: torch.Tensor,
-    B: torch.Tensor,
-    As: torch.Tensor,
-    Bs: torch.Tensor,
-    block_size: List[int],
-    output_dtype: torch.dtype = torch.float16,
-) -> torch.Tensor:
+def w8a8_block_fp8_matmul(A: torch.Tensor,
+                          B: torch.Tensor,
+                          As: torch.Tensor,
+                          Bs: torch.Tensor,
+                          block_size: List[int],
+                          output_dtype: torch.dtype = torch.float16,
+                          tune_config=None,
+                          use_default_config=False) -> torch.Tensor:
     """This function performs matrix multiplication with block-wise
     quantization.
     It takes two input tensors `A` and `B` with scales `As` and `Bs`.
@@ -472,7 +478,7 @@ def w8a8_block_fp8_matmul(
     assert triton.cdiv(A.shape[-1], block_k) == As.shape[-1]
     M = A.numel() // A.shape[-1]
 
-    assert B.ndim == 2 and B.is_contiguous() and Bs.ndim == 2
+    assert B.ndim == 2 and Bs.ndim == 2
     N, K = B.shape
     assert triton.cdiv(N, block_n) == Bs.shape[0]
     assert triton.cdiv(K, block_k) == Bs.shape[1]
@@ -480,22 +486,22 @@ def w8a8_block_fp8_matmul(
     C_shape = A.shape[:-1] + (N, )
     C = A.new_empty(C_shape, dtype=output_dtype)
 
-    configs = get_w8a8_block_fp8_configs(N, K, block_size[0], block_size[1])
-    if configs:
-        # Get the optimal config if there is one
-        config = configs[min(configs.keys(), key=lambda x: abs(x - M))]
-    else:
-        # Default config
-        # Block-wise quant: BLOCK_SIZE_N must be divisible by block_size[0]
-        # BLOCK_SIZE_K must be divisible by block_size[1]
-        config = {
-            "BLOCK_SIZE_M": 64,
-            "BLOCK_SIZE_N": block_size[0],
-            "BLOCK_SIZE_K": block_size[1],
-            "GROUP_SIZE_M": 32,
-            "num_warps": 4,
-            "num_stages": 2,
-        }
+    default_config = {
+        "BLOCK_SIZE_M": 64,
+        "BLOCK_SIZE_N": block_size[0],
+        "BLOCK_SIZE_K": block_size[1],
+        "GROUP_SIZE_M": 32,
+        "num_warps": 4,
+        "num_stages": 2,
+    }
+
+    config = default_config if use_default_config else tune_config
+    if config is None:
+        configs = get_w8a8_block_fp8_configs(N, K, block_size[0],
+                                             block_size[1])
+        config = configs[min(
+            configs.keys(),
+            key=lambda x: abs(x - M))] if configs else default_config
 
     def grid(META):
         return (triton.cdiv(M, META["BLOCK_SIZE_M"]) *
