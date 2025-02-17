@@ -126,6 +126,7 @@ RUN --mount=type=bind,from=build_pytorch,src=/app/install/,target=/install \
 RUN git clone --recursive ${AITER_REPO}
 RUN cd aiter \
     && git checkout ${AITER_BRANCH} \
+    && git submodule update --init --recursive \
     && pip install -r requirements.txt \
     && PREBUILD_KERNELS=1 GPU_ARCHS=gfx942 python3 setup.py bdist_wheel --dist-dir=dist
 RUN mkdir -p /app/install && cp /app/aiter/dist/*.whl /app/install
