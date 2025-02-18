@@ -135,6 +135,7 @@ def apply_fp8_linear(
 
     if out_dtype is None:
         out_dtype = input.dtype
+
     # cutlass_scaled_mm supports per tensor/channel W and per tensor/token A
     if cutlass_fp8_supported:
         qinput, x_scale = ops.scaled_fp8_quant(
@@ -172,27 +173,15 @@ def apply_fp8_linear(
 
         if per_tensor_weights and per_tensor_activations:
             # Fused GEMM_DQ
-            n = qinput.shape[0]
-            if n == 1:
-                weightT = weight.t()
-                output = tgemm.scaled_mm(qinput,
-                                         weightT,
-                                         out_dtype=out_dtype,
-                                         scale_a=x_scale,
-                                         scale_b=weight_scale,
-                                         bias=bias)
-            else:
-                output = torch._scaled_mm(qinput,
-                                          weight,
-                                          out_dtype=out_dtype,
-                                          scale_a=x_scale,
-                                          scale_b=weight_scale,
-                                          bias=bias)
-
+            output = tgemm.scaled_mm(qinput,
+                                     weight,
+                                     out_dtype=out_dtype,
+                                     scale_a=x_scale,
+                                     scale_b=weight_scale,
+                                     bias=bias)
             # A fix for discrepancy in scaled_mm which returns tuple
             # for torch < 2.5 and a single value in torch >= 2.5
-            if (weight.shape[0] == 1) and (type(output)
-                                           is tuple) and (len(output) == 2):
+            if type(output) is tuple and len(output) == 2:
                 output = output[0]
 
             return torch.narrow(output, 0, 0,
