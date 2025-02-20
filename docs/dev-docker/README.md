@@ -310,7 +310,7 @@ python3 /app/vllm/benchmarks/benchmark_throughput.py -h
 
 ### Online Serving Benchmark
 
-Benchmark Llama-3.1-70B with input 4096 tokens, output 512 tokens and tensor parallelism 8 as an example,
+Benchmark Llama-3.1-70B with input 128 tokens, output 2048 tokens and tensor parallelism 8 as an example,
 
 ```bash
 export VLLM_USE_TRITON_FLASH_ATTN=0
@@ -336,8 +336,8 @@ python /app/vllm/benchmarks/benchmark_serving.py \
     --port 8000 \
     --model amd/Llama-3.1-70B-Instruct-FP8-KV \
     --dataset-name random \
-    --random-input-len 4096 \
-    --random-output-len 512 \
+    --random-input-len 128 \
+    --random-output-len 2048 \
     --request-rate 1 \
     --ignore-eos \
     --num-prompts 500 \
@@ -372,7 +372,7 @@ python3 /app/vllm/benchmarks/benchmark_serving.py \
     --max-concurrency 256\
     --dataset-name random \
     --random-input-len 128 \
-    --random-output-len 128 \
+    --random-output-len 2048 \
     --num-prompts 1000
 
 # Offline throughput 
@@ -406,8 +406,8 @@ python3 /app/vllm/benchmarks/benchmark_throughput.py \
     --num-scheduler-steps 10 \
     --num-prompts 100 \
     --model amd/Llama-3.1-8B-Instruct-FP8-KV \
-    --input-len 4096 \
-    --output-len 512 \
+    --input-len 128 \
+    --output-len 2048 \
     --dtype float16 \
     --tensor-parallel-size 1 \
     --output-json <path/to/output.json> \
