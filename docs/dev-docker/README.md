@@ -324,7 +324,7 @@ vllm serve amd/Llama-3.1-70B-Instruct-FP8-KV \
     --tensor-parallel-size 8 \
     --max-num-batched-tokens 65536 \
     --gpu-memory-utilization 0.99 \
-    --num_scheduler-steps 10
+    --num-scheduler-steps 10
 ```
 
 Change port (for example --port 8005) if port=8000 is currently being used by other processes.
@@ -357,7 +357,6 @@ docker run -it --rm --ipc=host --network=host --group-add render \
     --cap-add=CAP_SYS_ADMIN --cap-add=SYS_PTRACE \
     --device=/dev/kfd --device=/dev/dri --device=/dev/mem \
     -e VLLM_USE_TRITON_FLASH_ATTN=0 \
-    -e VLLM_FP8_PADDING=0 \
     rocm/vllm-dev:main
 # Online serving
 vllm serve deepseek-ai/DeepSeek-V3 \
@@ -482,8 +481,8 @@ To reproduce the release docker:
 ```bash
     git clone https://github.com/ROCm/vllm.git
     cd vllm
-    git checkout c24ea633f928d77582bc85aff922d07f3bca9d78
-    docker build -f Dockerfile.rocm -t <your_tag> --build-arg BUILD_HIPBLASLT=1 --build-arg USE_CYTHON=1 .
+    git checkout 36dd5082da1b29a2b51fef9243343d6bb3b002c1
+    docker build -f Dockerfile.rocm -t <your_tag> --build-arg USE_CYTHON=1 .
 ```
 
 ### AITER
@@ -493,6 +492,6 @@ Use Aiter release candidate branch instead:
 ```bash
     git clone https://github.com/ROCm/vllm.git
     cd vllm
-    git checkout aiter_intergration_final
-    docker build -f Dockerfile.rocm -t <your_tag> --build-arg BUILD_HIPBLASLT=1 --build-arg USE_CYTHON=1 .
+    git checkout aiter_integration_final
+    docker build -f Dockerfile.rocm -t <your_tag> --build-arg USE_CYTHON=1 .
 ```
