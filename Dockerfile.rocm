@@ -87,7 +87,7 @@ RUN case "$(which python3)" in \
             rm -rf /opt/conda/envs/py_3.9/lib/python3.9/site-packages/numpy-1.20.3.dist-info/;; \
         *) ;; esac
 
-RUN python3 -m pip install --upgrade huggingface-hub[cli]
+RUN python3 -m pip install --upgrade huggingface-hub[cli,hf_transfer]
 ARG BUILD_RPD
 RUN if [ ${BUILD_RPD} -eq "1" ]; then \
     git clone -b nvtx_enabled https://github.com/ROCm/rocmProfileData.git \
